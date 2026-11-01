@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ConfigOf } from "@/app/app/ai/followups/[id]/_components/forms/shared";
+import { MiniaturaDaMidia } from "@/app/app/fluxos/_editor/miniatura";
 import { CampoDeTexto } from "./CampoDeTexto";
 import { useCamposDaFicha } from "./useCamposDaFicha";
 
@@ -526,9 +527,22 @@ function EditorDaMidia({
 
   const temLegenda = item.tipo === "imagem" || item.tipo === "video";
   const nome = item.midia?.storage_path ? (item.midia.nome_arquivo ?? t("Arquivo enviado")) : null;
+  // Rodada 1, item 2: a imagem escolhida aparece aqui (a mesma do cartão, maior).
+  const miniatura = item.tipo === "imagem" && Boolean(item.midia?.storage_path || item.midia?.url);
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
+        {miniatura && (
+          <MiniaturaDaMidia
+            midia={item.midia}
+            flowId={flowId}
+            tamanho={112}
+            Icone={ImageIcon}
+            className="flex shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-surface-elevated text-text-muted [&>img]:h-full [&>img]:w-full [&>img]:object-cover"
+            testId={`miniatura-editor-${item.id}`}
+          />
+        )}
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <Button type="button" size="sm" variant="outline" disabled={subindo || !flowId} onClick={() => input.current?.click()}>
           {subindo ? <LoaderCircle size={14} className="mr-1 animate-spin" aria-hidden /> : <Upload size={14} className="mr-1" aria-hidden />}
           {nome ? t("Trocar arquivo") : t("Enviar arquivo")}
@@ -545,6 +559,7 @@ function EditorDaMidia({
             if (f) void subir(f);
           }}
         />
+      </div>
       </div>
       <Input
         aria-label={t("Ou cole um link https")}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -75,6 +75,7 @@ import { DockDeBlocos, DND_MIME_DO_BLOCO } from "@/app/app/fluxos/_editor/DockDe
 import { ControlesDoCanvas } from "@/app/app/fluxos/_editor/ControlesDoCanvas";
 import { BarraDoFluxo } from "@/app/app/fluxos/_editor/BarraDoFluxo";
 import { posicaoNoCentro } from "@/app/app/fluxos/_editor/posicao-no-centro";
+import { afastarSobrepostos } from "@/app/app/fluxos/_editor/sem-sobreposicao";
 import { corDoBloco } from "@/app/app/fluxos/_editor/cores-dos-blocos";
 import { BlocoDoFluxoModal } from "@/app/app/fluxos/_editor/BlocoDoFluxoModal";
 import { etapasDoFluxo, transporLayout } from "@/app/app/fluxos/_editor/layout-do-fluxo";
@@ -206,6 +207,27 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
     },
     [setEdges],
   );
+
+  // Fluxos (rodada 1, item 2): o cartão da Mensagem mostra tudo e cresce. Quando
+  // a altura MEDIDA de um cartão sobe (abrir o fluxo conta como a primeira
+  // medida), quem ficou coberto por ele desce — sem isto, fluxo desenhado com
+  // cartões menores abre com um bloco por cima do outro.
+  const alturasMedidas = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (!isFluxo) return;
+    const cresceram = new Set<string>();
+    for (const n of nodes) {
+      const h = n.measured?.height;
+      if (h === undefined) continue;
+      const antes = alturasMedidas.current.get(n.id);
+      if (antes === undefined || h > antes + 0.5) cresceram.add(n.id);
+      alturasMedidas.current.set(n.id, h);
+    }
+    if (cresceram.size === 0) return;
+    const novas = afastarSobrepostos(nodes, cresceram);
+    if (novas.size === 0) return;
+    setNodes((nds) => nds.map((n) => (novas.has(n.id) ? { ...n, position: novas.get(n.id)! } : n)));
+  }, [isFluxo, nodes, setNodes]);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const etapaDoSelecionado = useMemo(
@@ -416,8 +438,9 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
       distribuicoes: distribuicoes ?? {},
       nomeDoFunil: (id) => funis.find((f) => f.id === id)?.name ?? null,
       nomeDoFluxo: (id) => fluxos.find((f) => f.id === id)?.name ?? null,
+      flowId,
     }),
-    [duplicarNo, deleteNode, distribuicoes, funis, fluxos],
+    [duplicarNo, deleteNode, distribuicoes, funis, fluxos, flowId],
   );
 
   const onDeleteSelection = useCallback(() => {
