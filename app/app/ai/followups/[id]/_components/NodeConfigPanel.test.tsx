@@ -62,7 +62,7 @@ function montarCom(
     onChange?: (patch: unknown) => void;
     settings?: FlowGraph["settings"];
     onSettingsChange?: (s: FlowGraph["settings"]) => void;
-    surface?: "followup" | "crm_automation" | "atendimento";
+    surface?: "followup" | "crm_automation" | "atendimento" | "fluxo";
   } = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -172,3 +172,34 @@ describe("NodeConfigPanel — o roteiro que recomeça", () => {
     expect(gravado).toEqual({ max_tentativas_pergunta: 4, gatilhos: ["agendar"] });
   });
 });
+
+/**
+ * Rodada 1 do editor de fluxos, item 1: o bloco de FLUXO se chama pelo tipo e
+ * não se renomeia — o campo "Rótulo" some do modal. O follow-up segue com ele.
+ */
+describe("NodeConfigPanel — rótulo", () => {
+  it("⭐ no editor de fluxos nenhum bloco oferece o campo Rótulo", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })));
+    for (const tipo of ["mensagem", "etiquetas", "intervalo", "pixel", "end"] as const) {
+      const { unmount } = renderizar(tipo, "fluxo");
+      expect(screen.queryByLabelText("Rótulo")).toBeNull();
+      expect(document.getElementById("node-label")).toBeNull();
+      unmount();
+    }
+    vi.unstubAllGlobals();
+  });
+
+  it("no follow-up o campo Rótulo continua", () => {
+    renderizar("wait", "followup");
+    expect(screen.getByLabelText("Rótulo")).toBeInTheDocument();
+  });
+});
+
+function renderizar(tipo: (typeof NODE_TYPES)[number], surface: "followup" | "fluxo") {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <NodeConfigPanel node={noDe(tipo)} onChange={vi.fn()} onDelete={vi.fn()} surface={surface} naModal={surface === "fluxo"} />
+    </QueryClientProvider>,
+  );
+}

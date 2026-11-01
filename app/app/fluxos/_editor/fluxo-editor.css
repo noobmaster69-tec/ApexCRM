@@ -758,8 +758,7 @@
   color: var(--fx-text);
 }
 .fx-modal input:not([type]):not([class*="h-"]),
-.fx-modal input[type="text"]:not([class*="h-"]),
-.fx-modal #node-label {
+.fx-modal input[type="text"]:not([class*="h-"]) {
   height: 40px;
 }
 .fx-modal input:focus-visible,

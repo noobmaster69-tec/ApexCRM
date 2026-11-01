@@ -20,6 +20,7 @@ import { useEtapasDoFluxo } from "@/app/app/ai/followups/[id]/_components/Etapas
 import { FluxoNode } from "@/app/app/fluxos/_editor/FluxoNode";
 import { PreviaDoBloco } from "@/app/app/fluxos/_editor/previas";
 import { useCanvasDoFluxo } from "@/app/app/fluxos/_editor/canvas-do-fluxo";
+import { temaDoBloco } from "@/app/app/fluxos/_editor/tema-dos-blocos";
 
 /** Blocos cujo corpo é só o cabeçalho (o Distribuidor mostra as saídas com a porcentagem). */
 const SEM_CORPO = new Set<string>(["distribuidor"]);
@@ -38,6 +39,16 @@ const UNIDADE_CURTA: Record<string, string> = { segundos: "s", minutos: "min", h
 export function porcentagens(contagem: Record<string, number>, ids: readonly string[]): Record<string, string> {
   const total = ids.reduce((s, id) => s + (contagem[id] ?? 0), 0);
   return Object.fromEntries(ids.map((id) => [id, total === 0 ? "0%" : `${Math.round(((contagem[id] ?? 0) / total) * 100)}%`]));
+}
+
+/**
+ * O título do cartão é o NOME DO TIPO ("Mensagem", "Etiquetas"), nunca o
+ * `label` do nó (rodada 1, item 1): o bloco não se renomeia mais, e um fluxo
+ * antigo com rótulo próprio passa a mostrar o tipo — o `label` fica no grafo.
+ */
+function useTituloDoBloco(tipo: string): string {
+  const t = useT();
+  return t(temaDoBloco(tipo).label);
 }
 
 /**
@@ -64,11 +75,12 @@ export function BlocoDoFluxoNode({ id, data, selected, type }: NodeProps<RFNode>
           ? `${aguardar.tempo.valor} ${t(UNIDADE_CURTA[aguardar.tempo.unidade] ?? aguardar.tempo.unidade)}`
           : undefined,
   }));
+  const titulo = useTituloDoBloco(tipo);
   return (
     <FluxoNode
       id={id}
       tipo={tipo}
-      title={data.label}
+      title={titulo}
       selected={selected}
       errors={data.errors}
       saidas={saidas}
@@ -81,11 +93,12 @@ export function BlocoDoFluxoNode({ id, data, selected, type }: NodeProps<RFNode>
 
 /** Início do fluxo: só cabeçalho e uma linha do que dispara; não se duplica nem se apaga pelo cartão. */
 export function InicioDoFluxoNode({ id, data, selected }: NodeProps<RFNode>) {
+  const titulo = useTituloDoBloco("trigger");
   return (
     <FluxoNode
       id={id}
       tipo="trigger"
-      title={data.label}
+      title={titulo}
       selected={selected}
       errors={data.errors}
       showTarget={false}
@@ -96,7 +109,8 @@ export function InicioDoFluxoNode({ id, data, selected }: NodeProps<RFNode>) {
 
 /** Fim: só cabeçalho, sem saída. */
 export function FimDoFluxoNode({ id, data, selected }: NodeProps<RFNode>) {
+  const titulo = useTituloDoBloco("end");
   return (
-    <FluxoNode id={id} tipo="end" title={data.label} selected={selected} errors={data.errors} showSource={false} />
+    <FluxoNode id={id} tipo="end" title={titulo} selected={selected} errors={data.errors} showSource={false} />
   );
 }
