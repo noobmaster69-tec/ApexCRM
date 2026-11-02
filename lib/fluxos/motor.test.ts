@@ -795,3 +795,72 @@ describe("motor dos fluxos — Fase D: Bloco de IA", () => {
     expect(m.eventos.find((e) => e.tipo === "ia_falhou")?.payload).toEqual({ detalhe: "sem_credencial:anthropic" });
   });
 });
+
+/**
+ * Rodada 1 do editor de fluxos, item 3: publicar com blocos DESCONECTADOS é
+ * seguro na execução. É esta a prova que sustenta os avisos aceitáveis de
+ * `validate-publish` (unreachable_node, no_end_path, saída nomeada solta).
+ */
+describe("motor dos fluxos — blocos desconectados (publicados com aviso aceito)", () => {
+  const texto = (id: string, t: string) => no(id, "mensagem", { itens: [{ id: `${id}-1`, tipo: "texto", texto: t }] });
+
+  it("⭐ bloco solto nunca roda; o caminho que para sem Fim encerra o contato uma vez só", async () => {
+    const m = mundo(
+      grafo(
+        [no("t", "trigger"), texto("m1", "Oi!"), texto("solto", "NUNCA"), no("f", "end", {})],
+        // `solto` não tem seta chegando; `m1` não tem seta saindo; o Fim ficou sozinho.
+        [sempre("t", "m1"), sempre("solto", "f")],
+      ),
+    );
+    expect(await m.passo()).toEqual({ tipo: "concluido" });
+    expect(m.enviadas.map((e) => e.body)).toEqual(["Oi!"]);
+    expect(m.eventos.some((e) => e.no === "solto")).toBe(false);
+    expect(m.enrollment.status).toBe("completed");
+    expect(m.eventos.at(-1)).toEqual({ no: null, tipo: "concluido", payload: { motivo: "sem_saida" } });
+    // Nada agendado para depois: não fica preso nem volta a rodar sozinho.
+    expect(m.agendados).toEqual([]);
+    // Um job atrasado que acorde a inscrição não repete o envio.
+    expect(await m.passo()).toMatchObject({ tipo: "ignorado" });
+    expect(m.enviadas).toHaveLength(1);
+  });
+
+  it("saída nomeada solta: o contato que cai no 'Não' do Condicional encerra ali", async () => {
+    const m = mundo(
+      grafo(
+        [
+          no("t", "trigger"),
+          no("c", "condicional", {
+            regra: "todas",
+            condicoes: [{ id: "c1", campo: { tipo: "etiqueta" }, operador: "contem", valor: "nao-tem" }],
+          }),
+          texto("sim", "Sim!"),
+          no("f", "end", {}),
+        ],
+        [sempre("t", "c"), ramo("c", "sim", "sim"), sempre("sim", "f")],
+      ),
+    );
+    expect(await m.passo()).toEqual({ tipo: "concluido" });
+    expect(m.enviadas).toEqual([]);
+    expect(m.enrollment.status).toBe("completed");
+    expect(m.agendados).toEqual([]);
+  });
+
+  it("'Não respondeu' sem seta: o tempo esgotado encerra o contato em vez de prendê-lo esperando", async () => {
+    const m = mundo(
+      grafo(
+        [
+          no("t", "trigger"),
+          no("q", "aguardar_resposta", { sem_limite: false, tempo: { valor: 1, unidade: "horas" }, responder_citando: false }),
+          texto("sim", "Prazer!"),
+          no("f", "end", {}),
+        ],
+        [sempre("t", "q"), ramo("q", "sim", "respondeu"), sempre("sim", "f")],
+      ),
+    );
+    expect(await m.passo()).toEqual({ tipo: "aguardando", noId: "q" });
+    m.passar(3_600_000);
+    expect(await m.passo({ tipo: "tempo_esgotado", noId: "q", visita: 1 })).toEqual({ tipo: "concluido" });
+    expect(m.enrollment.status).toBe("completed");
+    expect(m.enviadas).toEqual([]);
+  });
+});

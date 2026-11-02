@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { Handle, Position } from "@xyflow/react";
 import { Copy, CornerDownRight, Pencil, Trash2, type LucideIcon } from "lucide-react";
 
@@ -65,23 +65,9 @@ export function FluxoNode({
   const acoesVisiveis = somenteLeitura ? [] : acoes;
   const tema = temaDoBloco(tipo);
   const Icone = tema.icon;
-  const corpo = useRef<HTMLDivElement>(null);
-  const [transborda, setTransborda] = useState(false);
   const temErro = (errors?.length ?? 0) > 0;
   const linhasDeSaida = saidas !== undefined && saidas.length > 1 ? saidas : null;
   const temCorpo = Boolean(children) || linhasDeSaida !== null;
-
-  // Mede depois de pintar: o corpo só sabe se passou do teto com o texto real.
-  useLayoutEffect(() => {
-    const el = corpo.current;
-    if (!el) return;
-    const medir = () => setTransborda(el.scrollHeight > el.clientHeight + 1);
-    medir();
-    if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(medir);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [children]);
 
   const BOTOES: Record<AcaoDoCartao, { rotulo: string; Icone: LucideIcon; fazer: () => void; perigo?: boolean }> = {
     editar: { rotulo: t("Editar bloco"), Icone: Pencil, fazer: () => editar(id) },
@@ -139,29 +125,12 @@ export function FluxoNode({
 
       {temCorpo && (
         <div className="fx-node__body">
+          {/* Sem teto nem "ver mais" (rodada 1, item 2): o cartão cresce até
+              mostrar tudo, e o React Flow mede a altura real (`measured`). */}
           {children ? (
-            <>
-              <div
-                ref={corpo}
-                className="flex max-h-[220px] flex-col gap-1.5 overflow-hidden"
-                data-testid={`previa-${id}`}
-              >
-                {children}
-              </div>
-              {transborda && !somenteLeitura && (
-                <button
-                  type="button"
-                  className="fx-node__mais nodrag"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    editar(id);
-                  }}
-                  data-testid={`ver-mais-${id}`}
-                >
-                  … + {t("ver mais")}
-                </button>
-              )}
-            </>
+            <div className="flex flex-col gap-1.5" data-testid={`previa-${id}`}>
+              {children}
+            </div>
           ) : null}
           {linhasDeSaida !== null && (
             <ul className="flex flex-col gap-1.5" data-testid={`node-branches-${id}`}>

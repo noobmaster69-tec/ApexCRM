@@ -16,8 +16,13 @@ export interface CanvasDoFluxo {
   distribuicoes: Record<string, Record<string, number>>;
   nomeDoFunil: (id: string) => string | null;
   nomeDoFluxo: (id: string) => string | null;
-  /** Link compartilhado (item 2): cartões sem ✏️ 📋 🗑️ e sem "ver mais". */
+  /** Link compartilhado (item 2): cartões sem ✏️ 📋 🗑️. */
   somenteLeitura?: boolean;
+  /**
+   * O fluxo aberto: a miniatura da imagem enviada pede o link assinado por ele.
+   * Ausente (link compartilhado), a imagem do Storage fica no ícone.
+   */
+  flowId?: string;
 }
 
 const NADA: CanvasDoFluxo = {

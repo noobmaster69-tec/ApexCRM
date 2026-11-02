@@ -46,7 +46,42 @@ export type PublishValidationError = {
   message: string;
   /** Qual saída do nó ficou descoberta — o editor ancora o aviso na bolinha certa, não no nó inteiro. */
   branch_id?: string;
+  /**
+   * `warning`: AVISO que a pessoa pode aceitar e publicar mesmo assim (só em
+   * Fluxos — ver `marcarAvisosDoFluxo`). Ausente = erro, que sempre bloqueia.
+   */
+  severity?: 'warning';
 };
+
+/**
+ * Os blocos que a tela lista como DESCONECTADOS (e o audit conta): o solto, o
+ * que tem saída sem seta e o bloco onde o caminho para (sem seta nenhuma). O
+ * `no_end_path` também marca quem vem ANTES dele na cadeia — esses estão
+ * ligados e não entram na lista. Na ordem dos blocos do grafo.
+ */
+export function blocosDesconectados(
+  avisos: readonly PublishValidationError[],
+  graph: Pick<FlowGraph, 'nodes' | 'edges'>,
+): Array<{ node: FlowNode; avisos: PublishValidationError[] }> {
+  const comSaida = new Set(graph.edges.map((e) => e.source));
+  return graph.nodes.flatMap((node) => {
+    const doBloco = avisos.filter(
+      (a) => a.node_id === node.id && (a.code !== 'no_end_path' || !comSaida.has(node.id)),
+    );
+    return doBloco.length > 0 ? [{ node, avisos: doBloco }] : [];
+  });
+}
+
+/** Avisos aceitáveis × erros que bloqueiam, na ordem em que vieram. */
+export function separarAvisos(errors: readonly PublishValidationError[]): {
+  bloqueantes: PublishValidationError[];
+  avisos: PublishValidationError[];
+} {
+  return {
+    bloqueantes: errors.filter((e) => e.severity !== 'warning'),
+    avisos: errors.filter((e) => e.severity === 'warning'),
+  };
+}
 
 export type PublishValidationResult =
   | { ok: true }
@@ -610,6 +645,43 @@ function conferirRegras(
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Seta que falta: quem a pessoa desconectou, de propósito ou não. */
+const SETA_FALTANDO = new Set<PublishErrorCode>(['unreachable_node', 'missing_branch_edge', 'missing_always_fallback']);
+
+/**
+ * FLUXOS (rodada 1 do editor, item 3): o que é só SETA FALTANDO vira aviso, que
+ * a pessoa confirma e publica mesmo assim — ela desconecta blocos de propósito
+ * para testar. É seguro porque o motor (`lib/fluxos/motor.ts`) começa no Início
+ * e só anda por seta:
+ *  - `unreachable_node`: o bloco solto nunca roda;
+ *  - saída nomeada solta (`missing_branch_edge`/`missing_always_fallback`) e
+ *    `no_end_path` de quem chega a um bloco com saída sem seta: o contato que
+ *    cai ali tem a inscrição encerrada como concluída (`sem_saida`) — não trava,
+ *    não repete, não fica preso.
+ * `no_end_path` de quem só gira num laço fechado, sem saída solta nenhuma, NÃO
+ * é seta faltando: segue erro. Todo o resto (gatilho, ciclo sem espera, bloco
+ * fora da superfície, teto de blocos, "somente interno") segue bloqueando.
+ */
+function marcarAvisosDoFluxo(
+  nodes: FlowNode[],
+  outEdges: Map<string, FlowEdge[]>,
+  inEdges: Map<string, FlowEdge[]>,
+  errors: PublishValidationError[],
+): void {
+  const semSeta = nodes.filter(
+    (n) =>
+      n.type !== 'end' &&
+      nodeBranches(n).some(
+        (b) => !(outEdges.get(n.id) ?? []).some((e) => branchIdForCondition(n, e.condition) === b.id),
+      ),
+  );
+  const chegaNumBlocoSemSeta = bfsReachable(semSeta.map((n) => n.id), inEdges);
+  for (const e of errors) {
+    if (SETA_FALTANDO.has(e.code) || (e.code === 'no_end_path' && e.node_id !== null && chegaNumBlocoSemSeta.has(e.node_id)))
+      e.severity = 'warning';
+  }
+}
+
 export function validateFlowForPublish(
   graph: FlowGraph,
   contexto: ContextoDoPublish = {}
@@ -827,6 +899,7 @@ export function validateFlowForPublish(
   }
 
   if (errors.length === 0) return { ok: true };
+  if (surface === 'fluxo') marcarAvisosDoFluxo(nodes, outEdges, inEdges, errors);
 
   errors.sort((a, b) => {
     const rankDiff = PUBLISH_ERROR_CODES.indexOf(a.code) - PUBLISH_ERROR_CODES.indexOf(b.code);

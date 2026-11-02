@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, CloudCheck, Ellipsis, History, LoaderCircle, Pencil, Power, Rocket, Trash2, Workflow } from "lucide-react";
+import { ArrowLeft, CloudCheck, Ellipsis, History, LoaderCircle, Pencil, Power, Rocket, Trash2 } from "lucide-react";
 
 import {
   AlertDialog,
@@ -26,7 +26,7 @@ import {
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import { ApiError } from "@/lib/api/types";
 import type { FlowGraph } from "@/lib/followup/graph-schema";
-import type { PublishValidationError } from "@/lib/followup/validate-publish";
+import { blocosDesconectados, type PublishValidationError } from "@/lib/followup/validate-publish";
 import { useT } from "@/hooks/i18n/useT";
 import {
   useDeleteFollowupFlow,
@@ -39,6 +39,7 @@ import {
 import { RenameFollowupFlowDialog } from "@/app/app/ai/followups/_components/RenameFollowupFlowDialog";
 import { TraduzirFluxo } from "@/app/app/fluxos/[id]/_traduzir-fluxo";
 
+import { AvisosDoPublish, motivoDoAviso, type BlocoDesconectado } from "./AvisosDoPublish";
 import { SimularDialog } from "./SimularDialog";
 
 /** Espera depois da última edição antes de salvar sozinho. */
@@ -71,14 +72,13 @@ interface Props {
   onSaved: (graph: FlowGraph) => void;
   onPublishErrors: (errorsByNode: Record<string, string[]>) => void;
   onPublishSuccess: () => void;
-  onAutoFit: () => void;
-  canAutoFit: boolean;
 }
 
 /**
  * Topbar do construtor de FLUXOS (redesenho de 17 out), no lugar da PublishBar
  * do follow-up: voltar, nome + lápis, status, "Salvo há…" à esquerda; Simular,
- * Organizar, "…" (Traduzir, Desativar, Rollback, Excluir) e Publicar à direita.
+ * "…" (Traduzir, Desativar, Rollback, Excluir) e Publicar à direita. Sem
+ * "Organizar" (rodada 1, item 4): ele bagunçava o desenho e saiu.
  * Não há botão Salvar: o rascunho salva sozinho (mesmo PATCH de antes) pouco
  * depois de cada edição.
  */
@@ -91,8 +91,6 @@ export function BarraDoFluxo({
   onSaved,
   onPublishErrors,
   onPublishSuccess,
-  onAutoFit,
-  canAutoFit,
 }: Props) {
   const t = useT();
   const router = useRouter();
@@ -102,6 +100,7 @@ export function BarraDoFluxo({
   const rollback = useRollbackFollowupFlow(flowId);
   const del = useDeleteFollowupFlow();
   const [renomear, setRenomear] = useState(false);
+  const [desconectados, setDesconectados] = useState<BlocoDesconectado[] | null>(null);
   const [excluir, setExcluir] = useState(false);
   const [salvoEm, setSalvoEm] = useState(() => Date.parse(flow.updated_at) || Date.now());
   const [agora, setAgora] = useState(() => Date.now());
@@ -140,17 +139,25 @@ export function BarraDoFluxo({
     return () => window.removeEventListener("beforeunload", aviso);
   }, [dirty]);
 
-  const onPublish = async () => {
-    try {
-      await save.mutateAsync(graph);
-      onSaved(graph);
-      setSalvoEm(Date.now());
-    } catch {
-      return; // o erro do save já apareceu — não publica um rascunho que não salvou
-    }
-    publish.mutate(undefined, {
-      onSuccess: () => onPublishSuccess(),
+  const publicar = (aceitarAvisos: boolean) => {
+    publish.mutate(aceitarAvisos ? { aceitarAvisos: true } : undefined, {
+      onSuccess: () => {
+        setDesconectados(null);
+        onPublishSuccess();
+      },
       onError: (err) => {
+        // Rodada 1, item 3: só avisos (blocos desconectados) — os blocos ficam
+        // destacados e a pessoa decide: voltar e conectar, ou publicar assim.
+        if (err instanceof ApiError && err.code === "publish_warnings") {
+          const avisos = (err.details?.errors as PublishValidationError[] | undefined) ?? [];
+          const blocos = blocosDesconectados(avisos, graph);
+          onPublishErrors(
+            Object.fromEntries(blocos.map(({ node, avisos: a }) => [node.id, a.map((x) => motivoDoAviso(node, x, t))])),
+          );
+          setDesconectados(blocos);
+          return;
+        }
+        setDesconectados(null);
         if (err instanceof ApiError && err.code === "validation_failed") {
           const errors = (err.details?.errors as PublishValidationError[] | undefined) ?? [];
           const byNode: Record<string, string[]> = {};
@@ -168,6 +175,17 @@ export function BarraDoFluxo({
         showApiError(err);
       },
     });
+  };
+
+  const onPublish = async () => {
+    try {
+      await save.mutateAsync(graph);
+      onSaved(graph);
+      setSalvoEm(Date.now());
+    } catch {
+      return; // o erro do save já apareceu — não publica um rascunho que não salvou
+    }
+    publicar(false);
   };
 
   const canRollback = flow.versions_count > 1 && flow.previous_version_id !== null;
@@ -217,17 +235,6 @@ export function BarraDoFluxo({
 
       <div className="ml-auto flex items-center gap-2">
         <SimularDialog />
-        <button
-          type="button"
-          className="fx-btn fx-btn--icon"
-          onClick={onAutoFit}
-          disabled={!canAutoFit}
-          aria-label={t("Organizar")}
-          title={t("Organizar")}
-          data-testid="auto-fit-flow"
-        >
-          <Workflow size={16} aria-hidden />
-        </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button type="button" className="fx-btn fx-btn--icon" aria-label={t("Mais ações")} data-testid="fluxo-mais">
@@ -266,6 +273,12 @@ export function BarraDoFluxo({
         </button>
       </div>
 
+      <AvisosDoPublish
+        blocos={desconectados}
+        publicando={publish.isPending}
+        onVoltar={() => setDesconectados(null)}
+        onPublicarMesmoAssim={() => publicar(true)}
+      />
       <RenameFollowupFlowDialog flowId={flowId} flowName={flow.name} open={renomear} onOpenChange={setRenomear} />
       <AlertDialog open={excluir} onOpenChange={setExcluir}>
         <AlertDialogContent>

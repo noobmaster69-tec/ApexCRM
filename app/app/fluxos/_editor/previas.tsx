@@ -15,18 +15,19 @@ import {
 } from "lucide-react";
 
 import type { FlowNode } from "@/lib/followup/graph-schema";
-import { DIGITANDO_PADRAO, temDigitando, type ItemDaMensagem } from "@/lib/followup/blocos-do-fluxo";
+import type { ItemDaMensagem } from "@/lib/followup/blocos-do-fluxo";
 import { EVENTOS_DO_PIXEL_NA_TELA } from "@/lib/followup/vocabulario";
 import { useT } from "@/hooks/i18n/useT";
 import { useEtapasDoFluxo } from "@/app/app/ai/followups/[id]/_components/EtapasDoFluxo";
 import { ROTULO_DO_CAMPO, ROTULO_DO_OPERADOR } from "@/app/app/fluxos/_blocos/CondicionalForm";
 
 import { useCanvasDoFluxo } from "./canvas-do-fluxo";
+import { MiniaturaDaMidia, nomeDaMidia } from "./miniatura";
 
 type ConfigDe<T extends FlowNode["type"]> = Extract<FlowNode, { type: T }>["config"];
 type Traduzir = (texto: string) => string;
 
-/** Quantas linhas da Mensagem aparecem antes do "+ N itens" (pedido: 4). */
+/** Quantas condições do Condicional aparecem antes do "+ N condições". */
 export const MAX_ITENS_NA_PREVIA = 4;
 
 const UNIDADE_CURTA: Record<string, string> = { segundos: "s", minutos: "min", horas: "h", dias: "dias" };
@@ -52,12 +53,23 @@ export function ComVariaveis({ texto }: { texto: string }) {
   );
 }
 
-/** Linha de texto: ícone 14px + até 2 linhas com reticências. */
-export function LinhaDeTexto({ texto, icone: Icone = Text }: { texto: string; icone?: LucideIcon }) {
+/**
+ * Linha de texto: ícone 14px + até 2 linhas com reticências. `inteiro`: o texto
+ * todo, com as quebras de linha (a mensagem enviada, na prévia da Mensagem).
+ */
+export function LinhaDeTexto({
+  texto,
+  icone: Icone = Text,
+  inteiro = false,
+}: {
+  texto: string;
+  icone?: LucideIcon;
+  inteiro?: boolean;
+}) {
   return (
-    <div className="fx-row" title={texto}>
+    <div className="fx-row" title={inteiro ? undefined : texto}>
       <Icone size={14} aria-hidden />
-      <p className="fx-row__text">
+      <p className={inteiro ? "fx-row__text fx-row__text--inteiro" : "fx-row__text"}>
         <ComVariaveis texto={texto} />
       </p>
     </div>
@@ -92,24 +104,46 @@ const MIDIA: Record<string, { Icone: LucideIcon; rotulo: string }> = {
   sticker: { Icone: Sticker, rotulo: "Figurinha" },
 };
 
-function LinhaDeMidia({ item, t }: { item: Extract<ItemDaMensagem, { midia: unknown }>; t: Traduzir }) {
+/**
+ * Mídia na prévia da Mensagem (rodada 1, item 2). Imagem: miniatura de 56px com
+ * o nome do arquivo ao lado e a legenda embaixo — dá para saber QUAL imagem sai
+ * sem abrir o bloco. Vídeo, áudio, arquivo, figurinha: ícone do tipo e o nome.
+ */
+function LinhaDeMidia({ item, t, flowId }: { item: Extract<ItemDaMensagem, { midia: unknown }>; t: Traduzir; flowId?: string }) {
   const { Icone, rotulo } = MIDIA[item.tipo]!;
-  const nome = ("legenda" in item && item.legenda) || item.midia.nome_arquivo || t(rotulo);
-  const miniatura = item.tipo === "imagem" && item.midia.url ? item.midia.url : null;
+  const nome = nomeDaMidia(item.midia) ?? t(rotulo);
+  const legenda = "legenda" in item && item.legenda ? item.legenda : null;
   return (
-    <div className="fx-row fx-media" title={nome}>
-      <span className="fx-media__thumb">
-        {miniatura ? (
-          // eslint-disable-next-line @next/next/no-img-element -- link externo do usuário, sem otimização do Next
-          <img src={miniatura} alt="" loading="lazy" />
-        ) : (
-          <Icone size={16} aria-hidden />
+    <div className="fx-row fx-media" data-testid={`previa-item-${item.id}`} data-tipo={item.tipo}>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex min-w-0 items-center gap-2">
+          {item.tipo === "imagem" ? (
+            <MiniaturaDaMidia
+              midia={item.midia}
+              flowId={flowId}
+              tamanho={56}
+              Icone={Icone}
+              className="fx-media__thumb"
+              testId={`miniatura-${item.id}`}
+            />
+          ) : (
+            <span className="fx-media__thumb">
+              <Icone size={16} aria-hidden />
+            </span>
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="fx-media__name block" title={nome}>
+              {nome}
+            </span>
+            <span className="fx-media__type block">{t(rotulo)}</span>
+          </span>
+        </div>
+        {legenda && (
+          <p className="fx-row__text fx-row__text--inteiro">
+            <ComVariaveis texto={legenda} />
+          </p>
         )}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="fx-media__name block">{nome}</span>
-        <span className="fx-media__type block">{t(rotulo)}</span>
-      </span>
+      </div>
     </div>
   );
 }
@@ -128,17 +162,6 @@ export function linhaDoItem(item: ItemDaMensagem, t: Traduzir): string {
     default:
       return ("legenda" in item && item.legenda) || item.midia.nome_arquivo || t(MIDIA[item.tipo]!.rotulo);
   }
-}
-
-/** "Digitando 6–15 s": do menor ao maior "digitando" dos itens da Mensagem. */
-export function faixaDoDigitando(itens: readonly ItemDaMensagem[]): string | null {
-  const comDigitando = itens.filter(temDigitando);
-  if (comDigitando.length === 0) return null;
-  const minimos = comDigitando.map((i) => i.typing_delay_seconds ?? DIGITANDO_PADRAO[i.tipo]);
-  const maximos = comDigitando.map((i, k) => Math.max(minimos[k]!, i.typing_delay_random_max ?? minimos[k]!));
-  const de = Math.min(...minimos);
-  const ate = Math.max(...maximos);
-  return de === ate ? `${de} s` : `${de}–${ate} s`;
 }
 
 /** As linhas visíveis e quantas ficaram de fora (o "+ N itens"). */
@@ -169,18 +192,18 @@ export function rodapeDoBloco(tipo: FlowNode["type"], config: FlowNode["config"]
 export function PreviaDoBloco({ tipo, config }: { tipo: FlowNode["type"]; config: FlowNode["config"] }) {
   const t = useT();
   const { nomes } = useEtapasDoFluxo();
-  const { nomeDoFunil, nomeDoFluxo } = useCanvasDoFluxo();
+  const { nomeDoFunil, nomeDoFluxo, flowId } = useCanvasDoFluxo();
 
   switch (tipo) {
     case "mensagem": {
+      // Rodada 1, item 2: TODO o conteúdo enviado, na ordem e sem corte — a
+      // pausa e o "digitando" não são conteúdo e ficam só dentro do bloco.
       const c = config as ConfigDe<"mensagem">;
-      const { visiveis, resto } = itensDaPrevia(c.itens);
-      const digitando = faixaDoDigitando(c.itens);
       return (
         <>
-          {visiveis.map((item) => {
-            if (item.tipo === "texto") return <LinhaDeTexto key={item.id} texto={item.texto} />;
-            if (item.tipo === "intervalo") return <Meta key={item.id}>{linhaDoItem(item, t)}</Meta>;
+          {c.itens.map((item) => {
+            if (item.tipo === "intervalo") return null;
+            if (item.tipo === "texto") return <LinhaDeTexto key={item.id} texto={item.texto} inteiro />;
             if (item.tipo === "contato")
               return (
                 <div key={item.id} className="fx-row fx-media">
@@ -193,10 +216,8 @@ export function PreviaDoBloco({ tipo, config }: { tipo: FlowNode["type"]; config
                   </span>
                 </div>
               );
-            return <LinhaDeMidia key={item.id} item={item} t={t} />;
+            return <LinhaDeMidia key={item.id} item={item} t={t} {...(flowId ? { flowId } : {})} />;
           })}
-          {resto > 0 && <p className="fx-meta">+ {resto} {resto === 1 ? t("item") : t("itens")}</p>}
-          {digitando && <Meta>{`${t("Digitando")} ${digitando}`}</Meta>}
         </>
       );
     }

@@ -111,6 +111,10 @@ export function NodeConfigPanel({
       </div>
       )}
 
+      {/* Fluxos (rodada 1, item 1): o bloco se chama pelo tipo e não se
+          renomeia. O `label` segue no grafo (validação, histórico, MCP) — só a
+          edição pela tela sai. */}
+      {surface !== "fluxo" && (
       <div className="space-y-2">
         <Label htmlFor="node-label">{t("Rótulo")}</Label>
         <Input
@@ -121,8 +125,9 @@ export function NodeConfigPanel({
         />
         {labelError && <p className="text-xs text-error-fg">{labelError}</p>}
       </div>
+      )}
 
-      <div className="space-y-4 border-t border-border pt-4">
+      <div className={surface === "fluxo" ? "space-y-4" : "space-y-4 border-t border-border pt-4"}>
         {type === "trigger" && surface === "fluxo" && (
           <EntradaDoFluxo settings={settings} onSettingsChange={onSettingsChange} />
         )}

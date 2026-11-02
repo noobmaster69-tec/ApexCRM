@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ReactFlowProvider } from "@xyflow/react";
 import type { ReactNode } from "react";
@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { FlowNode } from "@/lib/followup/graph-schema";
 import { CanvasDoFluxoContext, type CanvasDoFluxo } from "./canvas-do-fluxo";
 import { FluxoNode } from "./FluxoNode";
-import { PreviaDoBloco, faixaDoDigitando, itensDaPrevia, linhaDoItem, rodapeDoBloco } from "./previas";
+import { PreviaDoBloco, itensDaPrevia, linhaDoItem, rodapeDoBloco } from "./previas";
 
 const t = (s: string) => s;
 
@@ -49,27 +49,109 @@ describe("prévia da Mensagem", () => {
     expect(document.body.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 
-  it("a faixa do digitando vai do menor ao maior", () => {
-    expect(faixaDoDigitando([{ id: "a", tipo: "texto", texto: "x" }])).toBe("6 s");
-    expect(
-      faixaDoDigitando([
-        { id: "a", tipo: "texto", texto: "x" },
-        { id: "b", tipo: "audio", midia: { url: "https://x.y/a.ogg" } },
-      ]),
-    ).toBe("6–15 s");
-    expect(faixaDoDigitando([{ id: "c", tipo: "contato", nome: "A", telefone: "5511999999999" }])).toBeNull();
-  });
-
-  it("mostra no máximo 4 itens e conta o resto", () => {
+  it("o limite de 4 linhas vale para as condições do Condicional", () => {
     expect(itensDaPrevia([1, 2, 3, 4, 5, 6])).toEqual({ visiveis: [1, 2, 3, 4], resto: 2 });
     expect(itensDaPrevia([1, 2])).toEqual({ visiveis: [1, 2], resto: 0 });
+  });
+});
+
+/**
+ * Rodada 1 do editor de fluxos, item 2: o cartão da Mensagem mostra TODO o
+ * conteúdo enviado — sem "+ N itens", sem "ver mais", sem pausa nem
+ * "digitando" — e a imagem aparece em miniatura.
+ */
+describe("prévia da Mensagem — tudo o que sai, na ordem", () => {
+  const PNG = "https://cdn.exemplo.com/fotos/produto%20azul.png";
+
+  it("⭐ mostra todas as mensagens, na ordem, e nenhuma pausa nem digitando", () => {
     const config = {
-      itens: Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, tipo: "texto" as const, texto: `linha ${i}` })),
+      itens: [
+        { id: "t0", tipo: "texto", texto: "linha 0" },
+        { id: "p1", tipo: "intervalo", modo: "fixo", segundos: 3 },
+        ...Array.from({ length: 6 }, (_, i) => ({ id: `t${i + 1}`, tipo: "texto", texto: `linha ${i + 1}`, typing_delay_seconds: 9 })),
+      ],
     } as FlowNode["config"];
-    comCanvas(<PreviaDoBloco tipo="mensagem" config={config} />);
-    expect(screen.getByText("linha 3")).toBeInTheDocument();
-    expect(screen.queryByText("linha 4")).toBeNull();
-    expect(screen.getByText("+ 2 itens")).toBeInTheDocument();
+    comCanvas(
+      <FluxoNode id="m1" tipo="mensagem" title="Mensagem" showTarget={false} showSource={false}>
+        <PreviaDoBloco tipo="mensagem" config={config} />
+      </FluxoNode>,
+    );
+    const textos = Array.from(document.querySelectorAll(".fx-row__text")).map((el) => el.textContent);
+    expect(textos).toEqual(["linha 0", "linha 1", "linha 2", "linha 3", "linha 4", "linha 5", "linha 6"]);
+    expect(document.body.textContent).not.toMatch(/Pausa|Digitando|\+ \d+ ite|ver mais/);
+    expect(screen.queryByTestId("ver-mais-m1")).toBeNull();
+    // Sem teto de altura nem corte no corpo do cartão.
+    expect(screen.getByTestId("previa-m1").className).not.toMatch(/max-h|overflow-hidden/);
+  });
+
+  it("texto inteiro, com as quebras de linha e sem reticências", () => {
+    const longo = `Primeira linha\nSegunda linha ${"bem comprida ".repeat(30)}fim.`;
+    comCanvas(<PreviaDoBloco tipo="mensagem" config={{ itens: [{ id: "t", tipo: "texto", texto: longo }] } as FlowNode["config"]} />);
+    const p = document.querySelector(".fx-row__text")!;
+    expect(p.textContent).toBe(longo);
+    expect(p).toHaveClass("fx-row__text--inteiro");
+  });
+
+  it("⭐ imagem por link: miniatura, nome do arquivo ao lado e legenda embaixo", () => {
+    comCanvas(
+      <PreviaDoBloco
+        tipo="mensagem"
+        config={{ itens: [{ id: "i1", tipo: "imagem", midia: { url: PNG }, legenda: "Olha o {produto}" }] } as FlowNode["config"]}
+      />,
+    );
+    const mini = screen.getByTestId("miniatura-i1");
+    expect(mini).toHaveAttribute("data-miniatura", "imagem");
+    expect(mini.querySelector("img")).toHaveAttribute("src", PNG);
+    expect(mini.style.width).toBe("56px");
+    expect(screen.getByText("produto azul.png")).toHaveClass("fx-media__name");
+    expect(screen.getByTestId("previa-item-i1")).toHaveTextContent("Olha o {produto}");
+  });
+
+  it("⭐ imagem que não carrega volta ao ícone, sem quebrar o cartão", () => {
+    comCanvas(<PreviaDoBloco tipo="mensagem" config={{ itens: [{ id: "i1", tipo: "imagem", midia: { url: PNG } }] } as FlowNode["config"]} />);
+    fireEvent.error(screen.getByTestId("miniatura-i1").querySelector("img")!);
+    expect(screen.getByTestId("miniatura-i1")).toHaveAttribute("data-miniatura", "icone");
+    expect(screen.getByTestId("miniatura-i1").querySelector("img")).toBeNull();
+    expect(screen.getByTestId("miniatura-i1").querySelector("svg")).not.toBeNull();
+  });
+
+  it("imagem enviada: pede o link assinado do Storage pelo fluxo aberto", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: { url: "https://storage.local/assinado.png" } })));
+    vi.stubGlobal("fetch", fetchMock);
+    const caminho = "org-1/fluxos/fluxo-1/abc.png";
+    comCanvas(
+      <PreviaDoBloco
+        tipo="mensagem"
+        config={{ itens: [{ id: "i2", tipo: "imagem", midia: { storage_path: caminho, nome_arquivo: "2.png" } }] } as FlowNode["config"]}
+      />,
+      { flowId: "fluxo-1" },
+    );
+    expect(screen.getByText("2.png")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("miniatura-i2").querySelector("img")).toHaveAttribute("src", "https://storage.local/assinado.png"));
+    expect(fetchMock).toHaveBeenCalledWith(`/api/v1/fluxos/fluxo-1/midia?path=${encodeURIComponent(caminho)}`);
+    vi.unstubAllGlobals();
+  });
+
+  it("áudio, vídeo e arquivo: ícone do tipo e nome do arquivo, sem miniatura", () => {
+    comCanvas(
+      <PreviaDoBloco
+        tipo="mensagem"
+        config={
+          {
+            itens: [
+              { id: "a", tipo: "audio", midia: { storage_path: "o/fluxos/f/x.ogg", nome_arquivo: "recado.ogg" } },
+              { id: "v", tipo: "video", midia: { url: "https://x.y/demo.mp4" } },
+              { id: "d", tipo: "arquivo", midia: { storage_path: "o/fluxos/f/y.pdf", nome_arquivo: "contrato.pdf" } },
+            ],
+          } as FlowNode["config"]
+        }
+      />,
+      { flowId: "f" },
+    );
+    expect(screen.getByText("recado.ogg")).toBeInTheDocument();
+    expect(screen.getByText("demo.mp4")).toBeInTheDocument();
+    expect(screen.getByText("contrato.pdf")).toBeInTheDocument();
+    expect(document.querySelector("[data-miniatura]")).toBeNull();
   });
 });
 

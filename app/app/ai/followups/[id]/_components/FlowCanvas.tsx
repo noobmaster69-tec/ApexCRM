@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -75,9 +75,10 @@ import { DockDeBlocos, DND_MIME_DO_BLOCO } from "@/app/app/fluxos/_editor/DockDe
 import { ControlesDoCanvas } from "@/app/app/fluxos/_editor/ControlesDoCanvas";
 import { BarraDoFluxo } from "@/app/app/fluxos/_editor/BarraDoFluxo";
 import { posicaoNoCentro } from "@/app/app/fluxos/_editor/posicao-no-centro";
+import { afastarSobrepostos } from "@/app/app/fluxos/_editor/sem-sobreposicao";
 import { corDoBloco } from "@/app/app/fluxos/_editor/cores-dos-blocos";
 import { BlocoDoFluxoModal } from "@/app/app/fluxos/_editor/BlocoDoFluxoModal";
-import { etapasDoFluxo, transporLayout } from "@/app/app/fluxos/_editor/layout-do-fluxo";
+import { etapasDoFluxo } from "@/app/app/fluxos/_editor/layout-do-fluxo";
 import "@/app/app/fluxos/_editor/fluxo-editor.css";
 
 const EMPTY_GRAPH: FlowGraph = { nodes: [], edges: [] };
@@ -206,6 +207,27 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
     },
     [setEdges],
   );
+
+  // Fluxos (rodada 1, item 2): o cartão da Mensagem mostra tudo e cresce. Quando
+  // a altura MEDIDA de um cartão sobe (abrir o fluxo conta como a primeira
+  // medida), quem ficou coberto por ele desce — sem isto, fluxo desenhado com
+  // cartões menores abre com um bloco por cima do outro.
+  const alturasMedidas = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (!isFluxo) return;
+    const cresceram = new Set<string>();
+    for (const n of nodes) {
+      const h = n.measured?.height;
+      if (h === undefined) continue;
+      const antes = alturasMedidas.current.get(n.id);
+      if (antes === undefined || h > antes + 0.5) cresceram.add(n.id);
+      alturasMedidas.current.set(n.id, h);
+    }
+    if (cresceram.size === 0) return;
+    const novas = afastarSobrepostos(nodes, cresceram);
+    if (novas.size === 0) return;
+    setNodes((nds) => nds.map((n) => (novas.has(n.id) ? { ...n, position: novas.get(n.id)! } : n)));
+  }, [isFluxo, nodes, setNodes]);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
   const etapaDoSelecionado = useMemo(
@@ -416,8 +438,9 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
       distribuicoes: distribuicoes ?? {},
       nomeDoFunil: (id) => funis.find((f) => f.id === id)?.name ?? null,
       nomeDoFluxo: (id) => fluxos.find((f) => f.id === id)?.name ?? null,
+      flowId,
     }),
-    [duplicarNo, deleteNode, distribuicoes, funis, fluxos],
+    [duplicarNo, deleteNode, distribuicoes, funis, fluxos, flowId],
   );
 
   const onDeleteSelection = useCallback(() => {
@@ -434,9 +457,8 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
         height: n.measured?.height ?? estimateNodeSize(toFlowNode(n)).height,
       });
     }
-    // Fluxos correm da esquerda para a direita (entrada à esquerda, saída à
-    // direita): o mesmo layout em camadas, com os eixos trocados.
-    const laid = isFluxo ? transporLayout(liveGraph, sizes, nomes) : layoutFlowGraph(liveGraph, sizes, nomes);
+    // Só o follow-up tem "Organizar": nos Fluxos o botão saiu (rodada 1, item 4).
+    const laid = layoutFlowGraph(liveGraph, sizes, nomes);
     const pos = new Map(laid.nodes.map((n) => [n.id, n.position]));
     setNodes((nds) =>
       nds.map((n) => {
@@ -447,7 +469,7 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
     window.setTimeout(() => {
       void fitView({ padding: 0.2, duration: 200 });
     }, 0);
-  }, [nodes, liveGraph, setNodes, fitView, isFluxo, nomes]);
+  }, [nodes, liveGraph, setNodes, fitView, nomes]);
 
   // Fluxos (item 8): fluxo sem bloco nenhum abre com a origem (0,0) no MEIO da
   // tela, a 100% — o padrão da lib a deixa no canto de cima, e o primeiro bloco
@@ -486,8 +508,6 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
           onSaved={setSavedGraph}
           onPublishErrors={markNodeErrors}
           onPublishSuccess={clearNodeErrors}
-          onAutoFit={onAutoFit}
-          canAutoFit={nodes.length > 0}
         />
       )}
       {flow && !isFluxo && (

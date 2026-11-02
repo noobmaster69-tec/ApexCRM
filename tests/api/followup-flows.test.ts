@@ -1142,3 +1142,78 @@ vi.mock("@/lib/impersonate/support", async (importOriginal) => ({
   requireSupportWrite: vi.fn(async () => null),
   authenticatedSessionId: vi.fn(async () => "f2200000-0000-4000-8000-000000000099"),
 }));
+
+// ---------------------------------------------------------------------------
+// Rodada 1 do editor de fluxos, item 3: publicar FLUXO com blocos desconectados
+// ---------------------------------------------------------------------------
+
+describe("POST /api/v1/ai/followup-flows/:id/publish — Fluxos com blocos desconectados", () => {
+  const PID = "33333333-3333-4333-8333-333333333333";
+  const mensagem = (id: string): FlowNode =>
+    ({ id, type: "mensagem", label: id, position: pos, config: { itens: [{ id: "a", tipo: "texto", texto: "oi" }] } }) as FlowNode;
+  /** t → m1 → Fim, e um bloco solto que o Início não alcança. */
+  const COM_SOLTO: FlowGraph = {
+    nodes: [trigger("t1"), mensagem("m1"), mensagem("solto"), end("e1")],
+    edges: [edge("x1", "t1", "m1"), edge("x2", "m1", "e1")],
+  };
+  /** Sem Início nenhum: erro que bloqueia, junto com o bloco solto. */
+  const SEM_INICIO: FlowGraph = { nodes: [mensagem("m1"), end("e1")], edges: [edge("x1", "m1", "e1")] };
+  const ponteiro = (draft_graph: FlowGraph) => [
+    { id: PID, organization_id: ORG_ID, status: "draft", surface: "fluxo", trigger_config: { kind: "manual" }, draft_graph },
+  ];
+  const corpoDoErro = async (res: Response) =>
+    (await res.json()) as { error: { code: string; details: { errors: Array<{ code: string; node_id: string | null; severity?: string }> } } };
+
+  it("⭐ sem aceitar_avisos → 422 publish_warnings com os avisos marcados, e nada publica", async () => {
+    const db = makeDb(ponteiro(COM_SOLTO), []);
+    session("manager", db);
+    const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+    const res = await POST(req("POST"), ctx(PID));
+    expect(res.status).toBe(422);
+    const body = await corpoDoErro(res);
+    expect(body.error.code).toBe("publish_warnings");
+    expect(body.error.details.errors).toEqual([
+      { node_id: "solto", code: "unreachable_node", message: expect.any(String), severity: "warning" },
+    ]);
+    const { data: versoes } = (await db.from("followup_flow_versions").select()) as { data: Row[] };
+    expect(versoes).toHaveLength(0);
+  });
+
+  it("⭐ com aceitar_avisos: true → publica e registra no audit quantos blocos estavam desconectados", async () => {
+    const db = makeDb(ponteiro(COM_SOLTO), []);
+    session("manager", db);
+    const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+    const res = await POST(req("POST", { aceitar_avisos: true }), ctx(PID));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { status: string } };
+    expect(body.data.status).toBe("active");
+    expect(vi.mocked(audit)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "followup_flow.published",
+        metadata: expect.objectContaining({ avisos_aceitos: 1, blocos_desconectados: 1 }),
+      }),
+    );
+  });
+
+  it("⭐ erro que bloqueia nunca publica, nem com aceitar_avisos", async () => {
+    const db = makeDb(ponteiro(SEM_INICIO), []);
+    session("manager", db);
+    const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+    const res = await POST(req("POST", { aceitar_avisos: true }), ctx(PID));
+    expect(res.status).toBe(422);
+    const body = await corpoDoErro(res);
+    expect(body.error.code).toBe("validation_failed");
+    expect(body.error.details.errors.map((e) => e.code)).toContain("no_trigger");
+    const { data: versoes } = (await db.from("followup_flow_versions").select()) as { data: Row[] };
+    expect(versoes).toHaveLength(0);
+  });
+
+  it("corpo fora do contrato → 422 (Zod), sem publicar", async () => {
+    const db = makeDb(ponteiro(COM_SOLTO), []);
+    session("manager", db);
+    const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+    const res = await POST(req("POST", { aceitar_avisos: "sim", extra: 1 }), ctx(PID));
+    expect(res.status).toBe(422);
+    expect((await corpoDoErro(res)).error.code).toBe("validation_failed");
+  });
+});
