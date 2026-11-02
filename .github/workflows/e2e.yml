@@ -1127,6 +1127,7 @@ jobs:
         followup-dossie.spec.ts
         followup-queue.spec.ts
         fluxo-de-atendimento.spec.ts
+        fluxos-editor-rodada-1.spec.ts
         qa-l12-funil.spec.ts
         i18n-espanhol-na-tela.spec.ts
         extensoes-declarativas.spec.ts

@@ -3182,3 +3182,21 @@ respondeu; se a mensagem do fluxo saiu da janela do histórico (`historyLimit`),
 vale o horário, no segundo. Uma inbound sem texto acorda o nó, não é
 classificada, e a carência recomeça desse despertar (comportamento anterior do
 motor, não mexido aqui).
+
+## J39 — Editor de fluxos, rodada 1: o que sai, a imagem e publicar com bloco solto `[P1]` (2026-11-01)
+
+Fork jhoow, `app/app/fluxos/` (o editor de FLUXOS; o de follow-up não muda).
+Spec de tela: `tests/e2e/fluxos-editor-rodada-1.spec.ts` (parte 5), evidência em
+`evidence/editor-fluxo-rodada-1/`.
+
+| # | Caso | Esperado | Estado |
+|---|---|---|---|
+| J39.1 | Cartão da Mensagem com 3 textos, 1 pausa e 2 imagens enviadas | todas as mensagens, na ordem, texto inteiro com quebra de linha; nenhuma pausa, "digitando", "+ itens" ou "ver mais"; cartão sem teto de altura | **PASS (unit)** — `previas.test.tsx`; tela: spec escrita, **NÃO MEDIDA** (sem Supabase/Docker na máquina da sessão) |
+| J39.2 | Miniatura da imagem no cartão | 56px, `object-cover`, nome do arquivo ao lado, legenda embaixo; arquivo enviado pelo link assinado do Storage; imagem que falha volta ao ícone | **PASS (unit)** — `previas.test.tsx`; tela **NÃO MEDIDA** |
+| J39.3 | A mesma imagem dentro do bloco | 112px ao lado de "Trocar arquivo" e do nome | **PASS (unit)** — `MensagemForm.miniatura.test.tsx`; tela **NÃO MEDIDA** |
+| J39.4 | Cartão que cresceu ao abrir um fluxo antigo | não cobre o vizinho: quem ficou coberto desce | **PASS (unit)** — `sem-sobreposicao.test.ts`; tela **NÃO MEDIDA** |
+| J39.5 | Modal de qualquer bloco | sem campo "Rótulo"; o cartão se chama pelo tipo | **PASS (unit)** — `NodeConfigPanel.test.tsx`; tela **NÃO MEDIDA** |
+| J39.6 | Topbar do editor de fluxos | sem o botão "Organizar" | tela **NÃO MEDIDA** (spec: `auto-fit-flow` com contagem 0) |
+| J39.7 | Publicar com um bloco solto | modal "Alguns blocos estão desconectados" com o bloco (nome + tipo + motivo); "Publicar mesmo assim" publica; "Voltar e conectar" fecha; bloco destacado no canvas | **PASS (rota + unit)** — `tests/api/followup-flows.test.ts`, `AvisosDoPublish.test.tsx`; tela **NÃO MEDIDA** |
+| J39.8 | Publicar com erro que bloqueia (sem Início, ciclo sem espera) | recusa como antes, mesmo com `aceitar_avisos` | **PASS (rota + unit)** — `followup-flows.test.ts`, `validate-publish.test.ts` |
+| J39.9 | Contato que chega a bloco solto / caminho sem seta, depois de publicado assim | bloco solto nunca roda; o caminho sem seta encerra a inscrição como concluída (`sem_saida`), sem agendar nem repetir | **PASS (unit, motor)** — `lib/fluxos/motor.test.ts` |
