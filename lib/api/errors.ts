@@ -258,6 +258,11 @@ export const ApiErrorCodes = {
   campanha_conteudo_invalido: "campanha_conteudo_invalido", // 422: texto vazio ou variável que não existe
   campanha_base_legal_invalida: "campanha_base_legal_invalida", // 422: interesse legítimo sem referência da LIA
 
+  // 422, publicação de FLUXO só com avisos (blocos desconectados): a tela abre
+  // a confirmação e reenvia com `aceitar_avisos: true`. Erro que bloqueia segue
+  // `validation_failed`.
+  publish_warnings: "publish_warnings",
+
   // 500 / upstream
   internal_error: "internal_error",
   upstream_unavailable: "upstream_unavailable",

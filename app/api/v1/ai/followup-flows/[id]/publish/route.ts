@@ -10,9 +10,16 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  *
  * 422 validation_failed com details.errors (mesmo shape de PublishValidationError)
  * se draft_graph ausente ou reprovado na validação estrutural/semântica.
+ *
+ * Fluxos (rodada 1 do editor, item 3): quando TUDO o que a validação achou é
+ * aviso (`severity: "warning"` — bloco desconectado), a resposta é 422
+ * `publish_warnings` com os avisos, e a tela pergunta. Só publica com
+ * `{ "aceitar_avisos": true }` no corpo. Erro que bloqueia nunca passa, com ou
+ * sem a confirmação.
  */
 import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
+import { z } from "zod";
 
 import { ok, fail } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
@@ -23,7 +30,9 @@ import type { FollowupFlowSurface } from "@/lib/followup/api-schemas";
 import { moduloLigado } from "@/lib/instalacao/modulos";
 import {
   algumCanalExigeModeloForaDaJanela,
+  blocosDesconectados,
   proximosDoGrafo,
+  separarAvisos,
   validateFlowForPublish,
   type RoteiroDoPublish,
 } from "@/lib/followup/validate-publish";
@@ -37,7 +46,10 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
-export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+/** Corpo opcional: só a confirmação dos avisos. Sem corpo = sem confirmação. */
+const corpoDoPublish = z.strictObject({ aceitar_avisos: z.boolean().optional() });
+
+export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const supportDenied = await requireSupportWrite();
   if (supportDenied) return supportDenied;
 
@@ -51,6 +63,24 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
   if (!authz.ok) return authz.response;
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user, org: activeOrg } = authz;
+
+  const bruto = await req.text().catch(() => "");
+  let json: unknown = {};
+  if (bruto.trim() !== "") {
+    try {
+      json = JSON.parse(bruto);
+    } catch {
+      return fail("invalid_request", t("Corpo da requisição não é JSON válido."), 400, { requestId });
+    }
+  }
+  const corpo = corpoDoPublish.safeParse(json);
+  if (!corpo.success) {
+    return fail("validation_failed", t("Corpo da requisição inválido."), 422, {
+      requestId,
+      details: { issues: corpo.error.issues },
+    });
+  }
+  const aceitarAvisos = corpo.data.aceitar_avisos === true;
 
   const admin = createAdminClient();
   const { data: pointer, error: fetchErr } = await admin
@@ -224,12 +254,20 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     roteiro,
     exigeModeloForaDaJanela,
   });
-  if (!validation.ok) {
+  const { bloqueantes, avisos } = validation.ok ? { bloqueantes: [], avisos: [] } : separarAvisos(validation.errors);
+  if (!validation.ok && bloqueantes.length > 0) {
     return fail("validation_failed", t("Fluxo reprovado na validação de publish."), 422, {
       requestId,
       details: { errors: validation.errors },
     });
   }
+  if (avisos.length > 0 && !aceitarAvisos) {
+    return fail("publish_warnings", t("Alguns blocos estão desconectados — confirme para publicar mesmo assim."), 422, {
+      requestId,
+      details: { errors: avisos },
+    });
+  }
+  const desconectados = blocosDesconectados(avisos, graph).length;
 
   const result = await publishFollowupFlowVersion(admin, {
     orgId: activeOrg.orgId,
@@ -263,7 +301,11 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     resourceType: "followup_flow_pointer",
     resourceId: id,
     requestId,
-    metadata: { version_id: result.version_id },
+    metadata: {
+      version_id: result.version_id,
+      // Publicado com avisos aceitos: quantos blocos estavam desconectados.
+      ...(avisos.length > 0 ? { avisos_aceitos: avisos.length, blocos_desconectados: desconectados } : {}),
+    },
   });
 
   return ok(updatedPointer, { requestId });

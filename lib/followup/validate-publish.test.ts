@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { algumCanalExigeModeloForaDaJanela, validateFlowForPublish } from './validate-publish';
+import { algumCanalExigeModeloForaDaJanela, blocosDesconectados, separarAvisos, validateFlowForPublish } from './validate-publish';
 import type { FlowGraph, FlowNode, FlowEdge } from './graph-schema';
 import { CHANNEL_CAPABILITIES, PROVIDERS_DE_MENSAGEM, PROVIDERS_SEM_MENSAGEM } from '../channels/capabilities';
 
@@ -864,5 +864,105 @@ describe('publish por superfície (roteiro de atendimento, #1130)', () => {
       expect(erros(roteiroQueVaiPara('B'), ctx([['B', ['C']], ['C', []]]))).toEqual([]);
       expect(erros(roteiroQueVaiPara('B'), ctx([['B', ['C']], ['C', ['B']]]))).toEqual([]);
     });
+  });
+});
+
+/**
+ * Rodada 1 do editor de fluxos, item 3: em FLUXOS, seta faltando é AVISO (a
+ * pessoa confirma e publica); o resto continua erro que bloqueia. A prova de
+ * que é seguro na execução está em `lib/fluxos/motor.test.ts`.
+ */
+describe('validateFlowForPublish — avisos de bloco desconectado (Fluxos)', () => {
+  const FLUXO = { surface: 'fluxo' as const };
+  const msg = (id: string): FlowNode =>
+    ({ id, type: 'mensagem', label: id, position: pos, config: { itens: [{ id: 'a', tipo: 'texto', texto: 'oi' }] } }) as FlowNode;
+  const condicional = (id: string): FlowNode =>
+    ({
+      id,
+      type: 'condicional',
+      label: id,
+      position: pos,
+      config: { regra: 'todas', condicoes: [{ id: 'c1', campo: { tipo: 'etiqueta' }, operador: 'contem', valor: 'x' }] },
+    }) as FlowNode;
+  const aguardar = (id: string): FlowNode =>
+    ({ id, type: 'aguardar_resposta', label: id, position: pos, config: { sem_limite: true, responder_citando: false } }) as FlowNode;
+  const ramo = (branch_id: string): FlowEdge['condition'] => ({ type: 'branch', branch_id });
+  const codigos = (r: ReturnType<typeof validateFlowForPublish>) =>
+    r.ok ? [] : r.errors.map((e) => `${e.code}:${e.node_id}:${e.severity ?? 'error'}`);
+
+  it('⭐ bloco solto e caminho que para sem seta: só avisos', () => {
+    // t → m1 (para aqui); solto → f (o Início não chega nele)
+    const r = validateFlowForPublish(
+      graph([trigger('t'), msg('m1'), msg('solto'), end('f')], [edge('t', 'm1', always()), edge('solto', 'f', always())]),
+      FLUXO,
+    );
+    expect(codigos(r).sort()).toEqual(
+      [
+        'unreachable_node:solto:warning',
+        'unreachable_node:f:warning',
+        'no_end_path:t:warning',
+        'no_end_path:m1:warning',
+      ].sort(),
+    );
+    expect(r.ok ? [] : separarAvisos(r.errors).bloqueantes).toEqual([]);
+  });
+
+  it('saída nomeada solta (o "Não" do Condicional) é aviso', () => {
+    const r = validateFlowForPublish(
+      graph([trigger('t'), condicional('c'), end('f')], [edge('t', 'c', always()), edge('c', 'f', ramo('sim'))]),
+      FLUXO,
+    );
+    expect(codigos(r)).toEqual(['missing_branch_edge:c:warning']);
+  });
+
+  it('⭐ laço fechado sem saída nenhuma NÃO é seta faltando: no_end_path segue erro', () => {
+    // t → m → q (aguardar) → m … nenhuma seta solta, e nada chega ao Fim.
+    const r = validateFlowForPublish(
+      graph(
+        [trigger('t'), msg('m'), aguardar('q'), end('f')],
+        [edge('t', 'm', always()), edge('m', 'q', always()), edge('q', 'm', always())],
+      ),
+      FLUXO,
+    );
+    const { bloqueantes, avisos } = r.ok ? { bloqueantes: [], avisos: [] } : separarAvisos(r.errors);
+    expect(bloqueantes.map((e) => `${e.code}:${e.node_id}`).sort()).toEqual(['no_end_path:m', 'no_end_path:q', 'no_end_path:t']);
+    expect(avisos.map((e) => `${e.code}:${e.node_id}`)).toEqual(['unreachable_node:f']);
+  });
+
+  it('⭐ erro que bloqueia continua erro: sem Início, mais de um Início, ciclo sem espera', () => {
+    const semInicio = validateFlowForPublish(graph([msg('m'), end('f')], [edge('m', 'f', always())]), FLUXO);
+    expect(codigos(semInicio)).toContain('no_trigger:null:error');
+
+    const doisInicios = validateFlowForPublish(
+      graph([trigger('t1'), trigger('t2'), end('f')], [edge('t1', 'f', always()), edge('t2', 'f', always())]),
+      FLUXO,
+    );
+    expect(codigos(doisInicios)).toContain('multiple_triggers:t2:error');
+
+    const ciclo = validateFlowForPublish(
+      graph(
+        [trigger('t'), msg('a'), msg('b'), end('f')],
+        [edge('t', 'a', always()), edge('a', 'b', always()), edge('b', 'a', always())],
+      ),
+      FLUXO,
+    );
+    expect(codigos(ciclo)).toContain('cycle_without_wait:a:error');
+  });
+
+  it('follow-up não muda: bloco solto continua erro, sem marca de aviso', () => {
+    const r = validateFlowForPublish(
+      graph([trigger('t'), end('e'), end('orfao')], [edge('t', 'e', always())]),
+    );
+    expect(r).toEqual({
+      ok: false,
+      errors: [{ node_id: 'orfao', code: 'unreachable_node', message: expect.any(String) }],
+    });
+  });
+
+  it('a lista de desconectados mostra o bloco onde o caminho para, não quem vem antes', () => {
+    const g = graph([trigger('t'), msg('m1'), msg('solto'), end('f')], [edge('t', 'm1', always()), edge('solto', 'f', always())]);
+    const r = validateFlowForPublish(g, FLUXO);
+    const ids = blocosDesconectados(r.ok ? [] : r.errors, g).map((b) => b.node.id);
+    expect(ids).toEqual(['m1', 'solto', 'f']);
   });
 });

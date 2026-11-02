@@ -2664,6 +2664,19 @@ export const DICIONARIO: Traducoes = {
   "Fluxo reprovado na validação — corrija os nós destacados.": {
     es: "El flujo no pasó la validación. Corrige los nodos resaltados.",
   },
+  "Alguns blocos estão desconectados": { es: "Algunos bloques están desconectados" },
+  "Bloco solto nunca roda, e o contato que chegar a um caminho sem seta encerra o fluxo ali. Você pode conectar agora ou publicar assim mesmo.":
+    {
+      es: "Un bloque suelto nunca se ejecuta, y el contacto que llegue a un camino sin flecha termina el flujo ahí. Puedes conectarlo ahora o publicar de todos modos.",
+    },
+  "Solto: o Início não chega até ele.": { es: "Suelto: el Inicio no llega hasta él." },
+  "O caminho para aqui: não há seta para o próximo bloco.": {
+    es: "El camino se detiene aquí: no hay flecha hacia el siguiente bloque.",
+  },
+  "Saída sem seta:": { es: "Salida sin flecha:" },
+  "Uma saída está sem seta.": { es: "Una salida no tiene flecha." },
+  "Voltar e conectar": { es: "Volver y conectar" },
+  "Publicar mesmo assim": { es: "Publicar de todos modos" },
   "Alterações não salvas": { es: "Cambios sin guardar" },
   "Pausar durante handoff": { es: "Pausar durante la transferencia" },
   "Cancelar durante handoff": { es: "Cancelar durante la transferencia" },

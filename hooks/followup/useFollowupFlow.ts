@@ -83,8 +83,13 @@ export function usePublishFollowupFlow(id: string) {
   const t = useT();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      const res = await apiClient.post<SingleResponse>(`/api/v1/ai/followup-flows/${id}/publish`, {});
+    // `aceitarAvisos`: publicar mesmo com blocos desconectados (Fluxos), depois
+    // que a pessoa confirmou o 422 `publish_warnings`.
+    mutationFn: async (opcoes?: { aceitarAvisos?: boolean }) => {
+      const res = await apiClient.post<SingleResponse>(
+        `/api/v1/ai/followup-flows/${id}/publish`,
+        opcoes?.aceitarAvisos ? { aceitar_avisos: true } : {},
+      );
       return res.data;
     },
     onSuccess: () => {
