@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, CloudCheck, Ellipsis, History, LoaderCircle, Pencil, Power, Rocket, Trash2, Workflow } from "lucide-react";
+import { ArrowLeft, CloudCheck, Ellipsis, History, LoaderCircle, Pencil, Power, Rocket, Trash2 } from "lucide-react";
 
 import {
   AlertDialog,
@@ -72,14 +72,13 @@ interface Props {
   onSaved: (graph: FlowGraph) => void;
   onPublishErrors: (errorsByNode: Record<string, string[]>) => void;
   onPublishSuccess: () => void;
-  onAutoFit: () => void;
-  canAutoFit: boolean;
 }
 
 /**
  * Topbar do construtor de FLUXOS (redesenho de 17 out), no lugar da PublishBar
  * do follow-up: voltar, nome + lápis, status, "Salvo há…" à esquerda; Simular,
- * Organizar, "…" (Traduzir, Desativar, Rollback, Excluir) e Publicar à direita.
+ * "…" (Traduzir, Desativar, Rollback, Excluir) e Publicar à direita. Sem
+ * "Organizar" (rodada 1, item 4): ele bagunçava o desenho e saiu.
  * Não há botão Salvar: o rascunho salva sozinho (mesmo PATCH de antes) pouco
  * depois de cada edição.
  */
@@ -92,8 +91,6 @@ export function BarraDoFluxo({
   onSaved,
   onPublishErrors,
   onPublishSuccess,
-  onAutoFit,
-  canAutoFit,
 }: Props) {
   const t = useT();
   const router = useRouter();
@@ -238,17 +235,6 @@ export function BarraDoFluxo({
 
       <div className="ml-auto flex items-center gap-2">
         <SimularDialog />
-        <button
-          type="button"
-          className="fx-btn fx-btn--icon"
-          onClick={onAutoFit}
-          disabled={!canAutoFit}
-          aria-label={t("Organizar")}
-          title={t("Organizar")}
-          data-testid="auto-fit-flow"
-        >
-          <Workflow size={16} aria-hidden />
-        </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button type="button" className="fx-btn fx-btn--icon" aria-label={t("Mais ações")} data-testid="fluxo-mais">
