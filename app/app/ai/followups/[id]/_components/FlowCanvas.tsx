@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -79,6 +80,7 @@ import { afastarSobrepostos } from "@/app/app/fluxos/_editor/sem-sobreposicao";
 import { corDoBloco } from "@/app/app/fluxos/_editor/cores-dos-blocos";
 import { BlocoDoFluxoModal } from "@/app/app/fluxos/_editor/BlocoDoFluxoModal";
 import { etapasDoFluxo } from "@/app/app/fluxos/_editor/layout-do-fluxo";
+import { arrumarInicio, inicioPrincipal } from "@/lib/fluxos/inicio-unico";
 import "@/app/app/fluxos/_editor/fluxo-editor.css";
 
 const EMPTY_GRAPH: FlowGraph = { nodes: [], edges: [] };
@@ -135,10 +137,18 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
   const t = useT();
   const { nomes } = useEtapasDoFluxo();
   const { data: flow } = useFollowupFlow(flowId, { initialData });
+  // FLUXOS: um Início por fluxo. Abrir arruma o legado — sem Início ganha um,
+  // duplicado sem seta saindo sai — e o rascunho difere do salvo, então o
+  // autosave grava a arrumação (`lib/fluxos/inicio-unico.ts`).
+  const arrumacao = useMemo(
+    () => (initialData.surface === "fluxo" ? arrumarInicio(initialData.draft_graph ?? EMPTY_GRAPH) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   // `initial` seeds React Flow state ONCE on mount — it must NOT react to
   // `flow` changing on every refetch (that would clobber in-progress edits).
   const initial = useMemo(
-    () => toReactFlow(initialData.draft_graph ?? EMPTY_GRAPH),
+    () => toReactFlow(arrumacao?.graph ?? initialData.draft_graph ?? EMPTY_GRAPH),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -168,6 +178,34 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
     return settings ? { ...base, settings } : base;
   }, [nodes, edges, settings]);
   const dirty = useMemo(() => !graphsEqual(liveGraph, savedGraph), [liveGraph, savedGraph]);
+
+  const removidosAoAbrir = arrumacao?.removidos ?? 0;
+  useEffect(() => {
+    if (removidosAoAbrir === 0) return;
+    toast.info(
+      removidosAoAbrir === 1
+        ? t("Removemos 1 bloco de Início duplicado.")
+        : t("Removemos {n} blocos de Início duplicados.").replace("{n}", String(removidosAoAbrir)),
+    );
+    // Só na abertura.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // O Início principal (o que tem seta saindo) não se exclui; os outros são
+  // duplicados de fluxo legado, com alerta no cartão e 🗑️.
+  const inicioPrincipalId = useMemo(() => (isFluxo ? (inicioPrincipal(liveGraph)?.id ?? null) : null), [isFluxo, liveGraph]);
+  const iniciosDuplicados = useMemo(
+    () =>
+      new Set(isFluxo ? nodes.filter((n) => n.type === "trigger" && n.id !== inicioPrincipalId).map((n) => n.id) : []),
+    [isFluxo, nodes, inicioPrincipalId],
+  );
+  const onBeforeDelete = useCallback(
+    async ({ nodes: nos, edges: arestas }: { nodes: RFNode[]; edges: RFEdge[] }) => ({
+      nodes: nos.filter((n) => n.id !== inicioPrincipalId),
+      edges: arestas,
+    }),
+    [inicioPrincipalId],
+  );
 
   const markNodeErrors = useCallback(
     (errorsByNode: Record<string, string[]>) => {
@@ -351,6 +389,7 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return onPaletteAdd(type);
       const centro = screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+      if (isFluxo && type === "trigger") return;
       const novo = addNodeAt(type, posicaoNoCentro(centro, nodes.map((n) => n.position)));
       const origem = nodes.find((n) => n.selected);
       // Bloco de várias saídas: qual delas? Quem decide é a pessoa, arrastando da linha certa.
@@ -367,16 +406,17 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
         ),
       );
     },
-    [screenToFlowPosition, addNodeAt, onPaletteAdd, nodes, setEdges],
+    [screenToFlowPosition, addNodeAt, onPaletteAdd, nodes, setEdges, isFluxo],
   );
 
   const deleteNode = useCallback(
     (id: string) => {
+      if (id === inicioPrincipalId) return;
       setNodes((nds) => semNo(nds, id));
       setEdges((eds) => semArestasDoNo(eds, id));
       setSelectedNodeId((cur) => (cur === id ? null : cur));
     },
-    [setNodes, setEdges],
+    [setNodes, setEdges, inicioPrincipalId],
   );
 
   const deleteEdge = useCallback(
@@ -407,7 +447,8 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
     (id: string) => {
       setNodes((nds) => {
         const original = nds.find((n) => n.id === id);
-        if (!original) return nds;
+        // Início não se duplica: um por fluxo.
+        if (!original || original.type === "trigger") return nds;
         const copia: RFNode = {
           ...original,
           id: `${original.type}-${nextId.current++}`,
@@ -439,8 +480,9 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
       nomeDoFunil: (id) => funis.find((f) => f.id === id)?.name ?? null,
       nomeDoFluxo: (id) => fluxos.find((f) => f.id === id)?.name ?? null,
       flowId,
+      iniciosDuplicados,
     }),
-    [duplicarNo, deleteNode, distribuicoes, funis, fluxos, flowId],
+    [duplicarNo, deleteNode, distribuicoes, funis, fluxos, flowId, iniciosDuplicados],
   );
 
   const onDeleteSelection = useCallback(() => {
@@ -489,11 +531,11 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
     (e: React.DragEvent) => {
       e.preventDefault();
       const type = e.dataTransfer.getData(DND_MIME) as NodeType | "";
-      if (!type) return;
+      if (!type || (isFluxo && type === "trigger")) return;
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       addNodeAt(type, position);
     },
-    [screenToFlowPosition, addNodeAt],
+    [screenToFlowPosition, addNodeAt, isFluxo],
   );
 
   return (
@@ -566,6 +608,7 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
             onEdgeMouseLeave={isFluxo ? onEdgeMouseLeave : undefined}
             // Fluxos: Delete também apaga (Backspace é o padrão da lib).
             deleteKeyCode={isFluxo ? ["Backspace", "Delete"] : undefined}
+            onBeforeDelete={isFluxo ? onBeforeDelete : undefined}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
@@ -593,7 +636,14 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
             snapGrid={[22, 22]}
           >
             {isFluxo ? (
-              <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="#27272d" bgColor="#121214" />
+              // Fundo e pontos do TEMA (Etapa 6): as variáveis trocam ao vivo com o tema.
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={22}
+                size={1.2}
+                color="var(--fx-canvas-dot)"
+                bgColor="var(--fx-canvas)"
+              />
             ) : (
               <Background />
             )}
@@ -606,10 +656,10 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
                 nodeColor={(node) => corDoBloco(node.type)}
                 nodeBorderRadius={4}
                 nodeStrokeWidth={0}
-                maskColor="rgba(0,0,0,0.45)"
-                maskStrokeColor="rgba(255,255,255,0.35)"
+                maskColor="var(--fx-minimap-mask)"
+                maskStrokeColor="var(--fx-minimap-mask-stroke)"
                 maskStrokeWidth={1.5}
-                bgColor="#18181b"
+                bgColor="var(--fx-minimap-bg)"
                 style={{ width: 200, height: 110 }}
                 position="bottom-right"
                 pannable

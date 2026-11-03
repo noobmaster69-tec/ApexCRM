@@ -10,6 +10,8 @@ const base = {
   nome: "Reativação",
   canal: "11111111-1111-4111-8111-111111111111",
   texto: "Oi {primeiro_nome}",
+  // Campanha nova já nasce em "Quantos contatos chamar"; falta só o número.
+  cotaQuantidade: "100",
 };
 const FUNIL = "33333333-3333-4333-8333-333333333333";
 const ETAPA = "44444444-4444-4444-8444-444444444444";

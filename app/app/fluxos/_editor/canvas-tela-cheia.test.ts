@@ -12,8 +12,8 @@ const builder = readFileSync("app/app/ai/followups/[id]/_components/FlowBuilder.
 const canvas = readFileSync("app/app/ai/followups/[id]/_components/FlowCanvas.tsx", "utf8");
 
 describe("canvas de Fluxos de ponta a ponta", () => {
-  it("a página desfaz o p-6 da casca e usa a altura da tela menos o topo", () => {
-    expect(pagina).toMatch(/-m-6 flex h-\[calc\(100dvh-3\.5rem\)\]/);
+  it("a página desfaz o respiro do <main> da casca e ocupa a altura dele", () => {
+    expect(pagina).toMatch(/className="sh-tela-cheia flex/);
   });
 
   it("o piso de 600px fica só para o follow-up", () => {

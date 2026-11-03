@@ -1,10 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
-import { flushSync } from "react-dom";
-import { toast } from "sonner";
 import { useT } from "@/hooks/i18n/useT";
-import { useOrganizationTransition } from "./OrganizationTransitionProvider";
 import { CaretDown, Storefront } from "@/lib/ui/icons";
 import { useUser, useActiveOrg } from "@/hooks/auth/AuthProvider";
 import {
@@ -14,28 +10,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { setActiveOrg } from "@/app/actions/shell/setActiveOrg";
+import { useTrocaDeOrganizacao } from "./useTrocaDeOrganizacao";
 
+/**
+ * Seletor de organização do ONBOARDING. Na casca do app a troca mora no cartão
+ * de perfil da lateral (`RodapeDaLateral`); as duas usam `useTrocaDeOrganizacao`.
+ */
 export function TenantSwitcher() {
   const t = useT();
   const user = useUser();
   const active = useActiveOrg();
-  const transition = useOrganizationTransition();
-  const [isPending, setPending] = useState(false);
-  const switchTo = async (orgId: string) => {
-    if (orgId === active?.orgId) return;
-    flushSync(() => { setPending(true); transition.begin(t("Carregando organização…")); });
-    try {
-      const result = await setActiveOrg(orgId);
-      if (!result.ok) throw new Error(result.error);
-      // Novo documento elimina QueryClient, subscriptions e respostas em voo.
-      window.location.assign("/app/inbox");
-    } catch {
-      transition.cancel();
-      setPending(false);
-      toast.error(t("Não foi possível trocar de organização. Seu acesso pode ter mudado. Tente novamente."));
-    }
-  };
+  const { trocar: switchTo, trocando: isPending } = useTrocaDeOrganizacao();
 
   if (user.organizations.length <= 1 && !user.is_platform_admin) return null;
 

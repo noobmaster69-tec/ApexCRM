@@ -57,12 +57,11 @@ export default async function FluxoEditorPage({ params }: { params: Promise<{ id
 
   // "Traduzir para o idioma do contato" mora no menu "…" da topbar do editor
   // (BarraDoFluxo), que lê `translate_to_contact_locale` do próprio fluxo.
-  // Canvas de ponta a ponta (item 8, modelo Leona): `-m-6` desfaz o `p-6` do
-  // <main> da casca e a altura é a da tela menos a barra do topo (h-14) — o
-  // <main> não tem altura definida, então `h-full` aqui não resolvia nada e o
-  // canvas ficava preso no `min-h-[600px]`.
+  // Canvas de ponta a ponta (item 8, modelo Leona): `sh-tela-cheia` desfaz o
+  // respiro do <main> da casca e ocupa exatamente a altura dele — sem barra no
+  // topo (Etapa 7), o cabeçalho do construtor é a primeira linha da tela.
   return (
-    <div className="-m-6 flex h-[calc(100dvh-3.5rem)] min-h-[420px] flex-col" data-testid="fluxo-editor-tela">
+    <div className="sh-tela-cheia flex min-h-[420px] flex-col" data-testid="fluxo-editor-tela">
       <FlowBuilder flowId={id} initialData={flow} />
     </div>
   );

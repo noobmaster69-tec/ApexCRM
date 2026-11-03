@@ -425,27 +425,12 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   // composer divergem, e o segundo esquece de cobrir o áudio ou o anexo.
   const { motivoDaJanela, blockedReason } = bloqueioDoEnvio(selectedConversation, agoraJanela, t);
 
-  // Altura da grade: a conta desconta TUDO que fica acima e abaixo dela.
-  //   3.5rem            TopBar (`h-14`, em components/shell/TopBar.tsx)
-  //   2 * --space-6     padding do <main> do AppShell (`p-6`, em cima e embaixo)
-  //
-  // Com `100vh-3.5rem` o padding ficava de fora e a grade media 48px a MAIS que a
-  // tela. Quem pagava a diferença era o composer, que fica no rodapé: nascia
-  // parcialmente abaixo da borda, atrapalhando justo na hora de escrever.
-  //
-  // As duas parcelas NÃO estão na mesma unidade, e por isso o padding entra pelo
-  // token e não como `3rem`: o `@theme inline` de `app/globals.css` remapeia a
-  // escala de spacing para `var(--space-N)` — `--space-6` é `24px` LITERAL —, mas
-  // não remapeia o `14`, que o Tailwind 4 calcula pelo multiplicador `--spacing`
-  // e segue sendo `3.5rem` de verdade. (Até o Tailwind 4 quem remapeava era o
-  // `tailwind.config.ts`; o arquivo não existe mais, o efeito é o mesmo.)
-  // Escrever a soma como
-  // `6.5rem` só acerta enquanto a raiz for 16px; com acessibilidade de fonte maior
-  // ou menor o composer sai da tela de novo. Pelo token, a conta se auto-corrige
-  // se a escala de espaçamento mudar.
-  //
-  // `dvh` em vez de `vh` porque no celular a `vh` ignora a barra do navegador — o
-  // mesmo corte, só que pior e mudando conforme se rola a página.
+  // Altura da grade: a do <main> da casca, que desde a Etapa 7 tem altura fixa
+  // (a janela inteira, sem barra no topo). `sh-tela-cheia` desfaz o respiro do
+  // <main> e soma de volta o de cima e o de baixo; a reserva do rodapé (#1305)
+  // entra sozinha, porque ela AUMENTA o respiro de baixo do <main> e a grade
+  // mede a partir dele. Nada de `100dvh` menos a barra: a conta a mão era o
+  // que deixava o composer abaixo da borda quando uma parcela mudava.
 
   // TRÊS COLUNAS QUE CABEM — medido, não estimado.
   //
@@ -468,12 +453,10 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   return (
     <OpenConversationProvider conversationId={selectedId}>
     <div
-      // PAINÉIS FLUTUANTES: a área cancela o `p-6` do <main> (margem negativa nos
-      // quatro lados) e aplica o próprio respiro de 10px. A altura soma de volta
-      // o `--space-6` de cima que a margem devolveu; o de baixo segue o contrato
-      // do rodapé (`max(--space-6, --rodape-ocupado)`).
+      // PAINÉIS FLUTUANTES: a área cancela o respiro do <main> (`sh-tela-cheia`,
+      // em components/shell/shell.css) e aplica o próprio, de 10px.
       className={cn(
-        "-m-6 grid h-[calc(100dvh-3.5rem-max(var(--space-6),var(--rodape-ocupado,0px))+var(--space-6))] grid-cols-1 gap-[10px] bg-bg p-[10px] font-inbox text-[14px] text-ibx-text lg:grid-cols-[320px_minmax(0,1fr)]",
+        "sh-tela-cheia grid grid-cols-1 gap-[10px] bg-bg p-[10px] font-inbox text-[14px] text-ibx-text lg:grid-cols-[320px_minmax(0,1fr)]",
         painelAberto && "lg:grid-cols-[320px_minmax(0,1fr)_300px]",
       )}
       /*

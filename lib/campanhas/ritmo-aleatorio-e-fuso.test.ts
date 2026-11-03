@@ -21,10 +21,12 @@ describe("intervalo aleatório (item 7)", () => {
   });
 
   it("validação: mínimo ≥ 10 e máximo ≥ mínimo", () => {
-    const base = { minIntervalo: "60", maxIntervalo: "180", tetoDiario: "", tetoHorario: "", janelaInicio: "", janelaFim: "", fuso: "" };
+    const base = { minIntervalo: "60", maxIntervalo: "180", tetoDiario: "", tetoHorario: "", janelaInicio: "09:00", janelaFim: "18:00", fuso: "" };
     expect(errosDoRitmo(base)).toEqual([]);
     expect(errosDoRitmo({ ...base, minIntervalo: "5" })).toHaveLength(1);
     expect(errosDoRitmo({ ...base, maxIntervalo: "30" })).toHaveLength(1);
+    // A janela de envio é obrigatória (Etapa 4).
+    expect(errosDoRitmo({ ...base, janelaInicio: "", janelaFim: "" })).toEqual(["janela"]);
     const r = criarCampanhaSchema.safeParse({
       name: "x",
       channel_session_id: "11111111-1111-4111-8111-111111111111",

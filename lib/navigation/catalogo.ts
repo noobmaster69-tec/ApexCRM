@@ -746,8 +746,8 @@ export const NAV_CATALOG = [
     // toda vez que alguém abria o app.
     //
     // Continua sendo DESTINO, e é por isso que a linha some em vez do bloco
-    // inteiro: `searchable()` (abaixo) filtra só por papel, então a tela segue
-    // no ⌘K; a rota, a página e as Server Actions ficam intactas; e
+    // inteiro: a tela segue no hub do grupo (a busca ⌘K saiu na Etapa 7); a
+    // rota, a página e as Server Actions ficam intactas; e
     // `tests/unit/navegacao-completude.test.ts` continua vendo uma porta para
     // `/app/integrations/nuvemshop` — apagar a entrada exigiria justificá-la na
     // allowlist de "rota sem porta", que é coisa de rota morta, e esta não está.

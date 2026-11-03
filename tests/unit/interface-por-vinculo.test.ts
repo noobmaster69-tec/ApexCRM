@@ -7,7 +7,7 @@ import {
   interfaceTemDestino,
   lerInterface,
 } from "@/lib/navigation/interface";
-import { sidebarGroups, searchable, hubSections } from "@/lib/navigation/registry";
+import { sidebarGroups, hubSections } from "@/lib/navigation/registry";
 import { signInviteToken, verifyInviteToken } from "@/lib/auth/invite-token";
 const complete = { preset: "completa" } as const;
 const simplified = { preset: "simplificada" } as const;
@@ -48,7 +48,6 @@ describe("interface por vínculo é apresentação", () => {
         .flatMap((s) => s.items)
         .map((d) => d.href),
     ).toEqual(["/app/products"]);
-    expect(searchable(false, "admin", settings).map((d) => d.href)).toContain("/app/products");
     expect(homeDaInterface(settings, false, "admin")).toBe("/app/products");
     expect(hrefs(settings)).toEqual(
       expect.arrayContaining(["/app/team", "/app/settings/profile", "/app/settings/security"]),

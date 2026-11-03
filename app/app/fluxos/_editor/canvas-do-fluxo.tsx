@@ -23,6 +23,11 @@ export interface CanvasDoFluxo {
    * Ausente (link compartilhado), a imagem do Storage fica no ícone.
    */
   flowId?: string;
+  /**
+   * Inícios a mais de fluxo legado que têm seta saindo: contorno de alerta e
+   * 🗑️ no cartão. O principal nunca entra aqui e não se exclui.
+   */
+  iniciosDuplicados?: ReadonlySet<string>;
 }
 
 const NADA: CanvasDoFluxo = {

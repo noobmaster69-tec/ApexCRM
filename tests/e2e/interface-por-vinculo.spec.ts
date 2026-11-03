@@ -124,10 +124,6 @@ test("interface por membro atualiza ao vivo, preserva formulário e convite apli
     // Fork jhoow (P5): sem hub, a porta escolhida está direto no menu.
     await expect(nav(member).getByRole("link", { name: "Produtos", exact: true })).toBeVisible();
     await expect(member.getByRole("link", { name: /Contatos/ })).toHaveCount(0);
-    await member.keyboard.press("ControlOrMeta+k");
-    await expect(member.getByRole("option").filter({ hasText: "Produtos" })).toBeVisible();
-    await expect(member.getByRole("option").filter({ hasText: "Inbox" })).toHaveCount(0);
-    await member.keyboard.press("Escape");
     mkdirSync(evidence, { recursive: true });
     await member.screenshot({ path: `${evidence}/interface-hub-only.png` });
     await member.setViewportSize({ width: 390, height: 844 });

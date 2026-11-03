@@ -19,6 +19,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { nomeDaCopia } from "@/lib/followup/nome-da-copia";
 import { rascunhoDoFluxo } from "@/lib/followup/rascunho";
+import { arrumarInicio } from "@/lib/fluxos/inicio-unico";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
@@ -62,11 +63,13 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     .eq("organization_id", activeOrg.orgId);
   if (nomesErr) return fail("internal_error", nomesErr.message, 500, { requestId });
 
-  const draft_graph = await rascunhoDoFluxo(
+  const rascunho = await rascunhoDoFluxo(
     supabase,
     origem as { draft_graph: unknown; active_version_id: string | null },
     activeOrg.orgId,
   );
+  // A cópia de um FLUXO nasce com um Início só (os duplicados sem seta ficam de fora).
+  const draft_graph = rascunho && origem.surface === "fluxo" ? arrumarInicio(rascunho).graph : rascunho;
 
   const nome = nomeDaCopia(
     String(origem.name),

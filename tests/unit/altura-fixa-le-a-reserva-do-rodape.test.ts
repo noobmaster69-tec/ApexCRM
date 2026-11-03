@@ -73,10 +73,19 @@ function alturasDeTelaCheia(): { arquivo: string; expressao: string }[] {
 }
 
 describe("altura de tela cheia e a reserva do rodapé", () => {
-  it("a varredura acha alguma coisa — senão ela não está medindo nada", () => {
-    // Uma sonda que deixou de casar devolve lista vazia, e lista vazia passa em
-    // todo `every`. Este caso é o controle positivo do arquivo inteiro.
-    expect(alturasDeTelaCheia().length).toBeGreaterThan(0);
+  it("as telas de altura cheia medem pelo <main> da casca, e não por `100dvh`", () => {
+    // Desde a Etapa 7 (sem barra no topo) o <main> tem altura fixa, e a régua
+    // de tela cheia é `sh-tela-cheia`: desfaz o respiro do <main> e soma de
+    // volta o de cima e o de baixo. A reserva do rodapé aumenta o respiro de
+    // baixo do <main>, então quem usa a régua a lê sem conta própria. Este caso
+    // é o controle positivo: as telas cheias de verdade usam a régua, e a régua
+    // é relativa ao <main> (`100%`), não à janela.
+    const css = readFileSync(resolve(RAIZ, "components/shell/shell.css"), "utf8");
+    const regua = css.slice(css.indexOf(".sh-tela-cheia {"), css.indexOf("}", css.indexOf(".sh-tela-cheia {")));
+    expect(regua).toMatch(/height: calc\(100% \+ var\(--main-pt\) \+ var\(--main-pb\)\)/);
+    for (const tela of ["components/inbox/InboxLayout.tsx", "app/app/fluxos/[id]/page.tsx"]) {
+      expect(readFileSync(resolve(RAIZ, tela), "utf8"), tela).toMatch(/sh-tela-cheia/);
+    }
   });
 
   it("quem desconta `var(--space-N)` também lê `--rodape-ocupado`", () => {

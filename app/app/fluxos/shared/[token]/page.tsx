@@ -30,7 +30,7 @@ export default async function FluxoCompartilhadoPage({ params }: { params: Promi
   if (!linha || !grafo?.success) notFound();
 
   return (
-    <div className="-m-6 flex h-[calc(100dvh-3.5rem)] min-h-[420px] flex-col">
+    <div className="sh-tela-cheia flex min-h-[420px] flex-col">
       <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3">
         <Link href="/app/fluxos" className="text-text-muted hover:text-text" aria-label={t("Voltar para Fluxos")}>
           <ArrowLeft size={18} aria-hidden />

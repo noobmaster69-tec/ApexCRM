@@ -60,9 +60,9 @@
  *
  * ═══ COMO O TEMA É ESCOLHIDO (e por que de dois jeitos) ═══
  *
- * Dentro de `/app/*` existe um controle de verdade — `ThemeToggle`
- * (`components/theme/theme-toggle.tsx`), dentro do `UserMenu` —, então lá o tema
- * é trocado CLICANDO, que é o caminho da pessoa.
+ * Dentro de `/app/*` existe um controle de verdade — o botão de tema do rodapé
+ * da lateral (`components/shell/RodapeDaLateral.tsx`) —, então lá o tema é
+ * trocado CLICANDO, que é o caminho da pessoa.
  *
  * Em `/login` não há controle nenhum: a fachada é anterior à sessão. Lá o estado
  * é semeado em `localStorage` ANTES do primeiro byte (`addInitScript`), que é
@@ -250,12 +250,12 @@ async function temaDaPagina(page: Page): Promise<string | null> {
 /**
  * Troca o tema CLICANDO no controle que a pessoa clica.
  *
- * `ThemeToggle` cicla claro → escuro → sistema → claro. O laço clica até o
+ * O botão alterna claro ⇄ escuro. O laço clica até o
  * `data-theme` do `<html>` ser o pedido, com teto: um controle que parou de
  * funcionar tem de reprovar aqui, não consumir o timeout do caso.
  */
 async function escolherTemaPelaTela(page: Page, alvo: "dark" | "light"): Promise<void> {
-  const botao = page.getByRole("button", { name: /^Tema:/ });
+  const botao = page.getByTestId("alternar-tema");
   await expect(botao, "o controle de tema não está na tela").toBeVisible({ timeout: 15_000 });
   for (let i = 0; i < 4; i++) {
     if ((await temaDaPagina(page)) === alvo) return;

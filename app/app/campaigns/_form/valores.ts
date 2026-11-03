@@ -1,5 +1,13 @@
 import type { CampanhaDetalhada } from "@/hooks/campanhas/useCampanhas";
-import { corpoDaCota, corpoDaJanela, errosDoRitmo, instanteAgendado, programacaoDaCampanha } from "@/components/campanhas/CamposDeRitmo";
+import {
+  corpoDaCota,
+  corpoDaJanela,
+  corpoDosTetos,
+  errosDoRitmo,
+  instanteAgendado,
+  programacaoDaCampanha,
+  type ModoDoRitmo,
+} from "@/components/campanhas/CamposDeRitmo";
 import type { ResumoDaLista } from "@/components/campanhas/ImportarLista";
 
 /** Item 1: de onde vem o público. A consulta avançada ficou de fora (RESUMO.md). */
@@ -69,6 +77,8 @@ export interface ValoresDaCampanha {
   /** 9020: cota por período. */
   cotaQuantidade: string;
   cotaPeriodo: "" | "hora" | "dia" | "semana" | "mes";
+  /** Etapa 4: "Quantos contatos chamar" (cota) ou "Ritmo de envio (avançado)". */
+  modoRitmo: ModoDoRitmo;
   /** 9019: o idioma da campanha ("" = sem idioma próprio). */
   idioma: string;
   tetoDiario: string;
@@ -150,7 +160,11 @@ export function valoresDaCampanha(c?: CampanhaDetalhada | null): ValoresDaCampan
       inicioHora: string;
       cotaQuantidade: string;
       cotaPeriodo: "" | "hora" | "dia" | "semana" | "mes";
+      modoRitmo: ModoDoRitmo;
     },
+    // Campanha NOVA (Etapa 4): a Opção A já vem marcada, "por dia", e a janela
+    // obrigatória nasce preenchida com o horário comercial (09:00–18:00).
+    ...(c ? {} : { modoRitmo: "cota" as const, cotaPeriodo: "dia" as const, janelaInicio: "09:00", janelaFim: "18:00" }),
     tetoDiario: num(c?.teto_diario),
     tetoHorario: num(c?.teto_horario),
   };
@@ -225,8 +239,7 @@ export function corpoDaCampanha(v: ValoresDaCampanha): Record<string, unknown> {
     ...corpoDaJanela(v),
     ...corpoDaCota(v),
     scheduled_at: instanteAgendado(v),
-    teto_diario: ouNulo(v.tetoDiario),
-    teto_horario: ouNulo(v.tetoHorario),
+    ...corpoDosTetos(v),
     min_interval_seconds: Number(v.minIntervalo) || 60,
     max_interval_seconds: Number(v.maxIntervalo) || 180,
     timezone: v.fuso || null,

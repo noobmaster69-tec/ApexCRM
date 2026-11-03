@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { MAX_NOS_DO_GRAFO, nodeBranches, type BranchableNode, type FlowEdge, type FlowGraph } from "@/lib/followup/graph-schema";
 
+import { novoInicio } from "./inicio-unico";
+
 /**
  * IMPORTAR DO LEONA (fork jhoow, Fase D): converte o JSON de um fluxo do Leona
  * (o formato de `get_flow`: `flow`, `nodes[].actions[]`, `connections[]`) no
@@ -181,9 +183,10 @@ export function converterFluxoDoLeona(entrada: unknown, ctx: ContextoDaImportaca
       ? leona.connections
       : leona.nodes.flatMap((n) => (n.connections ?? []).map((c) => ({ ...c, from_node_id: c.from_node_id ?? n.id })));
   const inicio = leona.nodes.find((n) => n.node_type === "start");
-  if (!inicio) return { erro: "O fluxo do Leona não tem bloco de Início." };
-  const alcancados = new Set<string>([inicio.id]);
-  for (let fila = [inicio.id]; fila.length > 0; ) {
+  // Sem Início no Leona, não há de onde medir o que é solto: tudo entra, e o
+  // fluxo ganha um Início em (0, 0) para a pessoa ligar (um Início por fluxo).
+  const alcancados = new Set<string>(inicio ? [inicio.id] : leona.nodes.map((n) => n.id));
+  for (let fila = inicio ? [inicio.id] : []; fila.length > 0; ) {
     const de = fila.pop()!;
     for (const c of conexoes)
       if (String(c.from_node_id) === de && !alcancados.has(c.to_node_id)) {
@@ -595,5 +598,9 @@ export function converterFluxoDoLeona(entrada: unknown, ctx: ContextoDaImportaca
   });
 
   const nome = (leona.flow?.name ?? "").trim().slice(0, 80) || "Fluxo importado do Leona";
+  if (!temInicio) {
+    nos.unshift(novoInicio(new Set(nos.map((n) => n.id))));
+    avisos.push("O fluxo do Leona não tinha bloco de Início — criamos um para você ligar ao primeiro bloco.");
+  }
   return { nome, grafo: { nodes: nos, edges } as unknown as FlowGraph, avisos, midias };
 }

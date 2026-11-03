@@ -35,13 +35,15 @@ interface Props {
   /** Separador "OU" entre as saídas (Aguardar resposta). */
   ouEntreSaidas?: boolean;
   acoes?: readonly AcaoDoCartao[];
+  /** Contorno de alerta com este texto no hover (ex.: Início duplicado). */
+  alerta?: string;
   children?: ReactNode;
 }
 
 const TODAS: readonly AcaoDoCartao[] = ["editar", "duplicar", "excluir"];
 
 /**
- * O cartão de bloco do canvas de FLUXOS (redesenho de 17 out): 264px, borda e
+ * O cartão de bloco do canvas de FLUXOS (redesenho de 17 out): 232px, borda e
  * cabeçalho na cor do tipo, corpo em linhas tingidas. Editar/duplicar/excluir
  * saem do cabeçalho para uma barra flutuante 42px acima do card, visível no
  * hover ou com o bloco selecionado. Entrada à esquerda na altura do cabeçalho;
@@ -58,6 +60,7 @@ export function FluxoNode({
   saidas,
   ouEntreSaidas = false,
   acoes = TODAS,
+  alerta,
   children,
 }: Props) {
   const t = useT();
@@ -81,9 +84,10 @@ export function FluxoNode({
       style={varsDoBloco(tipo)}
       data-selected={selected ? "true" : undefined}
       data-erro={temErro ? "true" : undefined}
+      data-alerta={alerta ? "true" : undefined}
       data-so-cabecalho={temCorpo || temErro ? undefined : "true"}
       data-testid={`node-card-${id}`}
-      title={temErro ? errors!.join("; ") : undefined}
+      title={temErro ? errors!.join("; ") : alerta}
     >
       {acoesVisiveis.length > 0 && (
         <div className="fx-node__acoes nodrag" data-testid={`acoes-${id}`}>

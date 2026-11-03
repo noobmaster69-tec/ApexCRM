@@ -25,7 +25,6 @@ import { MarcaDaInstalacaoProvider } from "@/lib/branding/contexto";
  */
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/app/inbox" }));
-vi.mock("@/app/actions/shell/toggleSidebar", () => ({ toggleSidebar: vi.fn() }));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (chave: string) => chave }));
 // Os dois buscam estado do servidor e não têm nada a ver com o nome da marca.
 vi.mock("@/components/connections/ConnectionHealthDot", () => ({
@@ -35,7 +34,9 @@ vi.mock("@/components/connections/ConnectionHealthDot", () => ({
 // número não é o objeto destes casos (o dele mora em contador-de-casos.test.tsx).
 vi.mock("@/components/shell/ContadorDeCasos", () => ({ ContadorDeCasos: () => null }));
 vi.mock("@/components/shell/ContadorDaFila", () => ({ ContadorDaFila: () => null }));
-vi.mock("@/components/shell/VersionFooter", () => ({ VersionFooter: () => null }));
+// O rodapé (ícones + perfil) lê pelo React Query e por provedores que estes
+// casos não montam; o que se mede aqui é a marca no cabeçalho.
+vi.mock("@/components/shell/RodapeDaLateral", () => ({ RodapeDaLateral: () => null }));
 
 /**
  * A marca da INSTALAÇÃO, como o SERVIDOR a entrega.

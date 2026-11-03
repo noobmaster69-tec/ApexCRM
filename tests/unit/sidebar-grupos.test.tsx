@@ -43,13 +43,12 @@ vi.mock("@/components/shell/ContadorDaFila", () => ({
     <span data-testid="marcador-fila" data-compacto={String(compacto)} />
   ),
 }));
-vi.mock("@/app/actions/shell/toggleSidebar", () => ({
-  toggleSidebar: vi.fn(),
-}));
-// Busca a versão via react-query; sem QueryClientProvider ele lança, e o
-// rodapé de versão não é o que estes testes examinam.
-vi.mock("@/components/shell/VersionFooter", () => ({
-  VersionFooter: () => null,
+// O rodapé lê pelo React Query e por provedores que estes casos não montam (ele
+// tem o próprio teste, `rodape-da-lateral.test.tsx`). O dublê desenha só o que
+// se mede aqui: que a lateral entrega a ele o hub de Configurações do registro.
+vi.mock("@/components/shell/RodapeDaLateral", () => ({
+  RodapeDaLateral: ({ configuracoes }: { configuracoes: { href: string; label: string } | null }) =>
+    configuracoes ? <a href={configuracoes.href}>{configuracoes.label}</a> : null,
 }));
 
 function comoPapel(role: ActiveOrg["role"]) {
@@ -70,18 +69,19 @@ describe("Sidebar agrupado", () => {
     // Organização não tem título aqui: seu hub (Configurações) vive no rodapé
     // fixo, fora da área que rola — medido, ele caía fora da dobra até em 1080px.
     // Fork jhoow (Etapa 2): "Operações" (Fluxos) logo depois de Atendimento.
-    expect(titulos).toEqual(["Atendimento", "Operações", "CRM", "Agente de IA", "Canais", "Análise"]);
+    // O grupo CRM foi desmontado (CRMs e Contatos em Atendimento; o resto em Operações).
+    expect(titulos).toEqual(["Atendimento", "Operações", "Agente de IA", "Canais", "Análise"]);
   });
 
-  it("leva às Etapas do funil pelo CRM, e não por Configurações", () => {
+  it("leva às Etapas do funil pelo menu (Operações), e não por Configurações", () => {
     comoPapel("admin");
     render(<Sidebar collapsed={false} />);
-    // Fork jhoow (P5): sem hub, a tela está DIRETO no grupo CRM do menu. A
-    // propriedade que este teste sempre prendeu continua: a porta é o CRM,
-    // nunca Configurações.
-    const crm = document.querySelector('[aria-labelledby="nav-grupo-crm"]');
+    // Fork jhoow (P5): sem hub, a tela está DIRETO no menu — desde que o grupo
+    // CRM foi desmontado, em Operações. A propriedade que este teste sempre
+    // prendeu continua: a porta nunca é Configurações.
+    const operacoes = document.querySelector('[aria-labelledby="nav-grupo-operacoes"]');
     const etapas = screen.getByRole("link", { name: "Etapas do funil" });
-    expect(crm?.contains(etapas)).toBe(true);
+    expect(operacoes?.contains(etapas)).toBe(true);
   });
 
   it("o número de Casos mora no item de Casos, e o da Fila no item de Inbox", () => {

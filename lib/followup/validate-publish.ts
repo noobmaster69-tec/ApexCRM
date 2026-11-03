@@ -4,6 +4,7 @@ import { branchIdForCondition, nodeBranches } from './graph-schema';
 import { rotuloDoRamo } from './rotulo-do-ramo';
 import type { NomesDeValor } from './vocabulario';
 import { capabilitiesOf, transportaMensagem, type ChannelProvider } from '../channels/capabilities';
+import { inicioPrincipal } from '../fluxos/inicio-unico';
 
 /**
  * Structural publish validator for follow-up flow graphs.
@@ -37,6 +38,9 @@ export const PUBLISH_ERROR_CODES = [
   'roteiro_em_ciclo',
   // Fork jhoow: a superfície tem teto de nós próprio (`LIMITE_DE_NOS_DA_SUPERFICIE`).
   'grafo_grande_demais',
+  // Fluxos: bloco Etiquetas que cita etiqueta excluída da conta. Só o EDITOR
+  // emite (a conta não guarda registro do que foi excluído); sempre aviso.
+  'etiqueta_excluida',
 ] as const;
 export type PublishErrorCode = (typeof PUBLISH_ERROR_CODES)[number];
 
@@ -705,20 +709,26 @@ export function validateFlowForPublish(
       message: 'O fluxo precisa de exatamente um nó trigger.',
     });
   }
+  // FLUXOS: o Início que vale é o que tem seta saindo (`inicioPrincipal`) — é
+  // por ele que o disparo começa. O duplicado de fluxo legado vira AVISO: não
+  // roda, e a pessoa decide se apaga.
+  const startTrigger = surface === 'fluxo' ? (inicioPrincipal(graph) ?? undefined) : triggers[0];
   if (triggers.length > 1) {
-    for (const extra of triggers.slice(1)) {
+    for (const extra of triggers.filter((n) => n !== startTrigger)) {
       errors.push({
         node_id: extra.id,
         code: 'multiple_triggers',
         message: `Nó trigger duplicado: "${extra.id}".`,
+        ...(surface === 'fluxo' ? { severity: 'warning' as const } : {}),
       });
     }
   }
 
-  const startTrigger = triggers[0];
   if (startTrigger) {
     const reachable = bfsReachable([startTrigger.id], outEdges);
     for (const node of [...nodes].sort(byId)) {
+      // O Início duplicado já tem o seu aviso; "solto" ali seria o mesmo aviso duas vezes.
+      if (surface === 'fluxo' && node.type === 'trigger') continue;
       if (!reachable.has(node.id)) {
         errors.push({
           node_id: node.id,

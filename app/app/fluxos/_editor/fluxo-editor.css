@@ -10,8 +10,13 @@
 
 .fx,
 .fx-portal {
-  --fx-canvas: #121214;
-  --fx-canvas-dot: #27272d;
+  /* Canvas: do tema (Etapa 6 — `--canvas-bg`/`--canvas-dot` em globals.css). */
+  --fx-canvas: var(--canvas-bg, #121214);
+  --fx-canvas-dot: var(--canvas-dot, #27272d);
+  --fx-panel-hover: #1f1f24;
+  --fx-minimap-bg: #18181b;
+  --fx-minimap-mask: rgba(0, 0, 0, 0.45);
+  --fx-minimap-mask-stroke: rgba(255, 255, 255, 0.35);
   --fx-panel: #18181b;
   --fx-panel-border: #2c2c32;
   --fx-topbar: #111113;
@@ -29,6 +34,7 @@
   --fx-accent: #3d72ff;
   --fx-accent-hover: #5585ff;
   --fx-danger: #f87171;
+  --fx-alerta: #fbbf24;
   font-family: var(--font-inbox);
   font-size: 13px;
   color: var(--fx-text);
@@ -138,6 +144,35 @@
 }
 
 /* ── Canvas (React Flow) ────────────────────────────────────────────────── */
+/*
+ * Tema claro: só o canvas e o que flutua sobre ele (dock, busca, zoom,
+ * mini-mapa, rótulo da linha) clareiam — os blocos ficam como são. As
+ * variáveis são trocadas DENTRO desses elementos, então o cartão do bloco,
+ * que lê as mesmas, não muda.
+ */
+[data-theme="light"] .fx .fx-overlay,
+[data-theme="light"] .fx .react-flow__minimap,
+[data-theme="light"] .fx .fx-aresta-rotulo {
+  --fx-panel: #ffffff;
+  --fx-panel-border: #dfe3ec;
+  --fx-panel-hover: #eef1f7;
+  --fx-text: #1b1d24;
+  --fx-text-2: #2c2f38;
+  --fx-muted: #5b6070;
+  --fx-muted-2: #8a8f9c;
+  --fx-accent-hover: #2a5ff0;
+}
+[data-theme="light"] .fx {
+  --fx-minimap-bg: #ffffff;
+  --fx-minimap-mask: rgba(61, 114, 255, 0.08);
+  --fx-minimap-mask-stroke: rgba(61, 114, 255, 0.55);
+}
+[data-theme="light"] .fx .fx-dock {
+  box-shadow: 0 12px 32px rgba(20, 30, 60, 0.14);
+}
+[data-theme="light"] .fx .react-flow__connection-path {
+  stroke: #8a8f9c;
+}
 .fx .react-flow {
   background: var(--fx-canvas);
 }
@@ -162,7 +197,8 @@
 /* ── Bloco (nó) ─────────────────────────────────────────────────────────── */
 .fx-node {
   position: relative;
-  width: 264px;
+  /* 232px = 264 − 12% (Etapa 2): o conteúdo quebra linha ou recebe reticências. */
+  width: 232px;
   background: color-mix(in oklch, var(--c) 8%, var(--fx-block-card));
   border: 2px solid var(--c);
   border-radius: 14px;
@@ -176,6 +212,30 @@
     0 0 0 3px var(--fx-canvas),
     0 0 0 5px var(--c-light),
     0 10px 28px rgba(0, 0, 0, 0.35);
+}
+/* Etapa 3: "Ir até o bloco" — contorno que pisca por 1,5 s. */
+.fx .react-flow__node.fx-piscar .fx-node {
+  animation: fx-piscar 1.5s ease-out;
+}
+@keyframes fx-piscar {
+  0%,
+  40%,
+  80% {
+    box-shadow:
+      0 0 0 3px var(--fx-canvas),
+      0 0 0 6px var(--fx-accent),
+      0 10px 28px rgba(0, 0, 0, 0.35);
+  }
+  20%,
+  60%,
+  100% {
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  }
+}
+/* Início duplicado de fluxo legado: contorno tracejado de alerta, fora do cartão. */
+.fx-node[data-alerta="true"] {
+  outline: 2px dashed var(--fx-alerta);
+  outline-offset: 4px;
 }
 .fx-node[data-erro="true"] {
   box-shadow:
@@ -623,7 +683,7 @@
 }
 .fx-busca__item[data-ativo="true"],
 .fx-busca__item:hover {
-  background: #222227;
+  background: var(--fx-panel-hover);
 }
 
 .fx-zoom {
@@ -645,7 +705,7 @@
   border-bottom: 1px solid var(--fx-panel-border);
 }
 .fx-zoom button:hover {
-  background: #1f1f24;
+  background: var(--fx-panel-hover);
   color: var(--fx-text);
 }
 .fx-zoom button[aria-pressed="true"] {

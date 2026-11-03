@@ -31,6 +31,45 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 :root {
+  /* Canvas do construtor de Fluxos (claro; o escuro redeclara). */
+  --canvas-bg: #f7f8fb;
+  --canvas-dot: rgb(61 114 255 / 0.35);
+
+  /* Casca (lateral + conteúdo), Etapa 7 — tema claro. Os nomes genéricos do
+     pedido (--text, --muted…) ganham o prefixo `--shell-` para não colidir com
+     os do shadcn (`--muted` já é cor de superfície aqui). */
+  --app-bg: #f7f7f8;
+  --side-bg: #ffffff;
+  --side-border: #e6e6ea;
+  --side-hover: #f1f1f4;
+  --side-divider: #e6e6ea;
+  --tile-bg: #f6f6f8;
+  --tile-border: #e4e4e8;
+  --tile-hover: #ececf0;
+  --border-hover: #c9c9d0;
+  --nav-active-bg: #e6edff;
+  --nav-active-text: #1f4fd6;
+  --shell-text: #111113;
+  --shell-text-2: #3a3a40;
+  --shell-muted: #6b6b74;
+  --shell-section: #6e6e77;
+  --shell-accent: #3d72ff;
+  --shell-danger: #d63a3f;
+  --shell-success: #1f9d63;
+  --badge-danger: #d63a3f;
+  --avatar-bg: #e4e4e8;
+  --avatar-text: #3a3a40;
+  --menu-bg: #ffffff;
+  --menu-border: #e4e4e8;
+  --menu-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
+  --menu-heading: #6e6e77;
+  --menu-hover: #f1f1f4;
+  --menu-active-bg: #e6edff;
+  --menu-active-check: #1f4fd6;
+  --menu-divider: #e6e6ea;
+  --menu-danger: #dc2626;
+  --menu-danger-hover: #fdecec;
+
   /* Surfaces (light) */
   --color-bg: #faf9f6;
   --color-surface: #ffffff;
@@ -288,6 +327,43 @@
    (lib/branding/css.ts), que só ganha consumidor com a tela de marca.
    ───────────────────────────────────────────────────────────────────────── */
 [data-theme="light"] {
+  /* Canvas do construtor de Fluxos: fundo e pontos da grade seguem o tema. */
+  --canvas-bg: #f7f8fb;
+  --canvas-dot: rgb(61 114 255 / 0.35);
+  /* Casca (lateral + conteúdo), Etapa 7 — tema claro. Os nomes genéricos do
+     pedido (--text, --muted…) ganham o prefixo `--shell-` para não colidir com
+     os do shadcn (`--muted` já é cor de superfície aqui). */
+  --app-bg: #f7f7f8;
+  --side-bg: #ffffff;
+  --side-border: #e6e6ea;
+  --side-hover: #f1f1f4;
+  --side-divider: #e6e6ea;
+  --tile-bg: #f6f6f8;
+  --tile-border: #e4e4e8;
+  --tile-hover: #ececf0;
+  --border-hover: #c9c9d0;
+  --nav-active-bg: #e6edff;
+  --nav-active-text: #1f4fd6;
+  --shell-text: #111113;
+  --shell-text-2: #3a3a40;
+  --shell-muted: #6b6b74;
+  --shell-section: #6e6e77;
+  --shell-accent: #3d72ff;
+  --shell-danger: #d63a3f;
+  --shell-success: #1f9d63;
+  --badge-danger: #d63a3f;
+  --avatar-bg: #e4e4e8;
+  --avatar-text: #3a3a40;
+  --menu-bg: #ffffff;
+  --menu-border: #e4e4e8;
+  --menu-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
+  --menu-heading: #6e6e77;
+  --menu-hover: #f1f1f4;
+  --menu-active-bg: #e6edff;
+  --menu-active-check: #1f4fd6;
+  --menu-divider: #e6e6ea;
+  --menu-danger: #dc2626;
+  --menu-danger-hover: #fdecec;
   --color-bg: #faf9f6;
   --color-surface: #ffffff;
   --color-surface-elevated: #f5f3ee;
@@ -403,6 +479,40 @@
 }
 
 [data-theme="dark"] {
+  --canvas-bg: #121214;
+  --canvas-dot: #27272d;
+  /* Casca (lateral + conteúdo), Etapa 7 — tema escuro (referência). */
+  --app-bg: #0a0a0b;
+  --side-bg: #0f0f11;
+  --side-border: #1d1d21;
+  --side-hover: #18181c;
+  --side-divider: #1f1f23;
+  --tile-bg: #151518;
+  --tile-border: #1f1f23;
+  --tile-hover: #1c1c20;
+  --border-hover: #34343a;
+  --nav-active-bg: #172447;
+  --nav-active-text: #a3bcff;
+  --shell-text: #ededef;
+  --shell-text-2: #d4d4d8;
+  --shell-muted: #8e8e96;
+  --shell-section: #7a7a83;
+  --shell-accent: #3d72ff;
+  --shell-danger: #e5484d;
+  --shell-success: #3ecf8e;
+  --badge-danger: #d63a3f;
+  --avatar-bg: #25252a;
+  --avatar-text: #ededef;
+  --menu-bg: #18181b;
+  --menu-border: #2c2c32;
+  --menu-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  --menu-heading: #7a7a83;
+  --menu-hover: #222226;
+  --menu-active-bg: #1f2a4a;
+  --menu-active-check: #93b0ff;
+  --menu-divider: #26262b;
+  --menu-danger: #f87171;
+  --menu-danger-hover: #2a1618;
   /* Surfaces (dark — Onix) */
   --color-bg: #0a0a0b;
   --color-sidebar: #0f0f11;

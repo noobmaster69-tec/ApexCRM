@@ -45,6 +45,8 @@ import {
   FraseDoInicio,
   corpoDaCota,
   corpoDaJanela,
+  corpoDosTetos,
+  resumoDoRitmo,
   errosDoRitmo,
   instanteAgendado,
   janelaDosValores,
@@ -462,7 +464,7 @@ function RitmoDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
   const t = useT();
   const editar = useEditarCampanha(campanha.id);
   const prog = programacaoDaCampanha(campanha);
-  const [v, setV] = useState<ValoresDeRitmo>({
+  const salvo: ValoresDeRitmo = {
     minIntervalo: String(campanha.min_interval_seconds ?? 60),
     maxIntervalo: String(campanha.max_interval_seconds ?? 180),
     tetoDiario: texto(campanha.teto_diario),
@@ -472,7 +474,9 @@ function RitmoDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
     fuso: campanha.timezone ?? "",
     cotaQuantidade: prog.cotaQuantidade,
     cotaPeriodo: prog.cotaPeriodo,
-  });
+    modoRitmo: prog.modoRitmo,
+  };
+  const [v, setV] = useState<ValoresDeRitmo>(salvo);
 
   const encerrada = campanha.status === "completed" || campanha.status === "cancelled";
   if (encerrada) return null;
@@ -481,6 +485,9 @@ function RitmoDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
     <Card className="space-y-4 p-4">
       <div>
         <h2 className="font-medium">{t("Ritmo e Programação")}</h2>
+        <p className="text-sm font-medium" data-testid="ritmo-resumo">
+          {resumoDoRitmo(salvo, t)}
+        </p>
         <p className="text-sm text-muted-foreground">
           {t(
             "Em branco, vale o ritmo do número (Conexões › Proteção de envio). O que você puser aqui só pode deixar mais devagar.",
@@ -497,8 +504,7 @@ function RitmoDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
               min_interval_seconds: Number(v.minIntervalo),
               max_interval_seconds: Number(v.maxIntervalo),
               timezone: v.fuso || null,
-              teto_diario: numero(v.tetoDiario),
-              teto_horario: numero(v.tetoHorario),
+              ...corpoDosTetos(v),
               ...corpoDaJanela(v),
               ...corpoDaCota(v),
             })
@@ -662,13 +668,6 @@ const TEXTO_DO_ERRO_DO_INICIO: Record<string, string> = {
 /** `null` vira campo vazio — e campo vazio volta a ser `null`, que é "herda o número". */
 function texto(valor: number | null): string {
   return valor === null || valor === undefined ? "" : String(valor);
-}
-
-function numero(valor: string): number | null {
-  const limpo = valor.trim();
-  if (limpo === "") return null;
-  const n = Number(limpo);
-  return Number.isFinite(n) ? n : null;
 }
 
 function Numero({ titulo, valor }: { titulo: string; valor: number }) {

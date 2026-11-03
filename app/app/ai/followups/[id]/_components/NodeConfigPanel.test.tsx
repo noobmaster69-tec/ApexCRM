@@ -16,6 +16,8 @@ import { NODE_VISUALS } from "./nodes/nodeVisuals";
 
 vi.mock("@/hooks/auth/AuthProvider", () => ({
   usePermission: () => false,
+  // O bloco Etiquetas lê a conta para listar, criar e excluir (Etapa 1).
+  useAuth: () => ({ user: { is_platform_admin: false, support: null }, activeOrg: null }),
 }));
 // A lista de atribuição vem de uma rota; aqui o formulário só precisa de um
 // nome para mostrar — e jsdom não tem servidor.

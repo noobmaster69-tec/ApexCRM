@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import { useReactFlow } from "@xyflow/react";
 import { ArrowLeft, CloudCheck, Ellipsis, History, LoaderCircle, Pencil, Power, Rocket, Trash2 } from "lucide-react";
 
 import {
@@ -26,7 +28,15 @@ import {
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import { ApiError } from "@/lib/api/types";
 import type { FlowGraph } from "@/lib/followup/graph-schema";
-import { blocosDesconectados, type PublishValidationError } from "@/lib/followup/validate-publish";
+import {
+  blocosDesconectados,
+  separarAvisos,
+  validateFlowForPublish,
+  type PublishValidationError,
+} from "@/lib/followup/validate-publish";
+import { contemEtiqueta } from "@/lib/tags/busca-de-etiqueta";
+import { useAuth } from "@/hooks/auth/AuthProvider";
+import { etiquetasExcluidas } from "@/hooks/fluxos/useEtiquetasDaConta";
 import { useT } from "@/hooks/i18n/useT";
 import {
   useDeleteFollowupFlow,
@@ -50,6 +60,21 @@ const STATUS: Record<FollowupFlowDetailRow["status"], string> = {
   active: "Publicado",
   disabled: "Desativado",
 };
+
+/**
+ * Blocos Etiquetas que citam etiqueta excluída da conta nesta sessão (Etapa 1):
+ * aviso do EDITOR — o servidor não tem como saber o que foi excluído.
+ */
+export function avisosDeEtiquetaExcluida(graph: FlowGraph, excluidas: readonly string[]): PublishValidationError[] {
+  if (excluidas.length === 0) return [];
+  return graph.nodes.flatMap((n) => {
+    if (n.type !== "etiquetas") return [];
+    const citadas = n.config.etiquetas.filter((e) => contemEtiqueta(excluidas, e));
+    return citadas.length > 0
+      ? [{ node_id: n.id, code: "etiqueta_excluida" as const, message: citadas.join(", "), severity: "warning" as const }]
+      : [];
+  });
+}
 
 /** "agora", "há 2 min", "há 3 h" — a partir de um instante. */
 export function haQuanto(desde: number, agora: number): string {
@@ -99,6 +124,9 @@ export function BarraDoFluxo({
   const disable = useDisableFollowupFlow(flowId);
   const rollback = useRollbackFollowupFlow(flowId);
   const del = useDeleteFollowupFlow();
+  const queryClient = useQueryClient();
+  const { activeOrg } = useAuth();
+  const { getNode, getZoom, setCenter } = useReactFlow();
   const [renomear, setRenomear] = useState(false);
   const [desconectados, setDesconectados] = useState<BlocoDesconectado[] | null>(null);
   const [excluir, setExcluir] = useState(false);
@@ -139,6 +167,36 @@ export function BarraDoFluxo({
     return () => window.removeEventListener("beforeunload", aviso);
   }, [dirty]);
 
+  const avisosDoEditor = () => avisosDeEtiquetaExcluida(graph, etiquetasExcluidas(queryClient, activeOrg?.orgId ?? null));
+
+  // Abre o aviso com os blocos destacados no canvas.
+  const abrirAvisos = (avisos: PublishValidationError[]) => {
+    const blocos = blocosDesconectados(avisos, graph);
+    onPublishErrors(
+      Object.fromEntries(blocos.map(({ node, avisos: a }) => [node.id, a.map((x) => motivoDoAviso(node, x, t))])),
+    );
+    setDesconectados(blocos);
+  };
+
+  // Etapa 3: clicar no cartão do aviso fecha o aviso, centraliza o bloco com
+  // zoom e o faz piscar por 1,5 s.
+  const irAteBloco = (nodeId: string) => {
+    setDesconectados(null);
+    const no = getNode(nodeId);
+    if (!no) return;
+    const w = no.measured?.width ?? 232;
+    const h = no.measured?.height ?? 100;
+    void setCenter(no.position.x + w / 2, no.position.y + h / 2, { zoom: Math.max(getZoom(), 1), duration: 300 });
+    window.setTimeout(() => {
+      const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(nodeId)}"]`);
+      if (!el) return;
+      el.classList.remove("fx-piscar");
+      void (el as HTMLElement).offsetWidth;
+      el.classList.add("fx-piscar");
+      window.setTimeout(() => el.classList.remove("fx-piscar"), 1500);
+    }, 300);
+  };
+
   const publicar = (aceitarAvisos: boolean) => {
     publish.mutate(aceitarAvisos ? { aceitarAvisos: true } : undefined, {
       onSuccess: () => {
@@ -150,11 +208,7 @@ export function BarraDoFluxo({
         // destacados e a pessoa decide: voltar e conectar, ou publicar assim.
         if (err instanceof ApiError && err.code === "publish_warnings") {
           const avisos = (err.details?.errors as PublishValidationError[] | undefined) ?? [];
-          const blocos = blocosDesconectados(avisos, graph);
-          onPublishErrors(
-            Object.fromEntries(blocos.map(({ node, avisos: a }) => [node.id, a.map((x) => motivoDoAviso(node, x, t))])),
-          );
-          setDesconectados(blocos);
+          abrirAvisos([...avisos, ...avisosDoEditor()]);
           return;
         }
         setDesconectados(null);
@@ -184,6 +238,18 @@ export function BarraDoFluxo({
       setSalvoEm(Date.now());
     } catch {
       return; // o erro do save já apareceu — não publica um rascunho que não salvou
+    }
+    // Aviso que só o editor conhece (etiqueta excluída): sem erro que bloqueie,
+    // o aviso abre ANTES de ir ao servidor, junto dos avisos do validador — o
+    // mesmo validador puro que o servidor roda.
+    const doEditor = avisosDoEditor();
+    if (doEditor.length > 0) {
+      const r = validateFlowForPublish(graph, { surface: "fluxo" });
+      const { bloqueantes, avisos } = separarAvisos(r.ok ? [] : r.errors);
+      if (bloqueantes.length === 0) {
+        abrirAvisos([...avisos, ...doEditor]);
+        return;
+      }
     }
     publicar(false);
   };
@@ -278,6 +344,7 @@ export function BarraDoFluxo({
         publicando={publish.isPending}
         onVoltar={() => setDesconectados(null)}
         onPublicarMesmoAssim={() => publicar(true)}
+        onIrAteBloco={irAteBloco}
       />
       <RenameFollowupFlowDialog flowId={flowId} flowName={flow.name} open={renomear} onOpenChange={setRenomear} />
       <AlertDialog open={excluir} onOpenChange={setExcluir}>
