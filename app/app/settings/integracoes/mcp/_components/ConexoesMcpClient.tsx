@@ -36,10 +36,11 @@ import {
   ESCOPOS_DO_PERFIL,
   VALIDADES_EM_DIAS,
   VALIDADE_PADRAO,
-  descricaoDoEscopo,
+  FRASE_DO_RESUMO,
   escoposDaConexao,
   resumoDosEscopos,
   type Escopo,
+  type ItemDoResumo,
 } from "@/lib/mcp/v1/escopos";
 
 const ROTULO_DA_FERRAMENTA: Record<ConexaoMcp["tool"], string> = {
@@ -221,7 +222,7 @@ export function EscolhaDePermissoesForm({
             <label key={e} className="flex items-start gap-2 text-sm">
               <input type="checkbox" checked={valor.scopes.includes(e)} onChange={() => marcar(e)} className="mt-1" />
               <span>
-                {t(descricaoDoEscopo(e))} <code className="text-xs text-muted-foreground">{e}</code>
+                {t(FRASE_DO_RESUMO[e])} <code className="text-xs text-muted-foreground">{e}</code>
                 {e === "conversations:read" ? (
                   <span className="block text-xs text-destructive">
                     {t("LGPD: mensagens são conversas pessoais dos seus clientes. Libere só se a ferramenta realmente precisar lê-las.")}
@@ -283,7 +284,7 @@ export function EscolhaDePermissoesForm({
           <ul className="mt-1 list-disc pl-4 text-xs">
             {resumo.pode.length === 0 ? <li>{t("Nada ainda — escolha ao menos uma permissão.")}</li> : null}
             {resumo.pode.map((p) => (
-              <li key={p}>{t(p)}</li>
+              <li key={p}>{t(FRASE_DO_RESUMO[p])}</li>
             ))}
           </ul>
         </div>
@@ -291,7 +292,7 @@ export function EscolhaDePermissoesForm({
           <p className="font-medium">{t("Não pode")}</p>
           <ul className="mt-1 list-disc pl-4 text-xs text-muted-foreground">
             {resumo.naoPode.map((p) => (
-              <li key={p}>{t(p)}</li>
+              <li key={p}>{t(FRASE_DO_RESUMO[p])}</li>
             ))}
           </ul>
         </div>
@@ -485,16 +486,16 @@ function DetalheDaConexao({ id, onFechar, url }: { id: string | null; onFechar: 
               <div>
                 <p className="font-medium">{t("Pode")}</p>
                 <ul className="mt-1 list-disc pl-4 text-xs">
-                  {d.can.map((p) => (
-                    <li key={p}>{t(p)}</li>
+                  {(d.can as ItemDoResumo[]).map((p) => (
+                    <li key={p}>{t(FRASE_DO_RESUMO[p])}</li>
                   ))}
                 </ul>
               </div>
               <div>
                 <p className="font-medium">{t("Não pode")}</p>
                 <ul className="mt-1 list-disc pl-4 text-xs text-muted-foreground">
-                  {d.cannot.map((p) => (
-                    <li key={p}>{t(p)}</li>
+                  {(d.cannot as ItemDoResumo[]).map((p) => (
+                    <li key={p}>{t(FRASE_DO_RESUMO[p])}</li>
                   ))}
                 </ul>
               </div>

@@ -1326,6 +1326,7 @@ export const DICIONARIO: Traducoes = {
   "Revisar provedores de IA": { es: "Revisar proveedores de IA" },
   "Revisar modelos do canal": { es: "Revisar plantillas del canal" },
   // Conexões MCP (9023)
+  "Conecte o Claude, o Cursor ou outra ferramenta de IA ao CRM, com permissões limitadas.": { es: "Conecte Claude, Cursor u otra herramienta de IA al CRM, con permisos limitados." },
   "Autorizar conexão MCP": { es: "Autorizar conexión MCP" },
   "Cada conexão tem permissões fechadas, e nunca passa do papel atual de quem a criou: se essa pessoa sair ou perder papel, a conexão perde junto.": { es: "Cada conexión tiene permisos cerrados y nunca supera el rol actual de quien la creó: si esa persona se va o pierde rol, la conexión también los pierde." },
   "Claude Code": { es: "Claude Code" },

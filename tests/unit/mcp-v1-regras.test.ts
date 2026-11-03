@@ -62,8 +62,8 @@ describe("escopos e perfis", () => {
 
   it("o resumo 'não pode' sempre lista o que nenhuma conexão faz", () => {
     const { naoPode } = resumoDosEscopos([...ESCOPOS]);
-    expect(naoPode).toContain("enviar mensagens aos clientes");
-    expect(naoPode).toContain("publicar fluxos");
+    expect(naoPode).toContain("enviar");
+    expect(naoPode).toContain("publicar");
   });
 });
 

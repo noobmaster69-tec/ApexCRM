@@ -112,7 +112,28 @@ export function escoposEfetivos(
   return efetivos;
 }
 
-const DESCRICAO_DO_ESCOPO: Record<Escopo, string> = {
+/** O que nenhuma conexão faz, com qualquer escopo — a lista de bloqueio em palavras de gente. */
+export const PROIBICOES_FIXAS = [
+  "excluir",
+  "publicar",
+  "campanhas",
+  "enviar",
+  "em_massa",
+  "segredos",
+  "administracao",
+  "outras_conexoes",
+] as const;
+export type ProibicaoFixa = (typeof PROIBICOES_FIXAS)[number];
+
+export type ItemDoResumo = Escopo | ProibicaoFixa;
+
+/**
+ * A frase de cada item do resumo, num LITERAL só. A tela traduz por
+ * `t(FRASE_DO_RESUMO[item])`: o resumo devolve CHAVES, nunca frases montadas,
+ * para a tradução partir de um texto escrito no código (a catraca
+ * `tests/unit/i18n-espanhol-cobre-a-tela.test.ts` lê esta tabela).
+ */
+export const FRASE_DO_RESUMO: Record<ItemDoResumo, string> = {
   "contacts:read": "ler contatos",
   "contacts:pii": "ver telefone e e-mail dos contatos",
   "contacts:write": "criar e editar contatos",
@@ -125,27 +146,24 @@ const DESCRICAO_DO_ESCOPO: Record<Escopo, string> = {
   "flows:write": "editar fluxos em rascunho",
   "campaigns:read": "ler campanhas e métricas",
   "conversations:read": "ler mensagens das conversas",
+  excluir: "excluir contatos, negócios, fluxos ou etiquetas",
+  publicar: "publicar fluxos",
+  campanhas: "iniciar ou pausar campanhas",
+  enviar: "enviar mensagens aos clientes",
+  em_massa: "importar ou exportar contatos, ou alterar em lote",
+  segredos: "ver credenciais, chaves de API, segredos ou webhooks",
+  administracao: "ver usuários, convites, papéis, faturamento ou configurações de segurança",
+  outras_conexoes: "criar, ver ou alterar outras conexões MCP",
 };
 
-/** O que nenhuma conexão faz, com qualquer escopo — a lista de bloqueio em palavras de gente. */
-export const NUNCA_PODE: readonly string[] = [
-  "excluir contatos, negócios, fluxos ou etiquetas",
-  "publicar fluxos",
-  "iniciar ou pausar campanhas",
-  "enviar mensagens aos clientes",
-  "importar ou exportar contatos, ou alterar em lote",
-  "ver credenciais, chaves de API, segredos ou webhooks",
-  "ver usuários, convites, papéis, faturamento ou configurações de segurança",
-  "criar, ver ou alterar outras conexões MCP",
-];
-
-export function resumoDosEscopos(escopos: readonly Escopo[]): { pode: string[]; naoPode: string[] } {
+export function resumoDosEscopos(escopos: readonly Escopo[]): { pode: Escopo[]; naoPode: ItemDoResumo[] } {
   const tem = new Set(escopos);
-  const pode = ESCOPOS.filter((e) => tem.has(e)).map((e) => DESCRICAO_DO_ESCOPO[e]);
-  const faltam = ESCOPOS.filter((e) => !tem.has(e)).map((e) => DESCRICAO_DO_ESCOPO[e]);
-  return { pode, naoPode: [...faltam, ...NUNCA_PODE] };
+  return {
+    pode: ESCOPOS.filter((e) => tem.has(e)),
+    naoPode: [...ESCOPOS.filter((e) => !tem.has(e)), ...PROIBICOES_FIXAS],
+  };
 }
 
 export function descricaoDoEscopo(e: Escopo): string {
-  return DESCRICAO_DO_ESCOPO[e];
+  return FRASE_DO_RESUMO[e];
 }

@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { requireAuth } from "@/lib/auth/server";
 import { traduzir } from "@/lib/i18n/dicionario";
-import { NUNCA_PODE } from "@/lib/mcp/v1/escopos";
+import { FRASE_DO_RESUMO, PROIBICOES_FIXAS } from "@/lib/mcp/v1/escopos";
 import { ESCRITAS_POR_DIA, POR_DIA, POR_MINUTO } from "@/lib/mcp/v1/limites";
 
 export const dynamic = "force-dynamic";
@@ -11,8 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function ComoFuncionaMcpPage() {
   const user = await requireAuth();
   const t = (texto: string) => traduzir(texto, user.idioma);
-  const n = (texto: string, valores: Record<string, number>) =>
-    Object.entries(valores).reduce((acc, [k, v]) => acc.replace(`{${k}}`, v.toLocaleString(user.idioma)), t(texto));
+  const numero = (v: number) => v.toLocaleString(user.idioma);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 p-6 text-sm">
@@ -25,14 +24,17 @@ export default async function ComoFuncionaMcpPage() {
         <li>{t("Nada funciona enquanto \"Permitir conexões MCP\" estiver desligado.")}</li>
         <li>{t("Cada conexão tem permissões fechadas, e nunca passa do papel atual de quem a criou: se essa pessoa sair ou perder papel, a conexão perde junto.")}</li>
         <li>{t("Telefone e e-mail saem mascarados, a menos que você ligue o acesso a dados pessoais.")}</li>
-        <li>{n("Limites por conexão: {a} chamadas por minuto, {b} por dia e {c} alterações por dia.", { a: POR_MINUTO, b: POR_DIA, c: ESCRITAS_POR_DIA })}</li>
+        <li>{t("Limites por conexão: {a} chamadas por minuto, {b} por dia e {c} alterações por dia.")
+            .replace("{a}", numero(POR_MINUTO))
+            .replace("{b}", numero(POR_DIA))
+            .replace("{c}", numero(ESCRITAS_POR_DIA))}</li>
         <li>{t("Toda chamada fica registrada. Muitas recusas seguidas suspendem a conexão e avisam os admins na Central.")}</li>
         <li>{t("O token aparece uma vez só. No banco fica apenas uma impressão digital dele, e você pode revogar ou renovar quando quiser.")}</li>
       </ul>
       <h2 className="text-lg font-semibold">{t("O que nenhuma conexão faz")}</h2>
       <ul className="list-disc space-y-1 pl-5">
-        {NUNCA_PODE.map((frase) => (
-          <li key={frase}>{t(frase)}</li>
+        {PROIBICOES_FIXAS.map((k) => (
+          <li key={k}>{t(FRASE_DO_RESUMO[k])}</li>
         ))}
       </ul>
       <p>
