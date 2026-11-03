@@ -2664,6 +2664,18 @@ export const DICIONARIO: Traducoes = {
   "Fluxo reprovado na validação — corrija os nós destacados.": {
     es: "El flujo no pasó la validación. Corrige los nodos resaltados.",
   },
+  "Escolha uma etiqueta": { es: "Elige una etiqueta" },
+  "Nenhuma etiqueta ainda. Digite para criar.": { es: "Aún no hay etiquetas. Escribe para crear una." },
+  "Nenhuma etiqueta encontrada.": { es: "No se encontró ninguna etiqueta." },
+  "Criar etiqueta": { es: "Crear etiqueta" },
+  "No bloco": { es: "En el bloque" },
+  "Excluir etiqueta": { es: "Eliminar etiqueta" },
+  "Excluir esta etiqueta da conta": { es: "Eliminar esta etiqueta de la cuenta" },
+  "Excluir a etiqueta": { es: "¿Eliminar la etiqueta" },
+  "Ela será removida de": { es: "Se quitará de" },
+  "contatos e não poderá ser usada em novos blocos.": { es: "contactos y no podrá usarse en nuevos bloques." },
+  "Ela será removida de todos os contatos e não poderá ser usada em novos blocos.": { es: "Se quitará de todos los contactos y no podrá usarse en nuevos bloques." },
+  "etiqueta excluída": { es: "etiqueta eliminada" },
   "Alguns blocos estão desconectados": { es: "Algunos bloques están desconectados" },
   "Bloco solto nunca roda, e o contato que chegar a um caminho sem seta encerra o fluxo ali. Você pode conectar agora ou publicar assim mesmo.":
     {

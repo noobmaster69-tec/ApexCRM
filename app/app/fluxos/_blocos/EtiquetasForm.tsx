@@ -1,18 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { etiquetasConfigSchema } from "@/lib/followup/blocos-do-fluxo";
 import { useT } from "@/hooks/i18n/useT";
+import { useEtiquetasExcluidas } from "@/hooks/fluxos/useEtiquetasDaConta";
+import { contemEtiqueta } from "@/lib/tags/busca-de-etiqueta";
 import { X } from "@/lib/ui/icons";
+
+import { ComboDeEtiquetas } from "./ComboDeEtiquetas";
 import type { ConfigOf } from "@/app/app/ai/followups/[id]/_components/forms/shared";
 
 /**
  * Bloco Etiquetas (fork jhoow, Fase B): adiciona ou remove etiquetas do contato.
- * Enter ou vírgula confirma a etiqueta digitada; o nó só recebe a config que
- * passa no schema (ao menos uma etiqueta, até 40 caracteres cada).
+ * O campo é um combobox com as etiquetas da conta (`ComboDeEtiquetas`); o nó só
+ * recebe a config que passa no schema (ao menos uma etiqueta, até 40
+ * caracteres cada). Etiqueta excluída da conta nesta sessão aparece riscada.
  */
 export function EtiquetasForm({
   config,
@@ -24,7 +28,7 @@ export function EtiquetasForm({
   const t = useT();
   const [operacao, setOperacao] = useState(config.operacao);
   const [etiquetas, setEtiquetas] = useState<string[]>(config.etiquetas);
-  const [digitando, setDigitando] = useState("");
+  const excluidas = useEtiquetasExcluidas();
   const [erro, setErro] = useState<string | null>(null);
 
   function gravar(next: { operacao: typeof operacao; etiquetas: string[] }) {
@@ -39,11 +43,15 @@ export function EtiquetasForm({
     onChange(r.data);
   }
 
-  function confirmar(texto = digitando) {
-    const nova = texto.trim().replace(/,$/, "").trim();
-    setDigitando("");
-    if (!nova || etiquetas.includes(nova)) return;
-    gravar({ operacao, etiquetas: [...etiquetas, nova] });
+  function alternar(nome: string) {
+    const limpa = nome.trim();
+    if (!limpa) return;
+    gravar({
+      operacao,
+      etiquetas: contemEtiqueta(etiquetas, limpa)
+        ? etiquetas.filter((e) => !contemEtiqueta([e], limpa))
+        : [...etiquetas, limpa],
+    });
   }
 
   return (
@@ -64,37 +72,36 @@ export function EtiquetasForm({
         <Label htmlFor="etiquetas-nova">{t("Etiquetas")}</Label>
         {etiquetas.length > 0 && (
           <ul className="flex flex-wrap gap-1.5">
-            {etiquetas.map((e) => (
-              <li key={e} className="flex items-center gap-1 rounded-full bg-surface-elevated px-2 py-0.5 text-xs text-text">
-                {e}
-                <button
-                  type="button"
-                  aria-label={`${t("Remover")} ${e}`}
-                  className="text-text-muted hover:text-text"
-                  onClick={() => gravar({ operacao, etiquetas: etiquetas.filter((x) => x !== e) })}
+            {etiquetas.map((e) => {
+              const excluida = contemEtiqueta(excluidas, e);
+              return (
+                <li
+                  key={e}
+                  className="flex items-center gap-1 rounded-full bg-surface-elevated px-2 py-0.5 text-xs text-text"
+                  data-excluida={excluida || undefined}
+                  data-testid={`etiqueta-chip-${e}`}
                 >
-                  <X size={12} aria-hidden />
-                </button>
-              </li>
-            ))}
+                  <span className={excluida ? "line-through opacity-60" : undefined}>{e}</span>
+                  {excluida && <span className="text-[10px] text-error-fg">{t("etiqueta excluída")}</span>}
+                  <button
+                    type="button"
+                    aria-label={`${t("Remover")} ${e}`}
+                    className="text-text-muted hover:text-text"
+                    onClick={() => gravar({ operacao, etiquetas: etiquetas.filter((x) => x !== e) })}
+                  >
+                    <X size={12} aria-hidden />
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
-        <Input
-          id="etiquetas-nova"
-          value={digitando}
+        <ComboDeEtiquetas
+          escolhidas={etiquetas}
+          podeCriar={operacao === "adicionar"}
           maxLength={40}
-          placeholder={t("Digite e aperte Enter")}
-          onChange={(e) => {
-            if (e.target.value.endsWith(",")) confirmar(e.target.value);
-            else setDigitando(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              confirmar();
-            }
-          }}
-          onBlur={() => confirmar()}
+          onAlternar={alternar}
+          onRemoverUltima={() => gravar({ operacao, etiquetas: etiquetas.slice(0, -1) })}
         />
       </div>
       {erro && <p className="text-xs text-error-fg">{erro}</p>}
