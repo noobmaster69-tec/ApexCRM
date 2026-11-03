@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Actor } from "@/lib/api/handlers/types";
 import type { ActivityType } from "@/lib/leads/activity-vocabulary";
+import { origemMcpAtual, rotuloDaOrigem } from "@/lib/mcp/v1/origem";
 
 /** Os cinco atores que `crm_lead_activities.actor_kind` aceita (migration 0071). */
 export type ActivityActorKind = "user" | "ai" | "system" | "rule" | "contact";
@@ -104,8 +105,19 @@ export function buildLeadActivityRow(input: EmitLeadActivityInput): LeadActivity
     performed_by_user_id: userId,
     reason: input.reason,
     evidence: temLastro ? (input.evidence ?? null) : null,
-    payload: input.payload ?? {},
+    payload: comOrigem(input.payload ?? {}),
   };
+}
+
+/**
+ * Atividade nascida de uma conexão MCP (migration 9023) leva a origem no
+ * payload — a timeline mostra "via MCP: <nome da conexão>". Fora do MCP, nada
+ * muda. Ver `lib/mcp/v1/origem.ts`.
+ */
+function comOrigem(payload: Record<string, unknown>): Record<string, unknown> {
+  const origem = origemMcpAtual();
+  if (!origem) return payload;
+  return { ...payload, origem: rotuloDaOrigem(origem), mcp_connection_id: origem.conexaoId };
 }
 
 export async function emitLeadActivity(

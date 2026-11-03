@@ -101,6 +101,9 @@ export const KIND_LABEL = {
   jev_parar_de_receber: "Pedido para parar de receber mensagens, percebido pelo Jev",
   proposta_travada: "Uma proposta ficou presa em envio e voltou a rascunho",
   proposta_pronta_para_revisao: "Uma proposta está pronta para revisão",
+  mcp_conexao_criada: "Nova conexão MCP criada",
+  mcp_conexao_expirando: "Uma conexão MCP vence em 7 dias",
+  mcp_conexao_suspensa: "Uma conexão MCP foi suspensa",
   other: "Aviso do assistente",
 } as const satisfies Record<InboxKind, string>;
 

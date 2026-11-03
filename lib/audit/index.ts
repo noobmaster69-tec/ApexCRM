@@ -14,6 +14,12 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
 import type { AuditAction } from "./actions";
+import { metadataDaOrigem, origemMcpAtual } from "@/lib/mcp/v1/origem";
+
+function metadataDaOrigemAtual(): Record<string, unknown> {
+  const origem = origemMcpAtual();
+  return origem ? metadataDaOrigem(origem) : {};
+}
 
 export function isServiceRoleConfigured(): boolean {
   const key = env.SUPABASE_SERVICE_ROLE_KEY.trim();
@@ -88,7 +94,9 @@ export async function audit(entry: AuditEntry): Promise<void> {
       organization_id: entry.organizationId ?? null,
       resource_type: entry.resourceType ?? null,
       resource_id: entry.resourceId ?? null,
-      metadata: { ...entry.metadata, ...supportMetadata },
+      // Mutação feita por uma conexão MCP (migration 9023): o ator é a pessoa
+      // dona da conexão, e a metadata diz por onde ela agiu.
+      metadata: { ...entry.metadata, ...supportMetadata, ...metadataDaOrigemAtual() },
       request_id: entry.requestId ?? null,
       actor_ip: entry.ip ?? null,
       actor_user_agent: entry.userAgent ?? null,
