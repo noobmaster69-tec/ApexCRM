@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { flowGraphSchema } from "@/lib/followup/graph-schema";
 import { decidirPreGoLiveDoCanalViaSupabase } from "@/lib/ai/elegibilidade/consulta-pre-go-live";
 import { enfileirarPassoDoFluxo } from "./fila";
+import { inicioPrincipal } from "./inicio-unico";
 
 /**
  * Coloca um contato num FLUXO publicado, no Início (fork jhoow, Fase B).
@@ -103,7 +104,7 @@ export async function inscreverNoFluxo(
     .eq("id", fluxo.active_version_id)
     .maybeSingle();
   if (vErr || !versao) return { ok: false, codigo: "fluxo_nao_publicado" };
-  const inicio = flowGraphSchema.parse(versao.graph).nodes.find((n) => n.type === "trigger");
+  const inicio = inicioPrincipal(flowGraphSchema.parse(versao.graph));
   if (!inicio) return { ok: false, codigo: "fluxo_nao_publicado" };
 
   const { data: criado, error } = await admin

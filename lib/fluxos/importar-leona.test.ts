@@ -140,6 +140,15 @@ describe("importar do Leona", () => {
     expect(comSolto.avisos.some((a) => a.startsWith("1 bloco(s) solto(s)"))).toBe(true);
   });
 
+  it("fluxo do Leona sem Início ganha um em (0, 0), e só um", () => {
+    const semInicio = converterFluxoDoLeona({ ...LEONA, nodes: LEONA.nodes.filter((n) => n.node_type !== "start") }, ctx);
+    if ("erro" in semInicio) throw new Error(semInicio.erro);
+    const inicios = semInicio.grafo.nodes.filter((n) => n.type === "trigger");
+    expect(inicios).toHaveLength(1);
+    expect(inicios[0]!.position).toEqual({ x: 0, y: 0 });
+    expect(semInicio.avisos.some((a) => a.includes("não tinha bloco de Início"))).toBe(true);
+  });
+
   it("a chave de API do Leona NUNCA atravessa", () => {
     expect(JSON.stringify(r)).not.toContain("sk-proj");
     expect(r.avisos.some((a) => a.includes("chave de API do Leona NÃO foi importada"))).toBe(true);

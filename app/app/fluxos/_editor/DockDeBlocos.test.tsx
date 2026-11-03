@@ -11,9 +11,10 @@ import { SimularDialog } from "./SimularDialog";
 beforeEach(() => window.localStorage.clear());
 
 describe("dock de blocos do canvas de Fluxos", () => {
-  it("mostra os blocos do fluxo em grupos, sem os de follow-up", () => {
+  it("mostra os blocos do fluxo em grupos, sem os de follow-up e sem Início (um por fluxo)", () => {
     render(<DockDeBlocos onAdd={() => {}} />);
-    expect(screen.getByRole("group", { name: "Gatilho" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Gatilho" })).toBeNull();
+    expect(screen.queryByTestId("dock-trigger")).toBeNull();
     expect(screen.getByRole("group", { name: "CRM" })).toBeInTheDocument();
     expect(screen.getByTestId("dock-mensagem")).toHaveTextContent("Mensagem");
     expect(screen.getByTestId("dock-distribuidor")).toHaveTextContent("Distribuir");

@@ -2698,6 +2698,10 @@ export const DICIONARIO: Traducoes = {
   "Máximo por dia (opcional)": { es: "Máximo por día (opcional)" },
   "das": { es: "de" },
   "entre envios": { es: "entre envíos" },
+  "Removemos 1 bloco de Início duplicado.": { es: "Eliminamos 1 bloque de Inicio duplicado." },
+  "Removemos {n} blocos de Início duplicados.": { es: "Eliminamos {n} bloques de Inicio duplicados." },
+  "O fluxo precisa de um bloco de Início.": { es: "El flujo necesita un bloque de Inicio." },
+  "Um fluxo tem um único bloco de Início.": { es: "Un flujo tiene un único bloque de Inicio." },
   "Alguns blocos estão desconectados": { es: "Algunos bloques están desconectados" },
   "Bloco solto nunca roda, e o contato que chegar a um caminho sem seta encerra o fluxo ali. Você pode conectar agora ou publicar assim mesmo.":
     {

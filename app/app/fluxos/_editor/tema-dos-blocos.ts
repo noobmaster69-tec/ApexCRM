@@ -83,9 +83,11 @@ export const BLOCK_THEME: Partial<Record<NodeType, TemaDoBloco>> = {
   end: { hue: 20, icon: CircleStop, label: "Fim", curto: "Fim", categoria: "Fluxo", sobreCor: BRANCO, croma: 0.02 },
 };
 
-/** Grupos do dock, na ordem do pedido. IA e Fim entram para não sumirem do construtor. */
+/**
+ * Grupos do dock, na ordem do pedido. IA e Fim entram para não sumirem do
+ * construtor. O Início NÃO entra: todo fluxo nasce com um e não ganha outro.
+ */
 export const GRUPOS_DO_DOCK: ReadonlyArray<{ nome: string; tipos: readonly NodeType[] }> = [
-  { nome: "Gatilho", tipos: ["trigger"] },
   { nome: "Mensagens", tipos: ["mensagem", "aguardar_resposta", "intervalo"] },
   { nome: "Lógica", tipos: ["condicional", "distribuidor", "conexao_fluxo", "end"] },
   { nome: "CRM", tipos: ["etiquetas", "kanban"] },

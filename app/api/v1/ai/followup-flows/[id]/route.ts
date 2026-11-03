@@ -9,6 +9,7 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  *   e versões saem no cascade / na ordem abaixo; não dá para desfazer.
  */
 import { rascunhoDoFluxo } from "@/lib/followup/rascunho";
+import { recusaDoInicio } from "@/lib/fluxos/inicio-unico";
 import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
@@ -116,7 +117,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
   const supabase = await createClient();
   const { data: existing, error: fetchErr } = await supabase
     .from("followup_flow_pointers")
-    .select("id")
+    .select("id, surface, draft_graph, active_version_id")
     .eq("id", id)
     .eq("organization_id", activeOrg.orgId)
     .maybeSingle();
@@ -124,6 +125,23 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
   if (!existing) return fail("not_found", t("Fluxo não encontrado."), 404, { requestId });
 
   const patch = parsed.data;
+
+  // FLUXOS: um Início por fluxo. Recusa o rascunho sem Início ou com um Início
+  // a mais do que já tinha; o legado com vários segue salvável (`recusaDoInicio`).
+  if (existing.surface === "fluxo" && patch.draft_graph) {
+    const anterior = await rascunhoDoFluxo(supabase, existing, activeOrg.orgId);
+    const recusa = recusaDoInicio(patch.draft_graph, anterior);
+    if (recusa) {
+      return fail(
+        "validation_failed",
+        recusa === "sem_inicio"
+          ? t("O fluxo precisa de um bloco de Início.")
+          : t("Um fluxo tem um único bloco de Início."),
+        422,
+        { requestId, details: { code: recusa } },
+      );
+    }
+  }
   if (Object.keys(patch).length === 0) {
     const { data: unchanged, error: reloadErr } = await supabase
       .from("followup_flow_pointers")

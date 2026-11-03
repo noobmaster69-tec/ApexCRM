@@ -29,6 +29,7 @@
   --fx-accent: #3d72ff;
   --fx-accent-hover: #5585ff;
   --fx-danger: #f87171;
+  --fx-alerta: #fbbf24;
   font-family: var(--font-inbox);
   font-size: 13px;
   color: var(--fx-text);
@@ -196,6 +197,11 @@
   100% {
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
   }
+}
+/* Início duplicado de fluxo legado: contorno tracejado de alerta, fora do cartão. */
+.fx-node[data-alerta="true"] {
+  outline: 2px dashed var(--fx-alerta);
+  outline-offset: 4px;
 }
 .fx-node[data-erro="true"] {
   box-shadow:

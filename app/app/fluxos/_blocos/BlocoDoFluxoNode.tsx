@@ -93,7 +93,11 @@ export function BlocoDoFluxoNode({ id, data, selected, type }: NodeProps<RFNode>
 
 /** Início do fluxo: só cabeçalho e uma linha do que dispara; não se duplica nem se apaga pelo cartão. */
 export function InicioDoFluxoNode({ id, data, selected }: NodeProps<RFNode>) {
+  const t = useT();
   const titulo = useTituloDoBloco("trigger");
+  // Um Início por fluxo: o principal não se duplica nem se exclui. O duplicado
+  // de fluxo legado (com seta saindo) ganha alerta e pode ser excluído.
+  const duplicado = useCanvasDoFluxo().iniciosDuplicados?.has(id) ?? false;
   return (
     <FluxoNode
       id={id}
@@ -102,7 +106,8 @@ export function InicioDoFluxoNode({ id, data, selected }: NodeProps<RFNode>) {
       selected={selected}
       errors={data.errors}
       showTarget={false}
-      acoes={["editar"]}
+      acoes={duplicado ? ["editar", "excluir"] : ["editar"]}
+      alerta={duplicado ? t("Início duplicado: o fluxo só começa pelo Início principal.") : undefined}
     />
   );
 }

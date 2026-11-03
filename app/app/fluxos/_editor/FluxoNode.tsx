@@ -35,6 +35,8 @@ interface Props {
   /** Separador "OU" entre as saídas (Aguardar resposta). */
   ouEntreSaidas?: boolean;
   acoes?: readonly AcaoDoCartao[];
+  /** Contorno de alerta com este texto no hover (ex.: Início duplicado). */
+  alerta?: string;
   children?: ReactNode;
 }
 
@@ -58,6 +60,7 @@ export function FluxoNode({
   saidas,
   ouEntreSaidas = false,
   acoes = TODAS,
+  alerta,
   children,
 }: Props) {
   const t = useT();
@@ -81,9 +84,10 @@ export function FluxoNode({
       style={varsDoBloco(tipo)}
       data-selected={selected ? "true" : undefined}
       data-erro={temErro ? "true" : undefined}
+      data-alerta={alerta ? "true" : undefined}
       data-so-cabecalho={temCorpo || temErro ? undefined : "true"}
       data-testid={`node-card-${id}`}
-      title={temErro ? errors!.join("; ") : undefined}
+      title={temErro ? errors!.join("; ") : alerta}
     >
       {acoesVisiveis.length > 0 && (
         <div className="fx-node__acoes nodrag" data-testid={`acoes-${id}`}>

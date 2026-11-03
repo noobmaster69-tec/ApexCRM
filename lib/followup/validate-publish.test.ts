@@ -929,15 +929,23 @@ describe('validateFlowForPublish — avisos de bloco desconectado (Fluxos)', () 
     expect(avisos.map((e) => `${e.code}:${e.node_id}`)).toEqual(['unreachable_node:f']);
   });
 
-  it('⭐ erro que bloqueia continua erro: sem Início, mais de um Início, ciclo sem espera', () => {
-    const semInicio = validateFlowForPublish(graph([msg('m'), end('f')], [edge('m', 'f', always())]), FLUXO);
-    expect(codigos(semInicio)).toContain('no_trigger:null:error');
-
+  it('⭐ Início duplicado de fluxo legado é aviso, e o principal é o que tem seta saindo', () => {
     const doisInicios = validateFlowForPublish(
       graph([trigger('t1'), trigger('t2'), end('f')], [edge('t1', 'f', always()), edge('t2', 'f', always())]),
       FLUXO,
     );
-    expect(codigos(doisInicios)).toContain('multiple_triggers:t2:error');
+    expect(codigos(doisInicios)).toEqual(['multiple_triggers:t2:warning']);
+
+    const principalDepois = validateFlowForPublish(
+      graph([trigger('t1'), trigger('t2'), end('f')], [edge('t2', 'f', always())]),
+      FLUXO,
+    );
+    expect(codigos(principalDepois)).toEqual(['multiple_triggers:t1:warning']);
+  });
+
+  it('⭐ erro que bloqueia continua erro: sem Início, ciclo sem espera', () => {
+    const semInicio = validateFlowForPublish(graph([msg('m'), end('f')], [edge('m', 'f', always())]), FLUXO);
+    expect(codigos(semInicio)).toContain('no_trigger:null:error');
 
     const ciclo = validateFlowForPublish(
       graph(
