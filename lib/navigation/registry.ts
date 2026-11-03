@@ -176,17 +176,3 @@ export function hubSections(
   }
   return [...porSecao.entries()].map(([section, items]) => ({ section, items }));
 }
-
-/** Projeção do ⌘K: todo destino visível, do sidebar ou não. */
-export function searchable(
-  isPlatformAdmin: boolean,
-  role: Role | null,
-  settings?: InterfaceSettings,
-  modulos?: readonly ModuloOpcional[],
-  capacidades?: readonly CapacidadeDaOrganizacao[],
-): NavDestination[] {
-  const visible = new Set<string>(
-    destinosDaInterface(settings, isPlatformAdmin, role, modulos, capacidades).map((d) => d.href),
-  );
-  return NAV_DESTINATIONS.filter((d) => visible.has(d.href));
-}

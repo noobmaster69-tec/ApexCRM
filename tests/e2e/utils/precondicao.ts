@@ -32,11 +32,11 @@
  *     de navegação — chega-se a ela por URL), `/admin/*`
  *     (`requirePlatformAdmin`), `app/actions/settings/updateBranding.ts`,
  *     `setActiveOrg` para uma org de que a pessoa não é membro, e — a que
- *     escapou da primeira enumeração — **o rodapé de versão da sidebar**
- *     (`components/shell/VersionFooter.tsx:22`, `is_owner && update_available`),
- *     que troca um `<p>` por um `<Link>` "Nova versão" e aparece em TODA tela de
- *     `/app/*`. Ele fica dentro do `<aside>` (`Sidebar.tsx:187`) mas FORA do
- *     `<nav>` (que fecha em `:168`), então nenhuma asserção escopada em
+ *     escapou da primeira enumeração — **o item de versão do menu do perfil**
+ *     (`components/shell/RodapeDaLateral.tsx`, `ItemDaVersao`, `is_owner &&
+ *     update_available`), que troca o texto por um link "Nova versão". Até a
+ *     Etapa 7 ele era o rodapé da sidebar, dentro do `<aside>` mas FORA do
+ *     `<nav>`, então nenhuma asserção escopada em
  *     `role=navigation` o vê — mas ele muda a ALTURA disponível para o `<nav>`,
  *     que é `flex-1`, e `navegacao.spec.ts` tem uma asserção geométrica
  *     (`m.rola`) sensível a isso. As duas metades do gatilho eram armadas pelo

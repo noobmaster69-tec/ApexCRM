@@ -39,11 +39,18 @@ vi.mock("@/components/voice/VoiceCallContext", () => ({ useVoiceCall: () => sess
 vi.mock("@/hooks/contacts/useContact", () => ({ useContact: () => ({ data: undefined }) }));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (texto: string) => texto }));
 
-// As peças da casca que NÃO são o assunto: barra lateral, barra de cima, barra
-// de progresso e os vigias de notificação/presença. Ficam fora para o teste
-// medir o rodapé, e não a rede delas.
+// As peças da casca que NÃO são o assunto: barra lateral, gaveta, barra de
+// progresso, cartão de proposta, som da Central e os vigias de
+// notificação/presença. Ficam fora para o teste medir o rodapé, e não a rede delas.
 vi.mock("@/components/shell/Sidebar", () => ({ Sidebar: () => null }));
-vi.mock("@/components/shell/TopBar", () => ({ TopBar: () => null }));
+vi.mock("@/components/shell/GavetaDaLateral", () => ({ GavetaDaLateral: () => null }));
+vi.mock("@/components/shell/AvisoDePropostaEmDestaque", () => ({ AvisoDePropostaEmDestaque: () => null }));
+vi.mock("@/components/shell/SonsDaCentral", () => ({ SonsDaCentral: () => null }));
+vi.mock("@/components/shell/estado-da-lateral", () => ({
+  useLateral: () => ({ recolhida: false, automatica: false, alternar: () => {} }),
+}));
+vi.mock("@/lib/theme", () => ({ useTheme: () => ({ toggle: () => {} }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/app/inbox" }));
 vi.mock("@/components/shell/BarraDeProgressoNavegacao", () => ({
   BarraDeProgressoNavegacao: () => null,
 }));
@@ -139,7 +146,7 @@ function arvore({
 }): ReactElement {
   return (
     <ProvedorDaOcupacaoDoRodape>
-      <AppShell sidebarCollapsed={false} podeAtender={false}>
+      <AppShell podeAtender={false}>
         <Tela aoExcluir={aoExcluir} />
       </AppShell>
       {/* Irmão da casca, exatamente como o `VoiceCallProvider` monta o painel:

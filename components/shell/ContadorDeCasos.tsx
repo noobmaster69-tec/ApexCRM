@@ -2,7 +2,6 @@
 
 import { useT } from "@/hooks/i18n/useT";
 import { useCases } from "@/hooks/ai/useCases";
-import { cn } from "@/lib/utils";
 
 /**
  * Quantos casos esperam uma PESSOA — o número ao lado de "Casos" no menu.
@@ -24,12 +23,12 @@ export function ContadorDeCasos({ compacto }: { compacto: boolean }) {
       data-testid="contador-de-casos"
       aria-label={rotulo}
       title={rotulo}
-      className={cn(
-        "rounded-full bg-red-600 text-[10px] font-semibold leading-none text-white tabular-nums",
-        compacto ? "absolute top-1 right-1 h-2 w-2" : "ml-auto px-1.5 py-0.5",
-      )}
+      // O badge da lateral (Etapa 7): `--badge-danger`, "99+" acima de 99. Com a
+      // lateral recolhida ele fica no canto do ícone (`shell.css`), com o número.
+      className="sh-badge"
+      data-compacto={compacto ? "true" : undefined}
     >
-      {compacto ? null : pendentes}
+      {pendentes > 99 ? "99+" : pendentes}
     </span>
   );
 }

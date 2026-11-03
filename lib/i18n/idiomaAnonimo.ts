@@ -15,7 +15,7 @@ import { normalizarIdioma, parseAcceptLanguage, type Idioma } from "@/lib/i18n/i
  * diferente do que este arquivo resolve: visitante que NUNCA teve conta).
  *
  * Server-only de propósito (`next/headers`): `lib/i18n/idiomas.ts` continua
- * puro porque componente cliente (`SeletorDeIdioma.tsx`) o importa.
+ * puro porque componente cliente (o seletor de idioma em `RodapeDaLateral.tsx`) o importa.
  */
 export async function idiomaDoVisitante(
   localeBruto: string | null | undefined,

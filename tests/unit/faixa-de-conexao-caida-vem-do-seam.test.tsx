@@ -94,9 +94,10 @@ function achar(no: ReactNode, alvo: unknown): ReactElement | null {
     }
     return null;
   }
-  const elemento = no as ReactElement<{ children?: ReactNode }>;
+  const elemento = no as ReactElement<{ children?: ReactNode; faixas?: ReactNode }>;
   if (elemento.type === alvo) return elemento;
-  return achar(elemento.props?.children, alvo);
+  // As faixas de aviso entram na casca pela prop `faixas` (Etapa 7).
+  return achar(elemento.props?.faixas, alvo) ?? achar(elemento.props?.children, alvo);
 }
 
 beforeEach(() => {

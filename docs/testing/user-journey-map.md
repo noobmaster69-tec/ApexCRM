@@ -3200,3 +3200,19 @@ Spec de tela: `tests/e2e/fluxos-editor-rodada-1.spec.ts` (parte 5), evidência e
 | J39.7 | Publicar com um bloco solto | modal "Alguns blocos estão desconectados" com o bloco (nome + tipo + motivo); "Publicar mesmo assim" publica; "Voltar e conectar" fecha; bloco destacado no canvas | **PASS (rota + unit)** — `tests/api/followup-flows.test.ts`, `AvisosDoPublish.test.tsx`; tela **NÃO MEDIDA** |
 | J39.8 | Publicar com erro que bloqueia (sem Início, ciclo sem espera) | recusa como antes, mesmo com `aceitar_avisos` | **PASS (rota + unit)** — `followup-flows.test.ts`, `validate-publish.test.ts` |
 | J39.9 | Contato que chega a bloco solto / caminho sem seta, depois de publicado assim | bloco solto nunca roda; o caminho sem seta encerra a inscrição como concluída (`sem_saida`), sem agendar nem repetir | **PASS (unit, motor)** — `lib/fluxos/motor.test.ts` |
+
+## J40 — Apex: etiquetas, Início único, campanhas e a casca sem barra no topo `[P1]` (2026-11-03)
+
+Fork jhoow, branch `feat/apex-shell-e-fluxos`. Evidência de tela a gravar em
+`evidence/shell-e-fluxos/` (pendente: a sessão não tinha Supabase/Docker na
+máquina — nada foi instalado localmente por pedido do dono).
+
+| # | Caso | Esperado | Estado |
+|---|---|---|---|
+| J40.1 | Bloco Etiquetas: lista, filtro sem acento/caixa, criar, excluir pelo × | lista as da conta; "+ Criar" só sem igual exato e nunca em Remover; × pede confirmação com a contagem de contatos (manager+) | **PASS (unit)** — `busca-de-etiqueta.test.ts`; tela **NÃO MEDIDA** |
+| J40.2 | Blocos 12% mais estreitos | cartão de 232px | **PASS (unit)** — `DockDeBlocos.test.tsx`, `sem-sobreposicao.test.ts`; tela **NÃO MEDIDA** |
+| J40.3 | Aviso de publicação com cor, pista e "Ir até o bloco" | cartão com a cor/ícone do bloco; clicar centraliza e pisca o bloco | **PASS (unit)** — `AvisosDoPublish.test.tsx`; tela **NÃO MEDIDA** |
+| J40.4 | Campanha: janela obrigatória e modo cota × ritmo | só o modo escolhido é validado e enviado | **PASS (unit)** — `cota.test.ts`, `programacao.test.ts`; tela **NÃO MEDIDA** |
+| J40.5 | Um único Início | fora da paleta; abrir legado tira o duplicado sem seta (toast) e marca o com seta; PATCH recusa 0 ou um a mais | **PASS (unit)** — `inicio-unico.test.ts`, `validate-publish.test.ts`, `importar-leona.test.ts`; tela **NÃO MEDIDA** |
+| J40.6 | Canvas no tema claro | fundo `#f7f8fb`, pontos azuis; troca ao vivo | tela **NÃO MEDIDA** |
+| J40.7 | Casca: lateral 248/68px, rodapé com 4 ícones e cartão de perfil, gaveta < 1024px, sem ⌘K | badge 99+, Configurações ativo nas sub-rotas, menu do perfil troca de organização e sai | **PASS (unit)** — `rodape-da-lateral.test.tsx`, `sidebar-grupos.test.tsx`; tela **NÃO MEDIDA** |

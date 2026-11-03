@@ -43,13 +43,12 @@ vi.mock("@/components/shell/ContadorDaFila", () => ({
     <span data-testid="marcador-fila" data-compacto={String(compacto)} />
   ),
 }));
-vi.mock("@/app/actions/shell/toggleSidebar", () => ({
-  toggleSidebar: vi.fn(),
-}));
-// Busca a versão via react-query; sem QueryClientProvider ele lança, e o
-// rodapé de versão não é o que estes testes examinam.
-vi.mock("@/components/shell/VersionFooter", () => ({
-  VersionFooter: () => null,
+// O rodapé lê pelo React Query e por provedores que estes casos não montam (ele
+// tem o próprio teste, `rodape-da-lateral.test.tsx`). O dublê desenha só o que
+// se mede aqui: que a lateral entrega a ele o hub de Configurações do registro.
+vi.mock("@/components/shell/RodapeDaLateral", () => ({
+  RodapeDaLateral: ({ configuracoes }: { configuracoes: { href: string; label: string } | null }) =>
+    configuracoes ? <a href={configuracoes.href}>{configuracoes.label}</a> : null,
 }));
 
 function comoPapel(role: ActiveOrg["role"]) {

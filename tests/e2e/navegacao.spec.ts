@@ -159,30 +159,13 @@ test.describe("navegação agrupada", () => {
     await expect(page.getByRole("tab", { name: /oficial/i })).toBeVisible();
   });
 
-  test("o ⌘K acha o canal oficial por nome, mesmo sem tela própria", async ({ page }) => {
+  test("a busca global (⌘K) saiu da casca — o atalho não abre nada", async ({ page }) => {
+    // Etapa 7: a barra do topo e a busca global saíram; as buscas de cada tela
+    // ficam. O atalho não pode abrir um diálogo órfão.
     await loginAdmin(page);
-
-    // Ninguém procura por "Conexões" quando quer o número oficial da Meta —
-    // procura por "oficial". A busca varre a descrição além do rótulo.
     await page.keyboard.press("ControlOrMeta+k");
-    await page.getByRole("combobox").fill("oficial");
-    await expect(page.getByRole("option", { name: /Conexões/ })).toBeVisible();
-  });
-
-  test("⌘K abre, filtra e navega", async ({ page }) => {
-    await loginAdmin(page);
-
-    await page.keyboard.press("ControlOrMeta+k");
-    const busca = page.getByRole("combobox");
-    await expect(busca).toBeVisible();
-
-    await busca.fill("conhec");
-    await expect(page.getByRole("option", { name: /Conhecimento/ })).toBeVisible();
-
-    await page.screenshot({ path: path.join(EVIDENCE, "nav-command-palette.png") });
-
-    await page.keyboard.press("Enter");
-    await page.waitForURL(/knowledge\/sources/);
+    await expect(page.getByRole("combobox")).toHaveCount(0);
+    await expect(page.getByRole("banner")).toHaveCount(0);
   });
 
   /**

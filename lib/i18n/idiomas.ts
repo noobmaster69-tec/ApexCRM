@@ -78,7 +78,7 @@ export function normalizarIdioma(bruto: string | null | undefined): Idioma {
  * por preferência (`es-MX,es;q=0.9,en;q=0.8`), e o primeiro idioma que este
  * produto sabe servir na ordem do visitante vence, mesmo que não seja o de
  * maior `q`. Pura por design: sem `next/headers` aqui, porque este arquivo é
- * importado por componente cliente (`SeletorDeIdioma.tsx`) — quem lê o
+ * importado por componente cliente (`RodapeDaLateral.tsx`) — quem lê o
  * cabeçalho é `idiomaDoVisitante` em `lib/i18n/idiomaAnonimo.ts`, server-only.
  */
 export function parseAcceptLanguage(header: string | null | undefined): Idioma | null {

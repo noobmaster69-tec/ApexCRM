@@ -1802,32 +1802,23 @@ export const DICIONARIO: Traducoes = {
   },
   // ─── Shell persistente (sidebar, topbar, ⌘K, menu do usuário) ───
   "Navegação principal": { es: "Navegación principal" },
-  "Expandir sidebar": { es: "Expandir barra lateral" },
-  "Recolher sidebar": { es: "Contraer barra lateral" },
   Versão: { es: "Versión" },
   versão: { es: "versión" },
   "Nova versão": { es: "Nueva versión" },
   disponível: { es: "disponible" },
   "Abrir navegação": { es: "Abrir navegación" },
-  "Buscar telas": { es: "Buscar pantallas" },
   "Buscar telas do sistema…": { es: "Buscar pantallas del sistema…" },
-  Telas: { es: "Pantallas" },
   "Buscar por nome, objetivo ou função (ex: leads, agenda, prompt, whatsapp)...": {
     es: "Buscar por nombre, objetivo o función (ej.: leads, agenda, prompt, whatsapp)...",
   },
   "Tente buscar por outro termo ou selecione 'Todas' nas categorias.": {
     es: "Prueba con otro término o selecciona 'Todas' en las categorías.",
   },
-  ferramenta: { es: "herramienta" },
-  ferramentas: { es: "herramientas" },
-  "Use as setas ↑↓ e Enter para navegar": { es: "Usa las flechas ↑↓ y Enter para navegar" },
-  "ESC para fechar": { es: "ESC para cerrar" },
   // O gatilho da busca no topo mostra RETICENCIA ASCII desde antes do i18n
   // (`Buscar...`). A chave e o byte que a tela ja mostrava: trocar por "…"
   // aqui mudaria a tela de quem usa em portugues — que e o unico jeito de
   // esta feature piorar alguma coisa.
   "Buscar...": { es: "Buscar..." },
-  "Menu do usuário": { es: "Menú del usuario" },
   Sair: { es: "Cerrar sesión" },
   "Central de avisos": { es: "Central de avisos" },
   "em aberto": { es: "abiertos" },
@@ -2702,6 +2693,15 @@ export const DICIONARIO: Traducoes = {
   "Removemos {n} blocos de Início duplicados.": { es: "Eliminamos {n} bloques de Inicio duplicados." },
   "O fluxo precisa de um bloco de Início.": { es: "El flujo necesita un bloque de Inicio." },
   "Um fluxo tem um único bloco de Início.": { es: "Un flujo tiene un único bloque de Inicio." },
+  "Expandir menu": { es: "Expandir menú" },
+  "Recolher menu": { es: "Contraer menú" },
+  "Abrir a central": { es: "Abrir la central" },
+  "Tema escuro": { es: "Tema oscuro" },
+  "Tema claro": { es: "Tema claro" },
+  "Alternar tema": { es: "Cambiar tema" },
+  "Perfil e organização": { es: "Perfil y organización" },
+  "Organização ativa": { es: "Organización activa" },
+  "Meu perfil": { es: "Mi perfil" },
   "Alguns blocos estão desconectados": { es: "Algunos bloques están desconectados" },
   "Bloco solto nunca roda, e o contato que chegar a um caminho sem seta encerra o fluxo ali. Você pode conectar agora ou publicar assim mesmo.":
     {
@@ -9247,7 +9247,6 @@ export const DICIONARIO: Traducoes = {
   "Escanear o QR": { es: "Escanear el QR" },
   "Ver conexões": { es: "Ver conexiones" },
   "Tente novamente em instantes. Se persistir, contate o suporte com o ID abaixo.": { es: "Inténtalo de nuevo en unos momentos. Si el problema continúa, contacta a soporte con el ID de abajo." },
-  "Nada encontrado para": { es: "No se encontró nada para" },
   "Seguir o idioma da empresa": { es: "Seguir el idioma de la empresa" },
   "Não foi possível trocar o idioma. Tente de novo.": {
     es: "No se pudo cambiar el idioma. Inténtalo de nuevo.",

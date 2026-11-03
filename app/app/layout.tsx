@@ -190,9 +190,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     needsMfaGate = mfaRequired;
   }
 
-  // Read sidebar collapsed state SSR to avoid flash.
+  // A escolha da lateral (recolhida/expandida), espelhada em cookie para a casca
+  // já nascer no tamanho certo. Sem cookie, a largura da janela decide
+  // (`components/shell/estado-da-lateral.ts`).
   const store = await cookies();
-  const collapsed = store.get("sidebar_collapsed")?.value === "1";
+  const lateralSalva = store.get("sidebar_collapsed")?.value;
+  const preferenciaDaLateral = lateralSalva === "1" ? "recolhida" : lateralSalva === "0" ? "expandida" : null;
 
   const impersonating = user.support ? {
     tenantId: user.support.organization_id, tenantName: user.support.name,
@@ -213,8 +216,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <ChatsFlutuantesProvider userId={user.id} orgId={activeOrg?.orgId ?? null}>
         <VoiceCallProvider>
           <AppShell
-            sidebarCollapsed={collapsed}
+            preferenciaDaLateral={preferenciaDaLateral}
             podeAtender={Boolean(activeOrg && roleAtLeast(activeOrg.role, "agent"))}
+            // As faixas de aviso moram no topo da área de conteúdo (Etapa 7),
+            // não mais acima da casca inteira.
+            faixas={
+              <>
+                <ImpersonateBanner impersonating={impersonating} />
+                <ConexaoCaidaBanner caidas={conexoesCaidas} />
+              </>
+            }
           >
             {children}
           </AppShell>
@@ -261,8 +272,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       */}
       <div data-marca-org="" className="contents">
         <EstiloDaMarcaDaOrganizacao css={cssDaOrganizacao} />
-        <ImpersonateBanner impersonating={impersonating} />
-        <ConexaoCaidaBanner caidas={conexoesCaidas} />
         {needsMfaGate ? (
           // Gate always mounted for MFA-required roles; it latches the blocking
           // decision client-side so the enroll Server Action's revalidation

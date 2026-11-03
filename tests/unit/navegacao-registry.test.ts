@@ -6,7 +6,6 @@ import {
   NAV_GROUPS,
   canSee,
   hubSections,
-  searchable,
   sidebarGroups,
 } from "@/lib/navigation/registry";
 
@@ -205,15 +204,4 @@ describe("hubSections", () => {
   });
 });
 
-describe("searchable", () => {
-  it("expõe todo destino visível, do sidebar ou não", () => {
-    const hrefs = searchable(ADMIN.platform, ADMIN.role).map((d) => d.href);
-    expect(hrefs).toContain("/app/ai/knowledge/sources");
-    expect(hrefs).toContain("/app/inbox");
-  });
 
-  it("respeita o papel", () => {
-    const hrefs = searchable(AGENT.platform, AGENT.role).map((d) => d.href);
-    expect(hrefs).not.toContain("/app/audit");
-  });
-});
