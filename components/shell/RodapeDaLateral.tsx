@@ -253,16 +253,16 @@ function BotaoDeTema() {
 
 // ── 4. Configurações ─────────────────────────────────────────────────────────
 
+/** `label` chega já traduzido: quem o lê do registro é a lateral. */
 function BotaoDeConfiguracoes({ href, label, onNavigate }: { href: string; label: string; onNavigate?: () => void }) {
-  const t = useT();
   const pathname = usePathname();
   const ativa = pathname === href || pathname.startsWith(href + "/");
   return (
-    <Dica texto={t(label)}>
+    <Dica texto={label}>
       <Link
         href={href}
         className="sh-tile"
-        aria-label={t(label)}
+        aria-label={label}
         aria-current={ativa ? "page" : undefined}
         data-ativo={ativa ? "true" : undefined}
         onClick={onNavigate}

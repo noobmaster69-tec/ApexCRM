@@ -262,7 +262,7 @@ export function SidebarContent({
       </nav>
       <RodapeDaLateral
         recolhida={collapsed}
-        configuracoes={rodape}
+        configuracoes={rodape && { href: rodape.href, label: t(rodape.label) }}
         onNavigate={onNavigate}
         onExpandir={podeRecolher ? onToggle : undefined}
       />
@@ -284,7 +284,6 @@ function ItemDaLateral({
   const t = useT();
   const IconeLucide = ICONE_DA_LATERAL[item.href];
   const IconeDoRegistro = item.icon;
-  const rotulo = t(item.label);
   const link = (
     <Link
       href={item.href}
@@ -295,7 +294,7 @@ function ItemDaLateral({
       <span className="sh-item__icone">
         {IconeLucide ? <IconeLucide size={17} aria-hidden /> : <IconeDoRegistro size={17} weight={ativo ? "fill" : "regular"} aria-hidden />}
       </span>
-      {recolhida ? <span className="sr-only">{rotulo}</span> : <span className="sh-item__rotulo">{rotulo}</span>}
+      <span className={recolhida ? "sr-only" : "sh-item__rotulo"}>{t(item.label)}</span>
       {item.healthDot && <ConnectionHealthDot variante="lateral" />}
       {item.contador === "casos" && <ContadorDeCasos compacto={recolhida} />}
       {item.contador === "fila" && <ContadorDaFila compacto={recolhida} />}
@@ -305,7 +304,7 @@ function ItemDaLateral({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent side="right">{rotulo}</TooltipContent>
+      <TooltipContent side="right">{t(item.label)}</TooltipContent>
     </Tooltip>
   );
 }
@@ -330,7 +329,7 @@ export function Sidebar({
       // as duas discordaram, a barra passou por cima da lista de conversas. Na
       // casca de altura fixa (`.sh-app`, 100vh) ela não rola de qualquer jeito;
       // o `sticky` fica como garantia caso a casca volte a rolar.
-      className="sh-side sh-side--fixa sticky top-0"
+      className="sh-side sh-side--fixa sticky top-0 h-screen shrink-0"
       data-recolhida={collapsed ? "true" : undefined}
       data-automatica={automatica ? "true" : undefined}
       data-pronta={pronta ? "true" : undefined}
