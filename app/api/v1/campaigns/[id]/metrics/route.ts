@@ -18,7 +18,7 @@ import type { NextRequest } from "next/server";
 
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
-import { progresso, taxasDaCampanha, type ContagemDaCampanha } from "@/lib/campanhas/metricas";
+import { contagemDasLinhas, progresso, taxasDaCampanha } from "@/lib/campanhas/metricas";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { createClient } from "@/lib/supabase/server";
 
@@ -72,21 +72,7 @@ export async function GET(
     }
   }
 
-  const c: ContagemDaCampanha = {
-    total: linhas.length,
-    elegiveis: linhas.filter((l) => l.eligibility_status === "eligible").length,
-    excluidos: linhas.filter((l) => l.eligibility_status === "excluded").length,
-    pendentes: linhas.filter((l) => l.status === "pending").length,
-    naFila: linhas.filter((l) => l.status === "queued").length,
-    enviando: linhas.filter((l) => l.status === "sending").length,
-    enviados: linhas.filter((l) => l.sent_at !== null).length,
-    entregues: linhas.filter((l) => l.delivered_at !== null).length,
-    lidos: linhas.filter((l) => l.read_at !== null).length,
-    responderam: linhas.filter((l) => l.replied_at !== null).length,
-    falharam: linhas.filter((l) => l.status === "failed").length,
-    cancelados: linhas.filter((l) => l.status === "cancelled").length,
-    optOut: linhas.filter((l) => l.opted_out_at !== null).length,
-  };
+  const c = contagemDasLinhas(linhas);
 
   // Item 4: campanha em modo fluxo também mostra quantos CONCLUÍRAM o fluxo
   // (inscrição terminada) entre os que a campanha colocou nele.

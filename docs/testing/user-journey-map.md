@@ -3216,3 +3216,21 @@ máquina — nada foi instalado localmente por pedido do dono).
 | J40.5 | Um único Início | fora da paleta; abrir legado tira o duplicado sem seta (toast) e marca o com seta; PATCH recusa 0 ou um a mais | **PASS (unit)** — `inicio-unico.test.ts`, `validate-publish.test.ts`, `importar-leona.test.ts`; tela **NÃO MEDIDA** |
 | J40.6 | Canvas no tema claro | fundo `#f7f8fb`, pontos azuis; troca ao vivo | tela **NÃO MEDIDA** |
 | J40.7 | Casca: lateral 248/68px, rodapé com 4 ícones e cartão de perfil, gaveta < 1024px, sem ⌘K | badge 99+, Configurações ativo nas sub-rotas, menu do perfil troca de organização e sai | **PASS (unit)** — `rodape-da-lateral.test.tsx`, `sidebar-grupos.test.tsx`; tela **NÃO MEDIDA** |
+
+## J41 — Conexões MCP seguras: criar, conectar, recusar e revogar `[P1]` (2026-11-03)
+
+Fork jhoow, branch `feat/apex-lateral-e-mcp`, migration 9023. Evidência de tela a
+gravar em `evidence/mcp-seguro/` (pendente: sem Supabase/Docker na máquina — nada é
+instalado localmente por pedido do dono; a prova pela tela fica para o staging).
+
+| # | Caso | Esperado | Estado |
+|---|---|---|---|
+| J41.1 | Interruptor desligado | toda chamada de conexão → 403 `mcp_disabled`, inclusive as que já existiam | **PASS (unit)** — `mcp-v1-rota.test.ts`; tela **NÃO MEDIDA** |
+| J41.2 | Assistente de 3 passos | nome+ferramenta → perfil com "pode/não pode", validade, IPs, dados pessoais → token uma vez + instrução da ferramenta | tela **NÃO MEDIDA** |
+| J41.3 | `tools/list` pelo escopo, uma leitura e uma recusa | só as ferramentas do escopo; leitura `ok` registrada; recusa `negado` (motivo `scope`) | **PASS (unit, cliente oficial do SDK)** — `mcp-v1-rota.test.ts` |
+| J41.4 | Revogada / expirada / dono removido / IP fora / queda de papel | 401 / 401 / 403 / 403 / perde as ferramentas acima do papel | **PASS (unit)** — `mcp-v1-rota.test.ts` |
+| J41.5 | Isolamento | a conexão da organização B não lê o negócio da A, nem pelo id | **PASS (unit)** — `mcp-v1-rota.test.ts`; RLS em `tests/invariants/mcp-conexoes-rls.test.ts` |
+| J41.6 | 61ª chamada no minuto | recusada com `Retry-After` | **PASS (unit)** — `mcp-v1-regras.test.ts` |
+| J41.7 | 20 recusas em 10 min | conexão suspensa + aviso na Central; reativar pela tela | **PASS (unit)** — `mcp-v1-rota.test.ts`; tela **NÃO MEDIDA** |
+| J41.8 | OAuth (Claude Desktop) | registro dinâmico → aprovação na tela → código PKCE → par; refresh gira; reuso revoga | **PASS (unit)** — `mcp-v1-oauth.test.ts`; tela **NÃO MEDIDA** |
+| J41.9 | Lista de bloqueio | nenhuma ferramenta apaga, publica, dispara, envia, importa/exporta ou lê tabela proibida | **PASS (unit)** — `mcp-v1-regras.test.ts` |

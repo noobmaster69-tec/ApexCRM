@@ -256,7 +256,10 @@ export const loadAuthUser = cache(async (): Promise<AuthUser | null> => {
   });
 
   const support = await readSupportContext(supabase);
-  const fullName = (user.user_metadata?.full_name as string | undefined) ?? null;
+  // `full_name` é o campo do cadastro e de Meu perfil; `name` é o que o login
+  // social (Google) grava. O cartão da lateral mostra o e-mail só sem nenhum.
+  const fullName =
+    textoOuNulo(user.user_metadata?.full_name) ?? textoOuNulo(user.user_metadata?.name) ?? null;
   const avatarUrl = (user.user_metadata?.avatar_url as string | undefined) ?? null;
   const locale = (user.user_metadata?.locale as string | undefined) ?? null;
   // A cadeia inteira num lugar só: pessoa → organização ativa → padrão. Quem
@@ -447,4 +450,8 @@ export async function mfaEmDivida(): Promise<boolean> {
   // Cadastrar e provar são perguntas diferentes. Quem TEM fator prova, sempre.
   if (!(await isMfaEnrolled())) return false;
   return (await sessionAal()) !== "aal2";
+}
+
+function textoOuNulo(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
 }

@@ -9,7 +9,7 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  *   e versões saem no cascade / na ordem abaixo; não dá para desfazer.
  */
 import { rascunhoDoFluxo } from "@/lib/followup/rascunho";
-import { recusaDoInicio } from "@/lib/fluxos/inicio-unico";
+import { salvarFluxo } from "@/lib/followup/salvar-fluxo";
 import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
@@ -115,74 +115,37 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
   }
 
   const supabase = await createClient();
-  const { data: existing, error: fetchErr } = await supabase
-    .from("followup_flow_pointers")
-    .select("id, surface, draft_graph, active_version_id")
-    .eq("id", id)
-    .eq("organization_id", activeOrg.orgId)
-    .maybeSingle();
-  if (fetchErr) return fail("internal_error", fetchErr.message, 500, { requestId });
-  if (!existing) return fail("not_found", t("Fluxo não encontrado."), 404, { requestId });
-
   const patch = parsed.data;
-
-  // FLUXOS: um Início por fluxo. Recusa o rascunho sem Início ou com um Início
-  // a mais do que já tinha; o legado com vários segue salvável (`recusaDoInicio`).
-  if (existing.surface === "fluxo" && patch.draft_graph) {
-    const anterior = await rascunhoDoFluxo(supabase, existing, activeOrg.orgId);
-    const recusa = recusaDoInicio(patch.draft_graph, anterior);
-    if (recusa) {
-      return fail(
-        "validation_failed",
-        recusa === "sem_inicio"
-          ? t("O fluxo precisa de um bloco de Início.")
-          : t("Um fluxo tem um único bloco de Início."),
-        422,
-        { requestId, details: { code: recusa } },
-      );
+  const salvo = await salvarFluxo(supabase, activeOrg.orgId, id, patch);
+  if (!salvo.ok) {
+    switch (salvo.motivo) {
+      case "nao_encontrado":
+        return fail("not_found", t("Fluxo não encontrado."), 404, { requestId });
+      case "sem_inicio":
+      case "inicio_a_mais":
+        return fail(
+          "validation_failed",
+          salvo.motivo === "sem_inicio"
+            ? t("O fluxo precisa de um bloco de Início.")
+            : t("Um fluxo tem um único bloco de Início."),
+          422,
+          { requestId, details: { code: salvo.motivo } },
+        );
+      case "nome_repetido":
+        return fail("conflict", t("Já existe um fluxo com este nome."), 409, { requestId });
+      case "gatilho_recusado":
+        return fail(
+          "validation_failed",
+          t("Roteiro de atendimento começa por palavra-gatilho ou pelo roteador, não por gatilho de follow-up."),
+          422,
+          { requestId },
+        );
+      default:
+        return fail("internal_error", salvo.detalhe ?? "followup_flow_update_failed", 500, { requestId });
     }
   }
-  if (Object.keys(patch).length === 0) {
-    const { data: unchanged, error: reloadErr } = await supabase
-      .from("followup_flow_pointers")
-      .select(DETAIL_COLUMNS)
-      .eq("id", id)
-      .eq("organization_id", activeOrg.orgId)
-      .single();
-    if (reloadErr || !unchanged) {
-      return fail("internal_error", reloadErr?.message ?? "reload_failed", 500, { requestId });
-    }
-    return ok(unchanged, { requestId });
-  }
-
-  const update: Record<string, unknown> = { ...patch, updated_at: new Date().toISOString() };
-
-  const { data: updated, error: updErr } = await supabase
-    .from("followup_flow_pointers")
-    .update(update)
-    .eq("id", id)
-    .eq("organization_id", activeOrg.orgId)
-    .select(DETAIL_COLUMNS)
-    .single();
-
-  if (updErr || !updated) {
-    if (updErr?.code === "23505") {
-      return fail("conflict", t("Já existe um fluxo com este nome."), 409, { requestId });
-    }
-    // O banco recusa gatilho de relógio em roteiro de atendimento (0394,
-    // `followup_flow_pointers_roteiro_so_manual`): ele começa na conversa.
-    if (updErr?.code === "23514") {
-      return fail(
-        "validation_failed",
-        t("Roteiro de atendimento começa por palavra-gatilho ou pelo roteador, não por gatilho de follow-up."),
-        422,
-        { requestId },
-      );
-    }
-    return fail("internal_error", updErr?.message ?? "followup_flow_update_failed", 500, {
-      requestId,
-    });
-  }
+  if (!salvo.mudou) return ok(salvo.fluxo, { requestId });
+  const updated = salvo.fluxo;
 
   void audit({
     action: "followup_flow.updated",

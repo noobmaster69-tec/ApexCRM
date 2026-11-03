@@ -74,6 +74,13 @@ export const PUBLIC_PATHS: RegExp[] = [
   /^\/api\/v1\/integrations\/nuvemshop\/callback$/,
   /^\/api\/internal\//,
   /^\/api\/mcp(\/.*)?$/,
+  // METADADOS OAuth do MCP (RFC 8414 e RFC 9728, migration 9023). O cliente MCP
+  // (Claude Desktop, claude.ai) os lê ANTES de ter qualquer credencial — é por
+  // eles que descobre onde autorizar. Documentos estáticos, sem efeito; a
+  // variante com sufixo `/api/mcp` é a que a especificação manda tentar
+  // primeiro. Ancorados com `$`: nenhum outro `.well-known` nasce público.
+  /^\/\.well-known\/oauth-authorization-server(\/api\/mcp)?$/,
+  /^\/\.well-known\/oauth-protected-resource(\/api\/mcp)?$/,
   // GET /api/v1/contacts aceita SESSÃO ou Bearer `dsk_...` (api_tokens) — a
   // MESMA dualidade de `/api/mcp` acima. Sem esta entrada, o proxy responde
   // 401 antes de o Bearer chegar à rota, porque `getUser()` aqui só enxerga

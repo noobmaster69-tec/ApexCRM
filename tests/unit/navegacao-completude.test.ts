@@ -56,6 +56,10 @@ const NAV_ALLOWLIST: Record<string, string> = {
     "redirect para /app/connections?aba=oficial&sub=templates — template da Meta só existe por causa do canal oficial, e vive como sub-aba dele",
   "/app/settings/atualizacao":
     "porta é o item de versão do menu do perfil (RodapeDaLateral, ItemDaVersao), que vira link justamente quando há versão nova — melhor que um card fixo. Além disso é só do dono do servidor (is_platform_admin), papel que o registro não modela",
+  "/app/settings/integracoes/mcp/autorizar":
+    "tela de consentimento OAuth (9023): quem chega aqui é a ferramenta de IA que mandou o admin aprovar a conexão, com client_id e PKCE na URL — aberta sem eles, só mostra o erro",
+  "/app/settings/integracoes/mcp/como-funciona":
+    "ajuda das conexões MCP, alcançada pelo link 'Como funciona' dentro de Conexões MCP",
   "/app/proposals/novo":
     "sub-fluxo de criação de proposta, alcançado pelo botão 'Nova proposta' em /app/proposals",
 };

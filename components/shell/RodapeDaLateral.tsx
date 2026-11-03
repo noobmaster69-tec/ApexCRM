@@ -63,6 +63,14 @@ function Dica({ texto, children }: { texto: string; children: ReactNode }) {
 }
 
 /**
+ * O nome que o cartão mostra: o nome completo do cadastro; o e-mail só quando
+ * não há nome nenhum.
+ */
+export function nomeParaMostrar(user: { full_name: string | null; email: string }): string {
+  return user.full_name?.trim() || user.email;
+}
+
+/**
  * O rodapé da lateral (Etapa 7): quatro botões — Notificações, Idioma, Tema e
  * Configurações — e o cartão de perfil + organização. Tudo o que morava na
  * barra do topo e não é busca veio para cá.
@@ -83,10 +91,22 @@ export function RodapeDaLateral({
   const t = useT();
   return (
     <div className="sh-rodape" data-testid="rodape-da-lateral">
+      {/* Recolhida, o » mora aqui, acima dos ícones — em TODA tela, inclusive
+          no construtor de fluxo: lateral recolhida sem como reabrir não existe. */}
       {recolhida && onExpandir && (
-        <button type="button" className="sh-botao-recolher" onClick={onExpandir} aria-label={t("Expandir menu")}>
-          <ChevronsRight size={16} aria-hidden />
-        </button>
+        <div className="sh-rodape__expandir">
+          <Dica texto={t("Expandir menu")}>
+            <button
+              type="button"
+              className="sh-botao-recolher"
+              onClick={onExpandir}
+              aria-label={t("Expandir menu")}
+              data-testid="expandir-lateral"
+            >
+              <ChevronsRight size={16} aria-hidden />
+            </button>
+          </Dica>
+        </div>
       )}
       <div className="sh-icones">
         <BotaoDeNotificacoes />
@@ -281,7 +301,7 @@ function CartaoDePerfil({ recolhida, onNavigate }: { recolhida: boolean; onNavig
   const { trocar, trocando } = useTrocaDeOrganizacao();
   const [saindo, startSaida] = useTransition();
   const [aberto, setAberto] = useState(false);
-  const nomeDaPessoa = user.full_name?.trim() || user.email;
+  const nomeDaPessoa = nomeParaMostrar(user);
   const nomeDaOrg = activeOrg?.name ?? t("Selecionar org");
   const logoDaOrg = activeOrg?.marca?.logoUrl ?? null;
   const emSuporte = !!user.support;
@@ -317,7 +337,9 @@ function CartaoDePerfil({ recolhida, onNavigate }: { recolhida: boolean; onNavig
           {!recolhida && (
             <>
               <span className="sh-perfil__textos">
-                <span className="sh-perfil__nome">{nomeDaPessoa}</span>
+                <span className="sh-perfil__nome" title={user.email || undefined}>
+                  {nomeDaPessoa}
+                </span>
                 <span className="sh-perfil__org">{nomeDaOrg}</span>
               </span>
               <ChevronsUpDown size={15} className="sh-perfil__seta" aria-hidden />
@@ -334,6 +356,11 @@ function CartaoDePerfil({ recolhida, onNavigate }: { recolhida: boolean; onNavig
           className={recolhida ? "sh-menu" : "sh-menu sh-menu--perfil"}
           data-testid="menu-do-perfil"
         >
+          <div className="sh-menu__pessoa" data-testid="menu-do-perfil-pessoa">
+            <span className="sh-menu__pessoa-nome">{nomeDaPessoa}</span>
+            {user.email && <span className="sh-menu__pessoa-email">{user.email}</span>}
+          </div>
+          <DropdownMenu.Separator className="sh-menu__divisoria" />
           <DropdownMenu.Label className="sh-menu__titulo">{t("Organização")}</DropdownMenu.Label>
           <div className="sh-menu__lista">
             {user.organizations.map((org) => {

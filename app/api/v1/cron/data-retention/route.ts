@@ -54,6 +54,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { autorizaCron } from "@/lib/auth/cron-auth";
 import { env } from "@/lib/env";
+import { manutencaoDoMcp, type ResultadoDaManutencaoMcp } from "@/lib/mcp/v1/manutencao";
 import { logger } from "@/lib/logger";
 import {
   RETENCAO_AUDITORIA_DIAS_PADRAO,
@@ -594,6 +595,27 @@ async function handle(req: NextRequest): Promise<Response> {
     });
   }
 
+  // Conexões MCP (9023): registro de chamadas com mais de 90 dias e o aviso de
+  // vencimento em 7 dias. Try próprio, pela mesma razão da varredura de LGPD.
+  let mcp: ResultadoDaManutencaoMcp = { chamadas_apagadas: 0, avisos_de_vencimento: 0 };
+  try {
+    mcp = await manutencaoDoMcp(createAdminClient());
+  } catch (err) {
+    logger.error("[data-retention] manutenção das conexões MCP falhou", {
+      error: err instanceof Error ? err.message : String(err),
+      requestId,
+    });
+  }
+  if (mcp.chamadas_apagadas > 0 || mcp.avisos_de_vencimento > 0) {
+    void audit({
+      action: "retention.sweep_run",
+      organizationId: null,
+      bypassedRls: true,
+      metadata: { mcp },
+      requestId,
+    });
+  }
+
   for (const falha of varredura.falhas) {
     logger.error("[data-retention] retomada de anonimização falhou", { falha, requestId });
   }
@@ -631,6 +653,7 @@ async function handle(req: NextRequest): Promise<Response> {
       anonimizacoes_examinadas: varredura.examinados,
       anonimizacoes_completadas: varredura.completados.length,
       anonimizacoes_tem_resto: varredura.temResto,
+      mcp,
     },
     { requestId },
   );

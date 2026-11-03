@@ -102,6 +102,11 @@ export type InboxKind =
   // A proposta rascunhada pela IA precisa de revisão de uma pessoa — a Central
   // acompanha até resolver.
   | 'proposta_pronta_para_revisao'
+  // Conexões MCP (9023): criada, a 7 dias de vencer, suspensa por recusas
+  // seguidas. Todos os admins veem; o aviso leva à tela de MCP.
+  | 'mcp_conexao_criada'
+  | 'mcp_conexao_expirando'
+  | 'mcp_conexao_suspensa'
   | 'other';
 
 export interface InboxItemRow {

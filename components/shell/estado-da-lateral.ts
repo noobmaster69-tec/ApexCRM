@@ -16,6 +16,12 @@ import { gravarLateral } from "@/app/actions/shell/gravarLateral";
 export type PreferenciaDaLateral = "expandida" | "recolhida";
 
 export const CHAVE_DA_LATERAL = "lateral-recolhida";
+/**
+ * A preferência do CONSTRUTOR DE FLUXO, separada da geral: lá a lateral nasce
+ * recolhida para dar espaço ao canvas, e expandir num fluxo não mexe nas outras
+ * telas (nem o contrário). Só `localStorage` — o servidor não a lê.
+ */
+export const CHAVE_DA_LATERAL_DO_CONSTRUTOR = "sidebar-collapsed:builder";
 /** Faixa em que, sem escolha salva, a lateral nasce recolhida. */
 export const FAIXA_RECOLHIDA = "(min-width: 1024px) and (max-width: 1279.98px)";
 
@@ -35,6 +41,35 @@ function gravarPreferencia(p: PreferenciaDaLateral): void {
     // Sem armazenamento: a escolha vale até recarregar.
   }
   void gravarLateral(p === "recolhida").catch(() => {});
+}
+
+/** `true` = recolhida, que é o padrão do construtor quando nada foi salvo. */
+export function lerLateralDoConstrutor(): boolean {
+  try {
+    return window.localStorage.getItem(CHAVE_DA_LATERAL_DO_CONSTRUTOR) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function gravarLateralDoConstrutor(recolhida: boolean): void {
+  try {
+    window.localStorage.setItem(CHAVE_DA_LATERAL_DO_CONSTRUTOR, String(recolhida));
+  } catch {
+    // Sem armazenamento: a escolha vale até recarregar.
+  }
+}
+
+export function useLateralDoConstrutor(): { recolhida: boolean; alternar: () => void } {
+  const [recolhida, setRecolhida] = useState(true);
+  useEffect(() => setRecolhida(lerLateralDoConstrutor()), []);
+  const alternar = useCallback(() => {
+    setRecolhida((atual) => {
+      gravarLateralDoConstrutor(!atual);
+      return !atual;
+    });
+  }, []);
+  return { recolhida, alternar };
 }
 
 export function useLateral(inicial: PreferenciaDaLateral | null): {

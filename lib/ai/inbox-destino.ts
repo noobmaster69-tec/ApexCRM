@@ -39,6 +39,7 @@ type ContextoGeral = { papel: Role; href: string; rotulo: string };
 interface Politica { refs: readonly InboxRefKind[]; orientacao: string; geral?: ContextoGeral }
 const EVOLUCAO: ContextoGeral = { papel: "manager", href: "/app/ai/evolution", rotulo: "Abrir evolução do assistente" };
 const CONEXOES: ContextoGeral = { papel: "admin", href: "/app/connections", rotulo: "Revisar conexões" };
+const MCP: ContextoGeral = { papel: "admin", href: "/app/settings/integracoes/mcp", rotulo: "Abrir conexões MCP" };
 
 /** Completude em compile time; pares desconhecidos em clones falham fechados. */
 export const POLITICAS_DE_AVISO = {
@@ -124,6 +125,10 @@ export const POLITICAS_DE_AVISO = {
     refs: ["proposal"],
     orientacao: "A IA rascunhou esta proposta — confirme o modelo sugerido (ou escolha outro) e confira se todos os itens têm preço antes de enviar.",
   },
+  // Conexões MCP (9023): o aviso não aponta para uma linha; a tela de MCP é do admin.
+  mcp_conexao_criada: { refs: [], orientacao: "Confira o que a conexão pode fazer e revogue se não reconhecer quem a criou.", geral: MCP },
+  mcp_conexao_expirando: { refs: [], orientacao: "Se a conexão ainda é usada, renove antes do vencimento.", geral: MCP },
+  mcp_conexao_suspensa: { refs: [], orientacao: "Veja a atividade da conexão antes de reativar: as recusas seguidas indicam uso indevido.", geral: MCP },
   // `agent_case`: o caso que a IA abriu, na Central no instante da abertura
   // (`lib/escalacao/caso-na-central.handler.ts`).
   other: { refs: ["lead", "channel_session", "appointment", "ai_agent", "ai_provider_credential", "agent_case"], orientacao: "Confira a situação descrita neste aviso com a pessoa responsável." },

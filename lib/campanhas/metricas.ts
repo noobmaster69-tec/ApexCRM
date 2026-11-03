@@ -103,3 +103,40 @@ export function progresso(c: ContagemDaCampanha): number {
   const restantes = c.pendentes + c.naFila + c.enviando + c.cancelados;
   return Math.min(1, Math.max(0, (c.elegiveis - restantes) / c.elegiveis));
 }
+
+/** A linha de destinatário com o que a contagem lê (seis carimbos, sem PII). */
+export interface LinhaDaContagem {
+  status: string;
+  eligibility_status: string;
+  sent_at: string | null;
+  delivered_at: string | null;
+  read_at: string | null;
+  replied_at: string | null;
+  opted_out_at: string | null;
+}
+
+export const COLUNAS_DA_CONTAGEM =
+  "status, eligibility_status, sent_at, delivered_at, read_at, replied_at, opted_out_at";
+
+/**
+ * O funil contado por CARIMBO, e não por `status` (ver o cabeçalho de
+ * `app/api/v1/campaigns/[id]/metrics/route.ts`). Num lugar só para a rota e
+ * para a ferramenta MCP `get_campaign`.
+ */
+export function contagemDasLinhas(linhas: readonly LinhaDaContagem[]): ContagemDaCampanha {
+  return {
+    total: linhas.length,
+    elegiveis: linhas.filter((l) => l.eligibility_status === "eligible").length,
+    excluidos: linhas.filter((l) => l.eligibility_status === "excluded").length,
+    pendentes: linhas.filter((l) => l.status === "pending").length,
+    naFila: linhas.filter((l) => l.status === "queued").length,
+    enviando: linhas.filter((l) => l.status === "sending").length,
+    enviados: linhas.filter((l) => l.sent_at !== null).length,
+    entregues: linhas.filter((l) => l.delivered_at !== null).length,
+    lidos: linhas.filter((l) => l.read_at !== null).length,
+    responderam: linhas.filter((l) => l.replied_at !== null).length,
+    falharam: linhas.filter((l) => l.status === "failed").length,
+    cancelados: linhas.filter((l) => l.status === "cancelled").length,
+    optOut: linhas.filter((l) => l.opted_out_at !== null).length,
+  };
+}

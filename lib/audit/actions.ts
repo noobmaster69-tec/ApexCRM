@@ -1046,6 +1046,14 @@ export const AUDIT_ACTIONS = [
   "variavel.criada",
   "variavel.editada",
   "variavel.excluida",
+  // Fork jhoow (migration 9023): Configurações › Integrações › MCP.
+  "mcp.settings_updated",
+  "mcp.connection_created",
+  "mcp.connection_revoked",
+  "mcp.connection_renewed",
+  "mcp.connection_reactivated",
+  "mcp.connection_suspended",
+  "mcp.oauth_client_registered",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */

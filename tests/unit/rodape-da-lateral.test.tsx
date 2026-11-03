@@ -63,15 +63,25 @@ vi.mock("@/lib/theme", () => ({ useTheme: () => ({ resolvedTheme: estado.tema, t
 vi.mock("@/components/shell/useTrocaDeOrganizacao", () => ({ useTrocaDeOrganizacao: () => ({ trocar, trocando: false }) }));
 
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { RodapeDaLateral, contagemCurta, iniciais } from "@/components/shell/RodapeDaLateral";
+import { RodapeDaLateral, contagemCurta, iniciais, nomeParaMostrar } from "@/components/shell/RodapeDaLateral";
 import { ordenarDaLateral } from "@/components/shell/Sidebar";
-import { lateralForcadaRecolhida } from "@/components/shell/lateral-forcada";
+import { atalhoDaLateralVale, ehConstrutorDeFluxo } from "@/components/shell/lateral-forcada";
+import {
+  CHAVE_DA_LATERAL,
+  CHAVE_DA_LATERAL_DO_CONSTRUTOR,
+  lerLateralDoConstrutor,
+  lerPreferenciaDaLateral,
+} from "@/components/shell/estado-da-lateral";
 import type { NavDestination } from "@/lib/navigation/registry";
 
-function montar(recolhida = false) {
+function montar(recolhida = false, onExpandir?: () => void) {
   return render(
     <TooltipProvider>
-      <RodapeDaLateral recolhida={recolhida} configuracoes={{ href: "/app/settings", label: "Configurações" }} />
+      <RodapeDaLateral
+        recolhida={recolhida}
+        configuracoes={{ href: "/app/settings", label: "Configurações" }}
+        onExpandir={onExpandir}
+      />
     </TooltipProvider>,
   );
 }
@@ -174,10 +184,10 @@ describe("regras puras da casca", () => {
     expect(contagemCurta(100)).toBe("99+");
   });
 
-  it("o construtor de fluxo força a lateral recolhida; a lista de fluxos não", () => {
-    expect(lateralForcadaRecolhida("/app/fluxos/8f0c")).toBe(true);
-    expect(lateralForcadaRecolhida("/app/fluxos")).toBe(false);
-    expect(lateralForcadaRecolhida("/app/inbox")).toBe(false);
+  it("o construtor de fluxo tem preferência própria; a lista de fluxos usa a geral", () => {
+    expect(ehConstrutorDeFluxo("/app/fluxos/8f0c")).toBe(true);
+    expect(ehConstrutorDeFluxo("/app/fluxos")).toBe(false);
+    expect(ehConstrutorDeFluxo("/app/inbox")).toBe(false);
   });
 
   it("a lateral segue a ordem do pedido dentro da seção, e o resto vai para o fim", () => {
@@ -208,5 +218,68 @@ describe("contraste do badge (medido, não estimado)", () => {
 
   it("CONTROLE: o vermelho de referência (#e5484d) não passaria — por isso o badge não o usa", () => {
     expect(contraste("#e5484d", "#ffffff")).toBeLessThan(4.5);
+  });
+});
+
+describe("Etapa 1 — lateral recolhida sempre tem como abrir de novo", () => {
+  afterEach(() => window.localStorage.clear());
+
+  it("recolhida, o » aparece no rodapé com o nome acessível e expande no clique", () => {
+    const expandir = vi.fn();
+    montar(true, expandir);
+    const botao = screen.getByTestId("expandir-lateral");
+    expect(botao).toHaveAttribute("aria-label", "Expandir menu");
+    fireEvent.click(botao);
+    expect(expandir).toHaveBeenCalledTimes(1);
+  });
+
+  it("aberta, o » não aparece (o « está no cabeçalho)", () => {
+    montar(false, vi.fn());
+    expect(screen.queryByTestId("expandir-lateral")).toBeNull();
+  });
+
+  it("o construtor nasce recolhido e guarda a escolha numa chave SÓ dele", () => {
+    expect(lerLateralDoConstrutor()).toBe(true);
+    window.localStorage.setItem(CHAVE_DA_LATERAL_DO_CONSTRUTOR, "false");
+    expect(lerLateralDoConstrutor()).toBe(false);
+    // A preferência geral não foi tocada.
+    expect(lerPreferenciaDaLateral()).toBeNull();
+    window.localStorage.setItem(CHAVE_DA_LATERAL, "recolhida");
+    expect(lerLateralDoConstrutor()).toBe(false);
+    expect(CHAVE_DA_LATERAL).not.toBe(CHAVE_DA_LATERAL_DO_CONSTRUTOR);
+  });
+
+  it("⌘B/Ctrl+B não dispara num campo, num editor nem com modal aberto", () => {
+    const corpo = document.createElement("div");
+    corpo.innerHTML = '<input id="c" /><div id="e" contenteditable="true"><span id="dentro"></span></div><button id="b"></button>';
+    document.body.appendChild(corpo);
+    expect(atalhoDaLateralVale(document.getElementById("b"), document)).toBe(true);
+    expect(atalhoDaLateralVale(document.getElementById("c"), document)).toBe(false);
+    expect(atalhoDaLateralVale(document.getElementById("dentro"), document)).toBe(false);
+    const modal = document.createElement("div");
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("data-state", "open");
+    document.body.appendChild(modal);
+    expect(atalhoDaLateralVale(document.getElementById("b"), document)).toBe(false);
+    modal.remove();
+    corpo.remove();
+  });
+});
+
+describe("Etapa 1 — nome no cartão de perfil", () => {
+  it("mostra o nome completo; o e-mail só quando não há nome", () => {
+    expect(nomeParaMostrar({ full_name: "Jonatas Oliveira", email: "jo@exemplo.test" })).toBe("Jonatas Oliveira");
+    expect(nomeParaMostrar({ full_name: "  ", email: "jo@exemplo.test" })).toBe("jo@exemplo.test");
+    expect(nomeParaMostrar({ full_name: null, email: "jo@exemplo.test" })).toBe("jo@exemplo.test");
+  });
+
+  it("o e-mail completo aparece como dica sobre o nome e no topo do menu", async () => {
+    montar();
+    const cartao = screen.getByTestId("tenant-switcher");
+    expect(cartao.querySelector(".sh-perfil__nome")).toHaveAttribute("title", "jo@exemplo.test");
+    abrir(cartao);
+    const pessoa = await screen.findByTestId("menu-do-perfil-pessoa");
+    expect(pessoa.textContent).toContain("Jonatas Oliveira");
+    expect(pessoa.textContent).toContain("jo@exemplo.test");
   });
 });
