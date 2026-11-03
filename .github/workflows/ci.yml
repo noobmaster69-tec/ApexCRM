@@ -229,8 +229,13 @@ jobs:
         if: matrix.parte == 3
         run: pnpm cercas
 
+      # O `tsc` do projeto inteiro (com tests/) passou do teto padrão de ~4 GB do
+      # Node e morria por falta de memória — e, com ele, todo passo seguinte da
+      # parte 1 (inclusive o terço dos testes unitários) nem chegava a rodar.
       - name: Typecheck
         if: matrix.parte == 1
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: pnpm typecheck
 
       # Na parte 2, não na 1: o porquê e a conta estão no cabeçalho do job.
