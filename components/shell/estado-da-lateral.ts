@@ -15,7 +15,7 @@ import { gravarLateral } from "@/app/actions/shell/gravarLateral";
  */
 export type PreferenciaDaLateral = "expandida" | "recolhida";
 
-export const CHAVE_DA_LATERAL = "deskcomm-lateral";
+export const CHAVE_DA_LATERAL = "lateral-recolhida";
 /** Faixa em que, sem escolha salva, a lateral nasce recolhida. */
 export const FAIXA_RECOLHIDA = "(min-width: 1024px) and (max-width: 1279.98px)";
 

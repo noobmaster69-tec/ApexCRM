@@ -33,7 +33,7 @@ export function GavetaDaLateral() {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
         <Dialog.Content
-          className="sh-gaveta fixed inset-y-0 left-0 z-50 flex h-full flex-col outline-none"
+          className="sh-gaveta fixed inset-y-0 left-0 z-50 flex h-full flex-col outline-hidden"
           aria-describedby={undefined}
           data-testid="gaveta-da-lateral"
         >

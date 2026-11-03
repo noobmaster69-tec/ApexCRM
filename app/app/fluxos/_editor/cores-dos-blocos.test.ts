@@ -33,10 +33,11 @@ describe("cor de cada bloco de Fluxos (BLOCK_THEME)", () => {
     expect(varsDoBloco("mensagem")).toMatchObject({ "--c-on": "#ffffff", "--c-light": "oklch(0.87 0.09 262)" });
   });
 
-  it("o dock oferece todo bloco do fluxo, uma vez só", () => {
+  it("o dock oferece todo bloco do fluxo, uma vez só — menos o Início, que é único", () => {
     const noDock = GRUPOS_DO_DOCK.flatMap((g) => g.tipos);
     expect(new Set(noDock).size).toBe(noDock.length);
-    expect([...noDock].sort()).toEqual([...NOS_DA_SUPERFICIE.fluxo].sort());
+    // Etapa 5: o fluxo já nasce com o Início e não ganha outro pela paleta.
+    expect([...noDock].sort()).toEqual(NOS_DA_SUPERFICIE.fluxo.filter((t) => t !== "trigger").sort());
   });
 
   it("tipo sem cor cai no cinza de reserva", () => {

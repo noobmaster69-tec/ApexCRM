@@ -128,7 +128,7 @@ export function ComboDeEtiquetas({
             aria-controls={idLista}
             aria-autocomplete="list"
             aria-activedescendant={aberto && opcoes[ativo] ? `${idLista}-${ativo}` : undefined}
-            className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm outline-hidden placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
             value={texto}
             maxLength={maxLength}
             placeholder={podeCriar ? t("Digite e aperte Enter") : t("Escolha uma etiqueta")}
@@ -231,7 +231,7 @@ export function ComboDeEtiquetas({
                         <button
                           type="button"
                           aria-label={`${t("Excluir etiqueta")} ${etiqueta.nome}`}
-                          className="rounded p-0.5 text-[var(--fx-muted-2)] opacity-40 hover:bg-[var(--fx-panel)] hover:text-[var(--fx-danger)] focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--fx-accent)] group-hover:opacity-100"
+                          className="rounded-sm p-0.5 text-[var(--fx-muted-2)] opacity-40 hover:bg-[var(--fx-panel)] hover:text-[var(--fx-danger)] focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[var(--fx-accent)] group-hover:opacity-100"
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={(e) => {
                             e.stopPropagation();

@@ -135,7 +135,7 @@ export function AvisosDoPublish({
                             ir();
                           }
                         }}
-                        className="flex cursor-pointer gap-3 rounded-md border border-border bg-surface-elevated px-3 py-2 text-left text-sm outline-none hover:bg-surface focus-visible:ring-2 focus-visible:ring-ring"
+                        className="flex cursor-pointer gap-3 rounded-md border border-border bg-surface-elevated px-3 py-2 text-left text-sm outline-hidden hover:bg-surface focus-visible:ring-2 focus-visible:ring-ring"
                         style={{ borderLeft: `3px solid ${cor}` }}
                         data-testid={`aviso-${node.id}`}
                         data-cor={cor}
