@@ -636,7 +636,14 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
             snapGrid={[22, 22]}
           >
             {isFluxo ? (
-              <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="#27272d" bgColor="#121214" />
+              // Fundo e pontos do TEMA (Etapa 6): as variáveis trocam ao vivo com o tema.
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={22}
+                size={1.2}
+                color="var(--fx-canvas-dot)"
+                bgColor="var(--fx-canvas)"
+              />
             ) : (
               <Background />
             )}
@@ -649,10 +656,10 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
                 nodeColor={(node) => corDoBloco(node.type)}
                 nodeBorderRadius={4}
                 nodeStrokeWidth={0}
-                maskColor="rgba(0,0,0,0.45)"
-                maskStrokeColor="rgba(255,255,255,0.35)"
+                maskColor="var(--fx-minimap-mask)"
+                maskStrokeColor="var(--fx-minimap-mask-stroke)"
                 maskStrokeWidth={1.5}
-                bgColor="#18181b"
+                bgColor="var(--fx-minimap-bg)"
                 style={{ width: 200, height: 110 }}
                 position="bottom-right"
                 pannable

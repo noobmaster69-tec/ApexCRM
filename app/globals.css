@@ -31,6 +31,10 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 :root {
+  /* Canvas do construtor de Fluxos (claro; o escuro redeclara). */
+  --canvas-bg: #f7f8fb;
+  --canvas-dot: rgb(61 114 255 / 0.35);
+
   /* Surfaces (light) */
   --color-bg: #faf9f6;
   --color-surface: #ffffff;
@@ -288,6 +292,9 @@
    (lib/branding/css.ts), que só ganha consumidor com a tela de marca.
    ───────────────────────────────────────────────────────────────────────── */
 [data-theme="light"] {
+  /* Canvas do construtor de Fluxos: fundo e pontos da grade seguem o tema. */
+  --canvas-bg: #f7f8fb;
+  --canvas-dot: rgb(61 114 255 / 0.35);
   --color-bg: #faf9f6;
   --color-surface: #ffffff;
   --color-surface-elevated: #f5f3ee;
@@ -403,6 +410,8 @@
 }
 
 [data-theme="dark"] {
+  --canvas-bg: #121214;
+  --canvas-dot: #27272d;
   /* Surfaces (dark — Onix) */
   --color-bg: #0a0a0b;
   --color-sidebar: #0f0f11;
