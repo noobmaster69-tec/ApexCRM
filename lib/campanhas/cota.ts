@@ -5,7 +5,7 @@ import { instanteDoHorarioLocal, relogioNoFuso } from "./agendamento";
  * Duas regras, puras:
  *  1. ESPAÇAR — o intervalo entre envios é o tempo útil do período (a janela
  *     diária, quando há) dividido pela cota: janela de 9 h e 3 por dia = um a
- *     cada 3 h. Com uma variação de ±10%, para não virar relógio de robô.
+ *     cada 3 h. Com uma variação de ±20%, para não virar relógio de robô.
  *  2. LIMITAR — no período corrente (no fuso da campanha) não sai mais que N.
  */
 export const PERIODOS_DA_COTA = ["hora", "dia", "semana", "mes"] as const;
@@ -18,22 +18,43 @@ export interface Cota {
 
 const dois = (n: number) => String(n).padStart(2, "0");
 
+/** A variação sorteada em cada envio da cota: ±20%. */
+export const VARIACAO_DA_COTA = 0.2;
+
+/**
+ * O piso de segurança entre dois envios — o mesmo mínimo que o "Ritmo de envio
+ * (avançado)" aceita (`errosDoRitmo`, "pelo menos 10 segundos").
+ */
+export const PISO_DO_INTERVALO_S = 10;
+
 /** Minutos úteis por dia: a janela diária, ou o dia inteiro sem janela. */
 function minutosUteisPorDia(janela: { inicio: number; fim: number } | null): number {
   return janela ? Math.max(1, janela.fim - janela.inicio) : 1440;
 }
 
-/** Segundos entre um envio e o próximo para cumprir a cota espalhada pelo período. */
-export function intervaloDaCota(cota: Cota, janela: { inicio: number; fim: number } | null): number {
+/** Segundos úteis de um período: a hora cheia, ou a janela diária vezes os dias. */
+function segundosDoPeriodo(periodo: PeriodoDaCota, janela: { inicio: number; fim: number } | null): number {
   const util = minutosUteisPorDia(janela) * 60;
-  const total =
-    cota.periodo === "hora" ? 3600 : cota.periodo === "dia" ? util : cota.periodo === "semana" ? util * 7 : util * 30;
-  return Math.max(1, Math.floor(total / Math.max(1, cota.quantidade)));
+  return periodo === "hora" ? 3600 : periodo === "dia" ? util : periodo === "semana" ? util * 7 : util * 30;
 }
 
-/** O intervalo com ±10% de variação (o envio não cai sempre no mesmo minuto). */
+/** Segundos entre um envio e o próximo para cumprir a cota espalhada pelo período. */
+export function intervaloDaCota(cota: Cota, janela: { inicio: number; fim: number } | null): number {
+  return Math.max(1, Math.floor(segundosDoPeriodo(cota.periodo, janela) / Math.max(1, cota.quantidade)));
+}
+
+/**
+ * Quantos contatos CABEM no período sem que o envio mais apressado (o intervalo
+ * menos a variação) fique abaixo do piso de segurança.
+ */
+export function limiteDaCota(periodo: PeriodoDaCota, janela: { inicio: number; fim: number } | null): number {
+  const menorIntervaloBase = PISO_DO_INTERVALO_S / (1 - VARIACAO_DA_COTA);
+  return Math.max(1, Math.floor(segundosDoPeriodo(periodo, janela) / menorIntervaloBase));
+}
+
+/** O intervalo com ±20% de variação (o envio não cai sempre no mesmo minuto). */
 export function intervaloComVariacao(segundos: number, sorteio: () => number = Math.random): number {
-  return Math.round(segundos * (0.9 + sorteio() * 0.2));
+  return Math.round(segundos * (1 - VARIACAO_DA_COTA + sorteio() * 2 * VARIACAO_DA_COTA));
 }
 
 /** O início do período corrente, no fuso: a hora cheia, o dia, a segunda-feira, o dia 1. */

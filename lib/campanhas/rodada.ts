@@ -355,14 +355,17 @@ async function rodarUmaCampanha(
   // campanha em branco e herda o de cada número; quem põe 60s aqui manda uma a
   // cada 60s no total, com um número ou com cinco.
   const pool = getRequestPool();
+  // Os dois modos da tela (Etapa 4) são exclusivos: com COTA, o ritmo é só ela
+  // (espalhada pela janela); intervalo e máximos por hora/dia não se aplicam.
+  const modoCota = temCota(campanha);
   const ritmo: RitmoDaCampanha = {
-    intervaloSegundos: campanha.intervalo_segundos,
+    intervaloSegundos: modoCota ? null : campanha.intervalo_segundos,
     janelaInicioHora: campanha.janela_inicio_hora,
     janelaFimHora: campanha.janela_fim_hora,
     janelaInicioMinuto: campanha.janela_inicio_minuto ?? null,
     janelaFimMinuto: campanha.janela_fim_minuto ?? null,
-    tetoDiario: campanha.teto_diario,
-    tetoHorario: campanha.teto_horario,
+    tetoDiario: modoCota ? null : campanha.teto_diario,
+    tetoHorario: modoCota ? null : campanha.teto_horario,
   };
   const numeros = await numerosDaCampanha(admin, campanha);
   // O fuso da janela da campanha é o do número PRINCIPAL: ela é uma decisão da
@@ -708,10 +711,16 @@ async function cardDeQuemRecebe(admin: SupabaseClient, campanha: CampanhaRow, al
   });
 }
 
+/** A campanha está no modo "Quantos contatos chamar" (cota)? Sem cota = "Ritmo de envio (avançado)". */
+export function temCota(campanha: Pick<CampanhaRow, "cota_quantidade" | "cota_periodo">): boolean {
+  return !!(campanha.cota_quantidade && campanha.cota_periodo);
+}
+
 async function agendarProximoEnvio(admin: SupabaseClient, campanha: CampanhaRow, agora: Date): Promise<void> {
   let proximo = proximoEnvioAleatorio(agora, campanha.min_interval_seconds ?? 60, campanha.max_interval_seconds ?? 180);
-  // 9020: com cota, o intervalo é o período útil dividido por ela (3 por dia
-  // numa janela de 9 h = ~3 h), com ±10% — o maior dos dois vale.
+  // 9020 + Etapa 4: com cota, o intervalo é SÓ o período útil dividido por ela
+  // (3 por dia numa janela de 9 h = ~3 h), com ±20%. O intervalo mín/máx é do
+  // outro modo e não entra.
   if (campanha.cota_quantidade && campanha.cota_periodo) {
     const janela = janelaEmMinutos({
       intervaloSegundos: null,
@@ -725,8 +734,7 @@ async function agendarProximoEnvio(admin: SupabaseClient, campanha: CampanhaRow,
     const segundos = intervaloComVariacao(
       intervaloDaCota({ quantidade: campanha.cota_quantidade, periodo: campanha.cota_periodo }, janela),
     );
-    const pelaCota = new Date(agora.getTime() + segundos * 1000);
-    if (pelaCota.getTime() > proximo.getTime()) proximo = pelaCota;
+    proximo = new Date(agora.getTime() + segundos * 1000);
   }
   const { error } = await admin
     .from("campaigns")

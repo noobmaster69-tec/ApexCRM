@@ -16,7 +16,21 @@ import {
   resumoDoInicio,
 } from "@/lib/campanhas/agendamento";
 import { FUSOS_PRINCIPAIS, fusoValido, todosOsFusos } from "@/lib/campanhas/fuso";
-import { descricaoDoIntervalo, intervaloDaCota, PERIODOS_DA_COTA, type PeriodoDaCota } from "@/lib/campanhas/cota";
+import {
+  descricaoDoIntervalo,
+  intervaloDaCota,
+  limiteDaCota,
+  PERIODOS_DA_COTA,
+  PISO_DO_INTERVALO_S,
+  type PeriodoDaCota,
+} from "@/lib/campanhas/cota";
+
+/**
+ * Como os envios se distribuem dentro da janela (Etapa 4): "cota" = quantos
+ * contatos chamar por período, espalhados pela janela; "intervalo" = o ritmo
+ * avançado (mínimo/máximo entre envios e tetos). Um só vale por vez.
+ */
+export type ModoDoRitmo = "cota" | "intervalo";
 
 export interface ValoresDeRitmo {
   minIntervalo: string;
@@ -31,6 +45,8 @@ export interface ValoresDeRitmo {
   /** 9020: "chamar N por hora/dia/semana/mês" ("" = sem cota). */
   cotaQuantidade?: string;
   cotaPeriodo?: "" | PeriodoDaCota;
+  /** O modo escolhido. Ausente = o que a campanha gravada usa (cota preenchida → "cota"). */
+  modoRitmo?: ModoDoRitmo;
   /** Início da campanha (só na criação/edição do rascunho). */
   inicioModo?: "agora" | "agendar";
   /** "AAAA-MM-DD" e "HH:mm", no fuso da campanha. */
@@ -38,15 +54,25 @@ export interface ValoresDeRitmo {
   inicioHora?: string;
 }
 
-export type ErroDoRitmo = "minimo" | "maximo" | "fuso" | "janela" | "cota" | "agenda_sem_fuso" | "agenda_invalida" | "agenda_passado";
+export type ErroDoRitmo =
+  | "minimo"
+  | "maximo"
+  | "fuso"
+  | "janela"
+  | "cota"
+  | "cota_acima"
+  | "agenda_sem_fuso"
+  | "agenda_invalida"
+  | "agenda_passado";
 
 /** A frase de cada erro — tabela constante, para o t() achar no dicionário. */
 export const TEXTO_DO_ERRO_DO_RITMO: Record<ErroDoRitmo, string> = {
   minimo: "O intervalo mínimo é de pelo menos 10 segundos.",
   maximo: "O intervalo máximo não pode ser menor que o mínimo.",
   fuso: "Fuso horário desconhecido.",
-  janela: "A janela diária precisa de início e fim (HH:mm), e o fim depois do início.",
+  janela: "A janela diária de envio é obrigatória: início e fim (HH:mm), com o fim depois do início.",
   cota: "Informe quantos contatos chamar (1 ou mais) e o período.",
+  cota_acima: "Nesse ritmo não cabem tantos contatos na janela. Diminua a quantidade ou aumente a janela.",
   agenda_sem_fuso: "Para agendar, escolha o fuso horário da campanha.",
   agenda_invalida: "Escolha uma data e um horário válidos — esse horário não existe nesse dia no fuso escolhido (mudança de horário de verão).",
   agenda_passado: "O horário agendado já passou. Escolha uma data e hora no futuro.",
@@ -59,18 +85,30 @@ export function janelaDosValores(v: Pick<ValoresDeRitmo, "janelaInicio" | "janel
   return inicio !== null && fim !== null && fim > inicio ? { inicio, fim } : null;
 }
 
-/** Os erros que a tela mostra antes de deixar salvar. */
+/** O modo em vigor: o escolhido na tela ou, numa campanha gravada, o que ela usa. */
+export function modoDoRitmo(v: Pick<ValoresDeRitmo, "modoRitmo" | "cotaQuantidade" | "cotaPeriodo">): ModoDoRitmo {
+  if (v.modoRitmo) return v.modoRitmo;
+  return (v.cotaQuantidade ?? "").trim() !== "" && v.cotaPeriodo ? "cota" : "intervalo";
+}
+
+/** Os erros que a tela mostra antes de deixar salvar — só os do modo escolhido. */
 export function errosDoRitmo(v: ValoresDeRitmo, agora: Date = new Date()): ErroDoRitmo[] {
   const erros: ErroDoRitmo[] = [];
-  const min = Number(v.minIntervalo);
-  const max = Number(v.maxIntervalo);
-  if (!Number.isFinite(min) || min < 10) erros.push("minimo");
-  if (!Number.isFinite(max) || max < min) erros.push("maximo");
+  const modo = modoDoRitmo(v);
+  if (modo === "intervalo") {
+    const min = Number(v.minIntervalo);
+    const max = Number(v.maxIntervalo);
+    if (!Number.isFinite(min) || min < PISO_DO_INTERVALO_S) erros.push("minimo");
+    if (!Number.isFinite(max) || max < min) erros.push("maximo");
+  }
   if (v.fuso && !fusoValido(v.fuso)) erros.push("fuso");
-  const algumaJanela = v.janelaInicio.trim() !== "" || v.janelaFim.trim() !== "";
-  if (algumaJanela && !janelaDosValores(v)) erros.push("janela");
-  const q = (v.cotaQuantidade ?? "").trim();
-  if ((q !== "" || v.cotaPeriodo) && !(Number(q) >= 1 && Number.isInteger(Number(q)) && v.cotaPeriodo)) erros.push("cota");
+  const janela = janelaDosValores(v);
+  if (!janela) erros.push("janela");
+  if (modo === "cota") {
+    const q = Number((v.cotaQuantidade ?? "").trim());
+    if (!(q >= 1 && Number.isInteger(q) && v.cotaPeriodo)) erros.push("cota");
+    else if (q > limiteDaCota(v.cotaPeriodo, janela)) erros.push("cota_acima");
+  }
   if (v.inicioModo === "agendar") {
     if (!v.fuso || !fusoValido(v.fuso)) erros.push("agenda_sem_fuso");
     else {
@@ -92,7 +130,10 @@ export function programacaoDaCampanha(c: {
   janela_fim_minuto?: number | null;
   scheduled_at?: string | null;
   timezone?: string | null;
-}): Pick<ValoresDeRitmo, "janelaInicio" | "janelaFim" | "inicioModo" | "inicioData" | "inicioHora" | "cotaQuantidade" | "cotaPeriodo"> {
+}): Pick<
+  ValoresDeRitmo,
+  "janelaInicio" | "janelaFim" | "inicioModo" | "inicioData" | "inicioHora" | "cotaQuantidade" | "cotaPeriodo" | "modoRitmo"
+> {
   const ini = c.janela_inicio_minuto ?? (c.janela_inicio_hora != null ? c.janela_inicio_hora * 60 : null);
   const fim = c.janela_fim_minuto ?? (c.janela_fim_hora != null ? c.janela_fim_hora * 60 : null);
   const agendada = !!c.scheduled_at && fusoValido(c.timezone);
@@ -105,6 +146,8 @@ export function programacaoDaCampanha(c: {
     inicioHora: campos.hora,
     cotaQuantidade: c.cota_quantidade ? String(c.cota_quantidade) : "",
     cotaPeriodo: (PERIODOS_DA_COTA as readonly string[]).includes(c.cota_periodo ?? "") ? (c.cota_periodo as PeriodoDaCota) : "",
+    // Campanha gravada: quem tem cota abre na Opção A; o resto, na B.
+    modoRitmo: c.cota_quantidade && c.cota_periodo ? "cota" : "intervalo",
   };
 }
 
@@ -119,16 +162,55 @@ export function corpoDaJanela(v: Pick<ValoresDeRitmo, "janelaInicio" | "janelaFi
   };
 }
 
-/** O corpo da cota para a API (9020). */
-export function corpoDaCota(v: Pick<ValoresDeRitmo, "cotaQuantidade" | "cotaPeriodo">) {
+/** O corpo da cota para a API (9020). No modo "intervalo" a cota vai nula: só um modo vale. */
+export function corpoDaCota(v: Pick<ValoresDeRitmo, "cotaQuantidade" | "cotaPeriodo" | "modoRitmo">) {
   const n = Number((v.cotaQuantidade ?? "").trim());
-  return n >= 1 && v.cotaPeriodo ? { cota_quantidade: Math.round(n), cota_periodo: v.cotaPeriodo } : { cota_quantidade: null, cota_periodo: null };
+  return modoDoRitmo(v) === "cota" && n >= 1 && v.cotaPeriodo
+    ? { cota_quantidade: Math.round(n), cota_periodo: v.cotaPeriodo }
+    : { cota_quantidade: null, cota_periodo: null };
+}
+
+/** Os máximos por hora/dia para a API: só no modo "intervalo"; com cota, vão nulos. */
+export function corpoDosTetos(v: Pick<ValoresDeRitmo, "tetoDiario" | "tetoHorario" | "cotaQuantidade" | "cotaPeriodo" | "modoRitmo">) {
+  const ouNulo = (x: string) => (x.trim() === "" ? null : Number(x));
+  return modoDoRitmo(v) === "cota"
+    ? { teto_diario: null, teto_horario: null }
+    : { teto_diario: ouNulo(v.tetoDiario), teto_horario: ouNulo(v.tetoHorario) };
+}
+
+/**
+ * O resumo do modo em vigor, para a tela de detalhe: "3 por dia, das 09:00 às
+ * 18:00" (cota) ou "1 a 3 min entre envios" (avançado). Só o modo ativo aparece.
+ */
+export function resumoDoRitmo(v: ValoresDeRitmo, t: (texto: string) => string): string {
+  const janela = janelaDosValores(v);
+  if (modoDoRitmo(v) === "cota" && v.cotaPeriodo) {
+    const base = `${(v.cotaQuantidade ?? "").trim()} ${t(ROTULO_DO_PERIODO[v.cotaPeriodo])}`;
+    return janela
+      ? `${base}, ${t("das")} ${horarioDosMinutos(janela.inicio)} ${t("às")} ${horarioDosMinutos(janela.fim)}`
+      : base;
+  }
+  const min = Number(v.minIntervalo);
+  const max = Number(v.maxIntervalo);
+  const emMinutos = min >= 60 && min % 60 === 0 && max % 60 === 0;
+  return emMinutos
+    ? `${min / 60} ${t("a")} ${max / 60} min ${t("entre envios")}`
+    : `${min} ${t("a")} ${max} s ${t("entre envios")}`;
+}
+
+/** "60 s = 1 min", "90 s = 1,5 min", "3600 s = 1 h" — a equivalência legível do campo em segundos. */
+export function equivalenciaDosSegundos(bruto: string): string | null {
+  const s = Number(bruto);
+  if (!Number.isFinite(s) || s < 60) return null;
+  const fmt = (n: number) => String(Math.round(n * 10) / 10).replace(".", ",");
+  return s < 3600 ? `${s} s = ${fmt(s / 60)} min` : `${s} s = ${fmt(s / 3600)} h`;
 }
 
 const ROTULO_DO_PERIODO: Record<PeriodoDaCota, string> = { hora: "por hora", dia: "por dia", semana: "por semana", mes: "por mês" };
-const UNIDADE_DO_INTERVALO: Record<"s" | "min" | "h" | "dias", string> = { s: "segundos", min: "minutos", h: "horas", dias: "dias" };
 
-/** "Quantos contatos chamar": N por período — a ferramenta divide sozinha pela janela. */
+const ABREVIACAO: Record<"s" | "min" | "h" | "dias", string> = { s: "s", min: "min", h: "h", dias: "dias" };
+
+/** Opção A, "Quantos contatos chamar": N por período, espalhados pela janela, com prévia ao vivo. */
 function CamposDaCota({
   v,
   onChange,
@@ -141,17 +223,20 @@ function CamposDaCota({
   const t = useT();
   const n = Number((v.cotaQuantidade ?? "").trim());
   const janela = janelaDosValores(v);
-  const divisao =
-    n >= 1 && v.cotaPeriodo ? descricaoDoIntervalo(intervaloDaCota({ quantidade: n, periodo: v.cotaPeriodo }, janela)) : null;
+  const periodo = v.cotaPeriodo || null;
+  const valida = n >= 1 && Number.isInteger(n) && periodo !== null;
+  const limite = periodo ? limiteDaCota(periodo, janela) : null;
+  const divisao = valida ? descricaoDoIntervalo(intervaloDaCota({ quantidade: n, periodo }, janela)) : null;
   return (
     <div className="space-y-2" data-testid={`${prefixo}-cota`}>
-      <Label htmlFor={`${prefixo}-cota-n`}>{t("Quantos contatos chamar")}</Label>
       <div className="flex gap-2">
         <Input
           id={`${prefixo}-cota-n`}
           type="number"
           min={1}
+          step={1}
           className="w-28"
+          aria-label={t("Quantos contatos")}
           placeholder={t("ex.: 3")}
           value={v.cotaQuantidade ?? ""}
           onChange={(e) => onChange("cotaQuantidade", e.target.value)}
@@ -159,10 +244,10 @@ function CamposDaCota({
         <select
           aria-label={t("Período")}
           className={SELECT}
-          value={v.cotaPeriodo ?? ""}
+          value={v.cotaPeriodo || "dia"}
           onChange={(e) => onChange("cotaPeriodo", e.target.value)}
+          data-testid={`${prefixo}-cota-periodo`}
         >
-          <option value="">{t("Sem cota (só o intervalo)")}</option>
           {PERIODOS_DA_COTA.map((p) => (
             <option key={p} value={p}>
               {t(ROTULO_DO_PERIODO[p])}
@@ -170,12 +255,53 @@ function CamposDaCota({
           ))}
         </select>
       </div>
-      <p className="text-xs text-muted-foreground" data-testid={`${prefixo}-cota-divisao`}>
-        {divisao
-          ? `${t("A ferramenta divide sozinha: cerca de 1 a cada")} ${divisao.valor} ${t(UNIDADE_DO_INTERVALO[divisao.unidade])}${janela ? ` ${t("dentro da janela diária")}` : ""} — ${t("nunca mais que")} ${n} ${t(ROTULO_DO_PERIODO[v.cotaPeriodo as PeriodoDaCota])}.`
+      <p className="text-xs text-muted-foreground" data-testid={`${prefixo}-cota-divisao`} aria-live="polite">
+        {divisao && janela
+          ? `${n} ${t("contatos")} ${t(ROTULO_DO_PERIODO[periodo!])} ${t("entre")} ${horarioDosMinutos(janela.inicio)} ${t("e")} ${horarioDosMinutos(janela.fim)} → ${t("cerca de 1 a cada")} ${String(divisao.valor).replace(".", ",")} ${t(ABREVIACAO[divisao.unidade])}.`
           : t("Ex.: 3 por dia numa janela de 9 horas = um contato a cada 3 horas.")}
       </p>
+      {valida && limite !== null && n > limite && (
+        <p className="rounded-md border border-warning-fg/40 bg-warning-fg/10 px-2 py-1 text-xs text-warning-fg" data-testid={`${prefixo}-cota-limite`}>
+          {t("Nesse ritmo cabem no máximo")} {limite} {t("contatos")} {t(ROTULO_DO_PERIODO[periodo!])} {t("nessa janela.")}
+        </p>
+      )}
     </div>
+  );
+}
+
+/** Um cartão de rádio da escolha "Como distribuir os envios dentro da janela?". */
+function CartaoDoModo({
+  nome,
+  ativo,
+  onEscolher,
+  titulo,
+  selo,
+  descricao,
+  testid,
+}: {
+  nome: string;
+  ativo: boolean;
+  onEscolher: () => void;
+  titulo: string;
+  selo?: string;
+  descricao: string;
+  testid: string;
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer gap-3 rounded-lg border p-3 text-sm ${ativo ? "border-primary bg-primary/5" : "border-border"}`}
+      data-testid={testid}
+      data-ativo={ativo || undefined}
+    >
+      <input type="radio" name={nome} checked={ativo} onChange={onEscolher} className="mt-1" />
+      <span className="space-y-1">
+        <span className="flex flex-wrap items-center gap-2 font-medium">
+          {titulo}
+          {selo && <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-semibold text-primary">{selo}</span>}
+        </span>
+        <span className="block text-xs text-muted-foreground">{descricao}</span>
+      </span>
+    </label>
   );
 }
 
@@ -461,6 +587,7 @@ export function CamposDeRitmo({
   const agora = useAgora();
   const erros = errosDoRitmo(v, agora);
   const janela = janelaDosValores(v);
+  const modo = modoDoRitmo(v);
   const fuso = v.fuso && fusoValido(v.fuso) ? v.fuso : null;
   const resumo = resumoDoInicio({
     agora,
@@ -477,36 +604,12 @@ export function CamposDeRitmo({
     <div className="space-y-6">
       {comInicio && <CamposDeInicio v={v} onChange={onChange} prefixo={prefixo} />}
 
-      <fieldset className="space-y-3">
-        <legend className="text-sm font-medium">{t("Ritmo de envio")}</legend>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor={`${prefixo}-min`}>{t("Intervalo mínimo (segundos)")}</Label>
-            <Input id={`${prefixo}-min`} type="number" min={10} value={v.minIntervalo} onChange={(e) => onChange("minIntervalo", e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${prefixo}-max`}>{t("Intervalo máximo (segundos)")}</Label>
-            <Input id={`${prefixo}-max`} type="number" min={10} value={v.maxIntervalo} onChange={(e) => onChange("maxIntervalo", e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${prefixo}-hora`}>{t("Máximo por hora")}</Label>
-            <Input id={`${prefixo}-hora`} type="number" min={1} value={v.tetoHorario} onChange={(e) => onChange("tetoHorario", e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor={`${prefixo}-dia`}>{t("Máximo por dia")}</Label>
-            <Input id={`${prefixo}-dia`} type="number" min={1} value={v.tetoDiario} onChange={(e) => onChange("tetoDiario", e.target.value)} />
-          </div>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          {t("Cada envio aguarda um tempo aleatório entre esses valores. Evita o padrão robótico que o WhatsApp detecta.")}
-        </p>
-        <CamposDaCota v={v} onChange={onChange} prefixo={prefixo} />
-      </fieldset>
+      {!comInicio && seletorDeFuso}
 
-      <fieldset className="space-y-3">
+      <fieldset className="space-y-3" data-testid={`${prefixo}-janela`}>
         <legend className="text-sm font-medium">{t("Janela diária de envio")}</legend>
         <p className="text-xs text-muted-foreground">
-          {t("Restrição que se repete todo dia — não é a data de início. Em branco, vale a do número.")}
+          {t("Obrigatória: os envios só saem entre esses horários, todo dia, no fuso da campanha.")}
         </p>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
@@ -518,10 +621,74 @@ export function CamposDeRitmo({
             <HoraMinuto id={`${prefixo}-fim`} valor={v.janelaFim} vazio="--" ateVinteQuatro onChange={(x) => onChange("janelaFim", x)} />
           </div>
         </div>
-        {!comInicio && seletorDeFuso}
+        {!janela && (
+          <p className="text-xs text-error-fg" data-testid={`${prefixo}-janela-erro`}>
+            {t(TEXTO_DO_ERRO_DO_RITMO.janela)}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
           {t("Quando o fuso do contato é conhecido (campo fuso_horario da ficha ou o DDI de um país de fuso único), a janela vale no fuso dele.")}
         </p>
+      </fieldset>
+
+      <fieldset className="space-y-3" data-testid={`${prefixo}-modo`}>
+        <legend className="text-sm font-medium">{t("Como distribuir os envios dentro da janela?")}</legend>
+        <div role="radiogroup" aria-label={t("Como distribuir os envios dentro da janela?")} className="grid gap-3 sm:grid-cols-2">
+          <CartaoDoModo
+            nome={`${prefixo}-modo`}
+            ativo={modo === "cota"}
+            onEscolher={() => {
+              onChange("modoRitmo", "cota");
+              if (!v.cotaPeriodo) onChange("cotaPeriodo", "dia");
+            }}
+            titulo={t("Quantos contatos chamar")}
+            selo={t("Recomendado")}
+            descricao={t("Diga quantos contatos quer chamar e o sistema espalha os envios pela janela.")}
+            testid={`${prefixo}-modo-cota`}
+          />
+          <CartaoDoModo
+            nome={`${prefixo}-modo`}
+            ativo={modo === "intervalo"}
+            onEscolher={() => onChange("modoRitmo", "intervalo")}
+            titulo={t("Ritmo de envio (avançado)")}
+            descricao={t("Controle fino do intervalo entre cada envio.")}
+            testid={`${prefixo}-modo-intervalo`}
+          />
+        </div>
+
+        {modo === "cota" ? (
+          <CamposDaCota v={v} onChange={onChange} prefixo={prefixo} />
+        ) : (
+          <div className="space-y-3" data-testid={`${prefixo}-intervalo`}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`${prefixo}-min`}>{t("Intervalo mínimo (segundos)")}</Label>
+                <Input id={`${prefixo}-min`} type="number" min={PISO_DO_INTERVALO_S} value={v.minIntervalo} onChange={(e) => onChange("minIntervalo", e.target.value)} />
+                {equivalenciaDosSegundos(v.minIntervalo) && (
+                  <p className="text-xs text-muted-foreground">{equivalenciaDosSegundos(v.minIntervalo)}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`${prefixo}-max`}>{t("Intervalo máximo (segundos)")}</Label>
+                <Input id={`${prefixo}-max`} type="number" min={PISO_DO_INTERVALO_S} value={v.maxIntervalo} onChange={(e) => onChange("maxIntervalo", e.target.value)} />
+                {equivalenciaDosSegundos(v.maxIntervalo) && (
+                  <p className="text-xs text-muted-foreground">{equivalenciaDosSegundos(v.maxIntervalo)}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`${prefixo}-hora`}>{t("Máximo por hora (opcional)")}</Label>
+                <Input id={`${prefixo}-hora`} type="number" min={1} value={v.tetoHorario} onChange={(e) => onChange("tetoHorario", e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`${prefixo}-dia`}>{t("Máximo por dia (opcional)")}</Label>
+                <Input id={`${prefixo}-dia`} type="number" min={1} value={v.tetoDiario} onChange={(e) => onChange("tetoDiario", e.target.value)} />
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {t("Cada envio aguarda um tempo aleatório entre esses valores. Evita o padrão robótico que o WhatsApp detecta.")}
+            </p>
+          </div>
+        )}
       </fieldset>
 
       {comInicio && (
@@ -532,11 +699,13 @@ export function CamposDeRitmo({
           {t("Sem fuso próprio, a campanha segue o relógio do número.")}
         </p>
       )}
-      {erros.length > 0 && (
+      {erros.some((e) => e !== "janela") && (
         <ul className="space-y-1 text-sm text-error-fg" role="alert">
-          {erros.map((e) => (
-            <li key={e}>{t(TEXTO_DO_ERRO_DO_RITMO[e])}</li>
-          ))}
+          {erros
+            .filter((e) => e !== "janela")
+            .map((e) => (
+              <li key={e}>{t(TEXTO_DO_ERRO_DO_RITMO[e])}</li>
+            ))}
         </ul>
       )}
     </div>

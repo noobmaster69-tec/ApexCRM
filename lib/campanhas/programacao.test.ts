@@ -16,8 +16,9 @@ const base: ValoresDeRitmo = {
   maxIntervalo: "180",
   tetoDiario: "",
   tetoHorario: "",
-  janelaInicio: "",
-  janelaFim: "",
+  // Etapa 4: a janela diária é obrigatória.
+  janelaInicio: "09:00",
+  janelaFim: "18:00",
   fuso: "Europe/Lisbon",
   inicioModo: "agendar",
   inicioData: "2026-12-03",
@@ -45,7 +46,8 @@ describe("formulário", () => {
   });
 
   it("janela em HH:mm: completa e coerente, gravada em minutos", () => {
-    expect(errosDoRitmo({ ...base, janelaInicio: "09:30" }, agora)).toEqual(["janela"]);
+    expect(errosDoRitmo({ ...base, janelaInicio: "09:30", janelaFim: "" }, agora)).toEqual(["janela"]);
+    expect(errosDoRitmo({ ...base, janelaInicio: "", janelaFim: "" }, agora)).toEqual(["janela"]);
     expect(errosDoRitmo({ ...base, janelaInicio: "18:00", janelaFim: "09:00" }, agora)).toEqual(["janela"]);
     expect(corpoDaJanela({ janelaInicio: "09:30", janelaFim: "18:15" })).toEqual({
       janela_inicio_minuto: 570,
