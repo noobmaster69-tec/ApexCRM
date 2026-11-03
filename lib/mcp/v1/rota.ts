@@ -84,11 +84,14 @@ export async function atenderConexao(e: EntradaDoAtendimento): Promise<Response>
   }
 
   const metodoHttp = e.req.method.toUpperCase();
-  let corpoTexto: string | null = null;
-  let mensagem: MensagemJsonRpc | null = null;
-
-  if (metodoHttp === "POST") {
-    corpoTexto = await e.req.text();
+  // Servidor sem sessão: não há fluxo iniciado pelo servidor para abrir (GET)
+  // nem sessão para encerrar (DELETE). 405 é a resposta que a especificação
+  // prevê, e o cliente oficial a trata como "sem stream".
+  if (metodoHttp !== "POST") {
+    return new Response(null, { status: 405, headers: { Allow: "POST" } });
+  }
+  const corpoTexto = await e.req.text();
+  {
     let bruto: unknown;
     try {
       bruto = JSON.parse(corpoTexto);
@@ -97,7 +100,7 @@ export async function atenderConexao(e: EntradaDoAtendimento): Promise<Response>
     }
     if (Array.isArray(bruto)) return erroJsonRpc(-32600, "Batch requests are not supported.", 400);
     if (!bruto || typeof bruto !== "object") return erroJsonRpc(-32600, "Invalid Request", 400);
-    mensagem = bruto as MensagemJsonRpc;
+    const mensagem = bruto as MensagemJsonRpc;
 
     const nomeDaChamada =
       mensagem.method === "tools/call" && typeof mensagem.params?.name === "string"
@@ -157,9 +160,6 @@ export async function atenderConexao(e: EntradaDoAtendimento): Promise<Response>
   const transporte = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   const servidor = criarServidorDaConexao({ db: e.db, conexao, requestId: e.requestId, ip: e.ip });
   await servidor.connect(transporte);
-  const pedido =
-    corpoTexto === null
-      ? e.req
-      : new Request(e.req.url, { method: e.req.method, headers: e.req.headers, body: corpoTexto });
+  const pedido = new Request(e.req.url, { method: "POST", headers: e.req.headers, body: corpoTexto });
   return transporte.handleRequest(pedido);
 }

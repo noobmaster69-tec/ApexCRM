@@ -117,7 +117,12 @@ export function buildLeadActivityRow(input: EmitLeadActivityInput): LeadActivity
 function comOrigem(payload: Record<string, unknown>): Record<string, unknown> {
   const origem = origemMcpAtual();
   if (!origem) return payload;
-  return { ...payload, origem: rotuloDaOrigem(origem), mcp_connection_id: origem.conexaoId };
+  return {
+    ...payload,
+    origem: rotuloDaOrigem(origem),
+    mcp_connection_id: origem.conexaoId,
+    mcp_connection_name: origem.conexaoNome,
+  };
 }
 
 export async function emitLeadActivity(

@@ -18,7 +18,6 @@
  * disparar/pausar campanha, enviar mensagem, importar/exportar e edição em massa.
  */
 import { z } from "zod";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   createContactHandler,
@@ -46,6 +45,8 @@ import { salvarFluxo } from "@/lib/followup/salvar-fluxo";
 import { crmManageTags } from "@/lib/mcp/tools/governance";
 import type { McpContext } from "@/lib/mcp/types";
 import { listarMarcadores } from "@/lib/operacao/marcadores-e-time";
+import type { createAdminClient } from "@/lib/supabase/admin";
+import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { contactCreateSchema, contactPatchSchema } from "@/lib/schemas/contacts";
 import { createLeadSchema, updateLeadSchema } from "@/lib/schemas/leads";
 import { conversationTagSchema } from "@/lib/schemas/messaging";
@@ -56,7 +57,7 @@ import { AVISO_DE_CONTEUDO, LIMITE_POR_PAGINA, contatoVisivel, naoConfiavel } fr
 
 export interface ContextoV1 {
   /** Client service-role: TODA consulta filtra `organization_id` da conexão. */
-  db: SupabaseClient;
+  db: ReturnType<typeof createAdminClient>;
   conexao: ConexaoResolvida;
   requestId: string;
 }
@@ -134,7 +135,7 @@ function contatoProjetado(c: LinhaDeContato, comPii: boolean) {
   const { phone, email } = contatoVisivel({ phone: c.phone_number, email: c.email }, comPii);
   return {
     id: c.id,
-    name: naoConfiavel(c.display_name || c.name || null),
+    name: naoConfiavel(nomeDoContato(c) || null),
     phone,
     email,
     tags: c.tags ?? [],
@@ -480,6 +481,21 @@ const removeTagFromContact = definir({
  * é o que faltava, e excluir continua só na tela. Normaliza pela mesma
  * régua da escrita e devolve a que já existe em vez de duplicar.
  */
+/** Grava o vocabulário pelo cliente ADMIN (a RLS de `organizations` só deixa escrever platform admin). */
+async function incluirNoVocabulario(
+  admin: ReturnType<typeof createAdminClient>,
+  organizationId: string,
+  settings: Record<string, unknown>,
+  vocabulario: string[],
+  requestId: string,
+): Promise<void> {
+  const { error } = await admin
+    .from("organizations")
+    .update({ settings: { ...settings, canonical_conversation_tags: vocabulario } })
+    .eq("id", organizationId);
+  if (error) throw new ApiError(500, "internal_error", undefined, requestId, error.message);
+}
+
 const createTag = definir({
   nome: "create_tag",
   escopo: "tags:write",
@@ -498,18 +514,13 @@ const createTag = definir({
     if (oficiais.includes(tag)) return { resultado: { tag, created: false }, registros: 0 };
     if (oficiais.length >= 50) throw new ApiError(422, "validation_failed", undefined, ctx.requestId, "O vocabulário oficial já tem 50 tags.");
 
-    const proximo = [...oficiais, tag];
-    const { error: updErr } = await ctx.db
-      .from("organizations")
-      .update({ settings: { ...settings, canonical_conversation_tags: proximo } })
-      .eq("id", org);
-    if (updErr) throw new ApiError(500, "internal_error", undefined, ctx.requestId, updErr.message);
+    await incluirNoVocabulario(ctx.db, org, settings, [...oficiais, tag], ctx.requestId);
     void audit({
       action: "tag_vocabulary.changed",
       actorUserId: ctx.conexao.donoId,
       organizationId: org,
       resourceType: "organization",
-      resourceId: org,
+      resourceId: ctx.conexao.organizationId,
       requestId: ctx.requestId,
       metadata: { acao: "criar", tag },
     });

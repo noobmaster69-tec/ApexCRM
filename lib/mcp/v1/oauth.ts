@@ -49,7 +49,7 @@ export function metadadosDoRecurso() {
     authorization_servers: [baseDoApp()],
     bearer_methods_supported: ["header"],
     scopes_supported: [...ESCOPOS],
-    resource_name: "Apex CRM",
+    resource_name: "CRM",
   };
 }
 
@@ -311,7 +311,7 @@ async function emitirPar(db: SupabaseClient, c: ConexaoDoPar): Promise<ParDeToke
 }
 
 function conexaoUtilizavel(c: ConexaoDoPar | null, agora: Date): c is ConexaoDoPar {
-  return c !== null && c.revoked_at === null && new Date(c.expires_at) > agora;
+  return c !== null && !c.revoked_at && new Date(c.expires_at) > agora;
 }
 
 export async function trocarCodigo(
@@ -340,7 +340,7 @@ export async function trocarCodigo(
     used_at: string | null;
   } | null;
   if (!codigo || codigo.client_id !== cliente.id) throw new ErroOAuth("invalid_grant", "Código inválido.");
-  if (codigo.used_at !== null) {
+  if (codigo.used_at) {
     await revogarPorReuso(db, codigo.organization_id, codigo.connection_id);
     throw new ErroOAuth("invalid_grant", "Código já usado. A conexão foi revogada por segurança.");
   }
@@ -396,7 +396,7 @@ export async function renovarPar(
   if ((daConexao as { oauth_client_id?: string | null } | null)?.oauth_client_id !== cliente.id) {
     throw new ErroOAuth("invalid_grant", "Refresh token de outro cliente.");
   }
-  if (par.rotated_at !== null) {
+  if (par.rotated_at) {
     await revogarPorReuso(db, par.organization_id, par.connection_id);
     throw new ErroOAuth("invalid_grant", "Refresh token já usado. A conexão foi revogada por segurança.");
   }

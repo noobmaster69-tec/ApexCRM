@@ -1073,6 +1073,15 @@ export const NAV_CATALOG = [
     minRole: "admin",
   },
   {
+    href: "/app/settings/integracoes/mcp",
+    label: "Conexões MCP",
+    description: "Conecte o Claude, o Cursor ou outra ferramenta de IA ao CRM, com permissões limitadas.",
+    icon: "PlugsConnected",
+    group: "organizacao",
+    section: "Dados e acesso",
+    minRole: "admin",
+  },
+  {
     href: "/app/settings/voip-trunk",
     label: "Trunk SIP",
     description: "Credenciais do provedor SIP para chamadas de voz por IA.",

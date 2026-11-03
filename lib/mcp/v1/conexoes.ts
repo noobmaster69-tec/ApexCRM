@@ -13,6 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 import { audit } from "@/lib/audit";
+import type { createAdminClient } from "@/lib/supabase/admin";
 import { avisarAdmins, avisoDeConexaoCriada } from "./avisos";
 import { itemDeIpValido } from "./conexao";
 import {
@@ -103,7 +104,11 @@ export async function lerInterruptor(db: SupabaseClient, organizationId: string)
   return (settings.mcp as { enabled?: unknown } | undefined)?.enabled === true;
 }
 
-export async function gravarInterruptor(db: SupabaseClient, quem: Quem, ligado: boolean): Promise<boolean> {
+export async function gravarInterruptor(
+  db: ReturnType<typeof createAdminClient>,
+  quem: Quem,
+  ligado: boolean,
+): Promise<boolean> {
   const settings = await lerSettings(db, quem.organizationId);
   const mcp = { ...((settings.mcp as Record<string, unknown> | undefined) ?? {}), enabled: ligado };
   const { error } = await db
