@@ -7,8 +7,8 @@ import { GavetaDaLateral } from "@/components/shell/GavetaDaLateral";
 import { AvisoDePropostaEmDestaque } from "@/components/shell/AvisoDePropostaEmDestaque";
 import { SonsDaCentral } from "@/components/shell/SonsDaCentral";
 import { BarraDeProgressoNavegacao } from "@/components/shell/BarraDeProgressoNavegacao";
-import { useLateral, type PreferenciaDaLateral } from "@/components/shell/estado-da-lateral";
-import { lateralForcadaRecolhida } from "@/components/shell/lateral-forcada";
+import { useLateral, useLateralDoConstrutor, type PreferenciaDaLateral } from "@/components/shell/estado-da-lateral";
+import { atalhoDaLateralVale, ehConstrutorDeFluxo } from "@/components/shell/lateral-forcada";
 import { useSinalDePresenca } from "@/hooks/atendimento/useSinalDePresenca";
 import { useInboundMessageAlerts } from "@/hooks/notifications/useInboundMessageAlerts";
 import { useInboundCallAlerts } from "@/hooks/calls/useInboundCallAlerts";
@@ -62,8 +62,23 @@ export function AppShell({ preferenciaDaLateral = null, podeAtender, faixas, chi
   const ocupacaoDoRodape = useOcupacaoDoRodape();
 
   const pathname = usePathname();
-  const lateral = useLateral(preferenciaDaLateral);
-  const forcada = lateralForcadaRecolhida(pathname);
+  const geral = useLateral(preferenciaDaLateral);
+  const doConstrutor = useLateralDoConstrutor();
+  // No construtor de fluxo vale a preferência DELE (recolhida por padrão);
+  // nas outras telas, a geral. Recolher e expandir funcionam nas duas.
+  const noConstrutor = ehConstrutorDeFluxo(pathname);
+  const recolhida = noConstrutor ? doConstrutor.recolhida : geral.recolhida;
+  const alternarLateral = noConstrutor ? doConstrutor.alternar : geral.alternar;
+  useHotkeys(
+    "mod+b",
+    (e) => {
+      if (!atalhoDaLateralVale(e.target, document)) return;
+      e.preventDefault();
+      alternarLateral();
+    },
+    { enableOnFormTags: false, enableOnContentEditable: false },
+    [alternarLateral],
+  );
   const [pronta, setPronta] = useState(false);
   // Só depois do primeiro quadro a troca de largura anima.
   useEffect(() => {
@@ -74,10 +89,10 @@ export function AppShell({ preferenciaDaLateral = null, podeAtender, faixas, chi
   return (
     <div className="sh-app" data-testid="casca">
       <Sidebar
-        collapsed={forcada || lateral.recolhida}
-        automatica={!forcada && lateral.automatica}
+        collapsed={recolhida}
+        automatica={!noConstrutor && geral.automatica}
         pronta={pronta}
-        onToggle={forcada ? undefined : lateral.alternar}
+        onToggle={alternarLateral}
       />
       <GavetaDaLateral />
       {/*

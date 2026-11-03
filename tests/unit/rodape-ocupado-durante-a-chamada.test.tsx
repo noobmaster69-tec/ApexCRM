@@ -48,6 +48,7 @@ vi.mock("@/components/shell/AvisoDePropostaEmDestaque", () => ({ AvisoDeProposta
 vi.mock("@/components/shell/SonsDaCentral", () => ({ SonsDaCentral: () => null }));
 vi.mock("@/components/shell/estado-da-lateral", () => ({
   useLateral: () => ({ recolhida: false, automatica: false, alternar: () => {} }),
+  useLateralDoConstrutor: () => ({ recolhida: true, alternar: () => {} }),
 }));
 vi.mock("@/lib/theme", () => ({ useTheme: () => ({ toggle: () => {} }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/app/inbox" }));

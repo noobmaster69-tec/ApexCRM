@@ -81,6 +81,7 @@ import { corDoBloco } from "@/app/app/fluxos/_editor/cores-dos-blocos";
 import { BlocoDoFluxoModal } from "@/app/app/fluxos/_editor/BlocoDoFluxoModal";
 import { etapasDoFluxo } from "@/app/app/fluxos/_editor/layout-do-fluxo";
 import { arrumarInicio, inicioPrincipal } from "@/lib/fluxos/inicio-unico";
+import { viewportMantendoOCentro } from "@/app/app/fluxos/_editor/centro-ao-redimensionar";
 import "@/app/app/fluxos/_editor/fluxo-editor.css";
 
 const EMPTY_GRAPH: FlowGraph = { nodes: [], edges: [] };
@@ -166,7 +167,7 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
   // replace a connection in older drafts.
   const nextId = useRef(nextSequenceId(initial.nodes.map((node) => node.id)));
   const nextEdgeId = useRef(nextSequenceId(initial.edges.map((edge) => edge.id)));
-  const { screenToFlowPosition, fitView, setViewport } = useReactFlow();
+  const { screenToFlowPosition, fitView, setViewport, getViewport } = useReactFlow();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -521,6 +522,25 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (rect) void setViewport({ x: rect.width / 2 - 120, y: rect.height / 2 - 50, zoom: 1 });
   }, [isFluxo, initial.nodes.length, setViewport]);
+
+  // A lateral expande ou recolhe → a caixa do canvas muda de largura (a
+  // transição de 200ms empurra o canvas, sem sobrepor). A cada medida, a origem
+  // anda meia diferença: o mesmo ponto fica no centro, com o mesmo zoom.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let anterior: { width: number; height: number } | null = null;
+    const observador = new ResizeObserver(([entrada]) => {
+      if (!entrada) return;
+      const atual = { width: entrada.contentRect.width, height: entrada.contentRect.height };
+      if (anterior && atual.width > 0 && (atual.width !== anterior.width || atual.height !== anterior.height)) {
+        void setViewport(viewportMantendoOCentro(getViewport(), anterior, atual));
+      }
+      anterior = atual;
+    });
+    observador.observe(el);
+    return () => observador.disconnect();
+  }, [getViewport, setViewport]);
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
