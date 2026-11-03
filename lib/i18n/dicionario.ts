@@ -2676,6 +2676,11 @@ export const DICIONARIO: Traducoes = {
   "contatos e não poderá ser usada em novos blocos.": { es: "contactos y no podrá usarse en nuevos bloques." },
   "Ela será removida de todos os contatos e não poderá ser usada em novos blocos.": { es: "Se quitará de todos los contactos y no podrá usarse en nuevos bloques." },
   "etiqueta excluída": { es: "etiqueta eliminada" },
+  "Início duplicado: o fluxo só começa pelo Início principal.": { es: "Inicio duplicado: el flujo solo empieza por el Inicio principal." },
+  "Usa etiqueta excluída:": { es: "Usa una etiqueta eliminada:" },
+  "Aguardar sem limite de tempo": { es: "Esperar sin límite de tiempo" },
+  "condição(ões)": { es: "condición(es)" },
+  "Ir até o bloco": { es: "Ir al bloque" },
   "Alguns blocos estão desconectados": { es: "Algunos bloques están desconectados" },
   "Bloco solto nunca roda, e o contato que chegar a um caminho sem seta encerra o fluxo ali. Você pode conectar agora ou publicar assim mesmo.":
     {

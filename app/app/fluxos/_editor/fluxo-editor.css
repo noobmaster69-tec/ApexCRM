@@ -178,6 +178,25 @@
     0 0 0 5px var(--c-light),
     0 10px 28px rgba(0, 0, 0, 0.35);
 }
+/* Etapa 3: "Ir até o bloco" — contorno que pisca por 1,5 s. */
+.fx .react-flow__node.fx-piscar .fx-node {
+  animation: fx-piscar 1.5s ease-out;
+}
+@keyframes fx-piscar {
+  0%,
+  40%,
+  80% {
+    box-shadow:
+      0 0 0 3px var(--fx-canvas),
+      0 0 0 6px var(--fx-accent),
+      0 10px 28px rgba(0, 0, 0, 0.35);
+  }
+  20%,
+  60%,
+  100% {
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  }
+}
 .fx-node[data-erro="true"] {
   box-shadow:
     0 0 0 3px var(--fx-canvas),

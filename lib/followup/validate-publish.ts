@@ -37,6 +37,9 @@ export const PUBLISH_ERROR_CODES = [
   'roteiro_em_ciclo',
   // Fork jhoow: a superfície tem teto de nós próprio (`LIMITE_DE_NOS_DA_SUPERFICIE`).
   'grafo_grande_demais',
+  // Fluxos: bloco Etiquetas que cita etiqueta excluída da conta. Só o EDITOR
+  // emite (a conta não guarda registro do que foi excluído); sempre aviso.
+  'etiqueta_excluida',
 ] as const;
 export type PublishErrorCode = (typeof PUBLISH_ERROR_CODES)[number];
 
