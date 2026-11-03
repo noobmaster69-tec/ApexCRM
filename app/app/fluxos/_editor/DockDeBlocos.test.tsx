@@ -88,16 +88,16 @@ describe("Simular", () => {
 });
 
 describe("posição do bloco novo", () => {
-  it("nasce com o centro do cartão (264px) no centro da tela", () => {
-    expect(posicaoNoCentro({ x: 500, y: 300 }, [])).toEqual({ x: 368, y: 250 });
+  it("nasce com o centro do cartão (232px) no centro da tela", () => {
+    expect(posicaoNoCentro({ x: 500, y: 300 }, [])).toEqual({ x: 384, y: 250 });
   });
 
   it("não empilha em cima de um bloco que já está ali", () => {
-    expect(posicaoNoCentro({ x: 500, y: 300 }, [{ x: 368, y: 250 }])).toEqual({ x: 368, y: 410 });
+    expect(posicaoNoCentro({ x: 500, y: 300 }, [{ x: 384, y: 250 }])).toEqual({ x: 384, y: 410 });
   });
 
   it("não nasce por cima de um cartão vizinho, mesmo deslocado", () => {
-    expect(posicaoNoCentro({ x: 500, y: 300 }, [{ x: 410, y: 280 }, { x: 380, y: 410 }])).toEqual({ x: 368, y: 570 });
+    expect(posicaoNoCentro({ x: 500, y: 300 }, [{ x: 410, y: 280 }, { x: 380, y: 410 }])).toEqual({ x: 384, y: 570 });
   });
 });
 

@@ -162,7 +162,8 @@
 /* ── Bloco (nó) ─────────────────────────────────────────────────────────── */
 .fx-node {
   position: relative;
-  width: 264px;
+  /* 232px = 264 − 12% (Etapa 2): o conteúdo quebra linha ou recebe reticências. */
+  width: 232px;
   background: color-mix(in oklch, var(--c) 8%, var(--fx-block-card));
   border: 2px solid var(--c);
   border-radius: 14px;

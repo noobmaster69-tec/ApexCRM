@@ -41,7 +41,7 @@ interface Props {
 const TODAS: readonly AcaoDoCartao[] = ["editar", "duplicar", "excluir"];
 
 /**
- * O cartão de bloco do canvas de FLUXOS (redesenho de 17 out): 264px, borda e
+ * O cartão de bloco do canvas de FLUXOS (redesenho de 17 out): 232px, borda e
  * cabeçalho na cor do tipo, corpo em linhas tingidas. Editar/duplicar/excluir
  * saem do cabeçalho para uma barra flutuante 42px acima do card, visível no
  * hover ou com o bloco selecionado. Entrada à esquerda na altura do cabeçalho;

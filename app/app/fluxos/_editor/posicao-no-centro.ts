@@ -1,7 +1,9 @@
-/** Metade do cartão de bloco (264×~100): o CENTRO do cartão cai no centro da tela. */
-const MEIO_DO_CARTAO = { x: 132, y: 50 };
-/** A caixa que um cartão ocupa para efeito de "já tem alguém aqui" (264 de largura, ~140 de altura útil). */
-const CAIXA = { largura: 264, altura: 140 };
+/** Largura do cartão de bloco — a mesma do `.fx-node` em `fluxo-editor.css` (264 − 12%). */
+export const LARGURA_DO_CARTAO = 232;
+/** Metade do cartão de bloco (232×~100): o CENTRO do cartão cai no centro da tela. */
+const MEIO_DO_CARTAO = { x: LARGURA_DO_CARTAO / 2, y: 50 };
+/** A caixa que um cartão ocupa para efeito de "já tem alguém aqui" (a largura do cartão, ~140 de altura útil). */
+const CAIXA = { largura: LARGURA_DO_CARTAO, altura: 140 };
 /** Quanto desce o bloco novo quando o lugar está ocupado: a altura de um cartão + folga. */
 const DEGRAU = 160;
 

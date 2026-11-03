@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { afastarSobrepostos, FOLGA_ENTRE_CARTOES, type CaixaDoCartao } from "./sem-sobreposicao";
 
-const cartao = (id: string, x: number, y: number, h: number, w = 264): CaixaDoCartao => ({
+const cartao = (id: string, x: number, y: number, h: number, w = 232): CaixaDoCartao => ({
   id,
   position: { x, y },
   measured: { width: w, height: h },
