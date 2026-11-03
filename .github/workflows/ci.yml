@@ -326,7 +326,11 @@ jobs:
       # rodaram acima; `--shard` divide os arquivos entre as três partes. Juntos
       # são a suíte inteira, uma vez só. Localmente o comando continua sendo
       # `pnpm test:unit`, sem recorte.
+      # Roda mesmo que um gate anterior da mesma parte tenha reprovado: o job
+      # segue vermelho, mas o terço da suíte não fica sem medir — na parte 1 um
+      # `lint:channels` vermelho deixava 1/3 dos testes sem rodar nunca.
       - name: Unit tests (parte ${{ matrix.parte }}/3)
+        if: ${{ !cancelled() }}
         run: pnpm test:unit --project produto --shard=${{ matrix.parte }}/3
 
       # O ACERVO DE `.changes/` CABE NA TELA DA VPS? — e por que fora de PR.
