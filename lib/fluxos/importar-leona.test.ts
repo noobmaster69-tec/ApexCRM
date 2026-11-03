@@ -203,7 +203,8 @@ describe("importar do Leona", () => {
 
   it("recusa o que não é fluxo do Leona", () => {
     expect(converterFluxoDoLeona({ foo: 1 }, ctx)).toHaveProperty("erro");
-    expect(converterFluxoDoLeona({ nodes: [no(1, "message", [])] }, ctx)).toHaveProperty("erro");
+    // Sem bloco de Início não é mais recusa (Etapa 5): o Início é criado.
+    expect(converterFluxoDoLeona({ nodes: [no(1, "message", [])] }, ctx)).not.toHaveProperty("erro");
   });
 });
 

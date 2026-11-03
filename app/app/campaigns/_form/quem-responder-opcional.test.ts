@@ -14,6 +14,8 @@ describe("quem responder é opcional (item 5)", () => {
     canal: "11111111-1111-4111-8111-111111111111",
     texto: "Oi {primeiro_nome}",
     comAlgumaTag: "vip",
+    // Campanha nova já nasce em "Quantos contatos chamar"; falta só o número.
+    cotaQuantidade: "100",
   };
 
   it("o formulário salva sem funil, etapa nem agente de resposta", () => {
