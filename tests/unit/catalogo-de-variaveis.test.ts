@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { renderizar, VARIAVEIS_DA_CAMPANHA } from "@/lib/campanhas/renderizador";
+import { chaveCanonica } from "@/lib/variables/sistema";
 import { interpolateTemplate } from "@/lib/inbox/template-vars";
 import {
   DIVERGENCIAS,
@@ -138,7 +139,10 @@ describe("o vocabulário do catálogo é exatamente o dos dois resolvedores", ()
     // MAIOR que o catálogo do 1.99. O que não pode é o catálogo oferecer uma
     // chave que o renderizador não resolve.
     const resolvidas = new Set(VARIAVEIS_DA_CAMPANHA_NO_CATALOGO);
-    expect([...variaveisDe("campanha")].filter((v) => !resolvidas.has(v))).toEqual([]);
+    // Os nomes antigos (`nome`, `saudacao`) são aliases das chaves do fork.
+    expect(
+      [...variaveisDe("campanha")].filter((v) => !resolvidas.has(v) && chaveCanonica(v) === null),
+    ).toEqual([]);
   });
 
   it("as raízes do catálogo são as mesmas que o renderizador da campanha aceita", () => {

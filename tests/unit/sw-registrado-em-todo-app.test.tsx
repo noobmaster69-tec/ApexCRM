@@ -10,6 +10,8 @@ const registrar = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("@/lib/notifications/service_worker", () => ({ ensureNotifyServiceWorker: registrar }));
 vi.mock("@/components/shell/Sidebar", () => ({ Sidebar: () => null, SidebarContent: () => null }));
 vi.mock("@/components/shell/AvisoDePropostaEmDestaque", () => ({ AvisoDePropostaEmDestaque: () => null }));
+vi.mock("@/components/shell/SonsDaCentral", () => ({ SonsDaCentral: () => null }));
+vi.mock("@/components/shell/GavetaDaLateral", () => ({ GavetaDaLateral: () => null }));
 // A casca do fork (jhoow) lê o tema para o atalho de claro/escuro.
 vi.mock("@/lib/theme", () => ({ useTheme: () => ({ toggle: () => {} }) }));
 vi.mock("@/components/shell/TopBar", () => ({ TopBar: () => null }));

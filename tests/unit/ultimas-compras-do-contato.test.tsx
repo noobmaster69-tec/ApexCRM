@@ -32,7 +32,7 @@ import {
 } from "@/lib/leads/compras-do-contato";
 
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (s: string) => s }));
-vi.mock("@/hooks/i18n/useLocaleDeData", () => ({ useLocaleDeData: () => undefined }));
+vi.mock("@/hooks/i18n/useLocaleDeData", () => ({ useLocaleDeData: () => undefined, useTagDeIdioma: () => "pt-BR" }));
 
 /* ------- a regra pura ------- */
 

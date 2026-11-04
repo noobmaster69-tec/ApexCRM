@@ -897,7 +897,9 @@ it.each(["reclaim", "cancel", "redact"] as const)(
         await pool.query("select fn_lgpd_cascade_redact_contact($1,$2,null)", [f.org, f.contact]);
     };
     const receiver = createServer(async (req, res) => {
-      if (ehVistoAzul(req.url)) {
+      // Fork jhoow: `ehVistoAzul` também engole o check-exists (GET) para os
+      // receptores que só contam POST; aqui o GET é o gatilho da mutação em voo.
+      if (req.method !== "GET" && ehVistoAzul(req.url)) {
         res.end("{}");
         return;
       }
@@ -1201,7 +1203,9 @@ async function controlledDelivery(
   let mutation = false,
     receiverError: unknown;
   const receiver = createServer(async (req, res) => {
-    if (ehVistoAzul(req.url)) {
+    // Fork jhoow: `ehVistoAzul` também engole o check-exists (GET) para os
+    // receptores que só contam POST; aqui o GET é o gatilho da mutação em voo.
+    if (req.method !== "GET" && ehVistoAzul(req.url)) {
       res.end("{}");
       return;
     }
@@ -1248,16 +1252,13 @@ async function controlledDelivery(
         return typeof value === "function" ? value.bind(target) : value;
       },
     }) : pool;
-    // DEPURAÇÃO TEMPORÁRIA (fork jhoow, mescla 1.99) — sai no próximo commit.
-    const dbg = (n: string) => (...a: unknown[]) => console.log("DEBUG-MEET", n, JSON.stringify(a).slice(0, 600));
     const run = createMeetDeliveryHandler({
       crmCfg: { supabase: db.client },
-      log: { info: dbg("info"), warn: dbg("warn"), error: dbg("error") },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       sleep: async () => {},
     })(setup.job, executionPool);
     if (crashBeforeSettle) await expect(run).rejects.toThrow("test_crash_before_settle");
     else await run;
-    console.log("DEBUG-MEET fim", JSON.stringify({ mutation, bodies, errors: db.errors }).slice(0, 2500));
     expect(receiverError).toBeUndefined();
     return { bodies, mutation, errors: db.errors };
   } finally {
