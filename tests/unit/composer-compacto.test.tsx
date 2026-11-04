@@ -13,6 +13,7 @@ vi.mock("@/hooks/inbox/useSendMessage", () => ({ useSendMessage: () => ({ mutate
 vi.mock("@/hooks/inbox/useCreateNote", () => ({ useCreateNote: () => ({ mutate: vi.fn(), isPending: false }) }));
 vi.mock("@/hooks/inbox/useUploadMedia", () => ({ useUploadMedia: () => ({ mutateAsync: vi.fn(), isPending: false }) }));
 vi.mock("@/hooks/inbox/useMessageTemplates", () => ({
+  useGruposDeRespostas: () => ({ data: [], isLoading: false }),
   useMessageTemplates: () => ({
     data: [{ id: "t1", shortcut: "ola", title: "Saudação", body: "Olá! Como posso ajudar?" }],
     isLoading: false,

@@ -134,7 +134,10 @@ vi.mock("@/hooks/inbox/useCloseConversation", () => ({
 }));
 // As irmãs do Inbox não são o alvo e trazem fetch próprio: ficam de fora da conta.
 vi.mock("@/components/inbox/ConversationList", () => ({ ConversationList: () => null }));
-vi.mock("@/components/inbox/InboxFilters", () => ({ InboxFilters: () => null }));
+vi.mock("@/components/inbox/InboxFilters", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/inbox/InboxFilters")>()),
+  InboxFilters: () => null,
+}));
 vi.mock("@/components/inbox/ChatThread", () => ({ ChatThread: () => null }));
 vi.mock("@/components/inbox/Composer", () => ({ Composer: () => null }));
 vi.mock("@/components/inbox/ConversationHeader", () => ({ ConversationHeader: () => null }));

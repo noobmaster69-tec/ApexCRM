@@ -31,7 +31,6 @@ import { useMarcaDaInstalacao } from "@/lib/branding/contexto";
 import { GRUPO_NO_RODAPE, sidebarGroups, type NavDestination } from "@/lib/navigation/registry";
 import { aplicarMenuOculto, chaveDoMenuOculto, lerMenuOculto } from "@/lib/navigation/menu-pessoal";
 import "./shell.css";
-import { GRUPO_NO_RODAPE, sidebarGroups } from "@/lib/navigation/registry";
 import { usePrefetchPorIntencao } from "@/hooks/navigation/prefetchPorIntencao";
 
 /**

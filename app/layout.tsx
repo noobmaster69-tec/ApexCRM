@@ -399,9 +399,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             ⚠️ Isto muda o desktop também: o aviso passa do canto superior
             direito para o inferior direito.
 
-            `mobileOffset` sobe o aviso acima do que o rodapé já ocupa — a barra
-            de abas do celular (`components/shell/BarraInferior.tsx`) mora
-            exatamente onde o aviso cairia. O número vem do contrato
+            `mobileOffset` sobe o aviso acima do que o rodapé já ocupa — quando
+            houver barra de abas no celular, ela mora exatamente onde o aviso
+            cairia (o fork jhoow não tem essa barra). O número vem do contrato
             (`--rodape-ocupado`), não de uma constante aqui: é a mesma variável
             que o `<main>` desconta, então os dois nunca discordam. Quando não
             há barra, o `max()` cai na área segura do iOS (ou nos 8px).

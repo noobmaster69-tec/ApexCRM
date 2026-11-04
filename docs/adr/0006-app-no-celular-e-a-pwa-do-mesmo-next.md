@@ -22,7 +22,7 @@ O que já existe, conferido em `b89b5a085` (os caminhos são a régua — reconf
 | Service worker de notificação | `public/notify-sw.js`, registrado por `lib/notifications/service_worker.ts` | bandeja, clique que abre a conversa, evento `push` |
 | Web Push | `lib/notifications/web_push.ts`, `lib/notifications/vapid.ts`, `app/api/v1/notifications/push/route.ts`, `lib/notifications/push_client.ts` | funciona quando o par `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` está no `.env`; o kit grava o par **vazio** (`hostgator-setup-kit/install.sh`) e o `update.sh` não o gera |
 | Tela de avisos | `app/app/settings/notifications/page.tsx` | diz a verdade sobre o push estar ou não disponível (`vapidPronto()`) |
-| Casca de celular | `components/shell/BarraInferior.tsx` (barra de abas), `components/shell/MobileSidebar.tsx`, `lib/ui/rodape-ocupado.tsx`, `viewportFit: "cover"` em `app/layout.tsx` | safe-area, piso de 44 px; medição em `evidence/celular-quase-nativo-20261005/LEIA.md` |
+| Casca de celular | barra de abas e menu lateral do celular (no upstream; o fork jhoow usa a lateral própria), `lib/ui/rodape-ocupado.tsx`, `viewportFit: "cover"` em `app/layout.tsx` | safe-area, piso de 44 px; medição em `evidence/celular-quase-nativo-20261005/LEIA.md` |
 
 Ou seja: o produto já é quase uma PWA instalável. Faltam peças de acabamento (par VAPID que
 nasce com a instalação, ícone do iPhone, manifest completo, um caminho guiado para instalar) e

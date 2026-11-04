@@ -22,6 +22,12 @@ const capturado = vi.hoisted(() => ({
 
 vi.mock("@hello-pangea/dnd", () => ({
   DragDropContext: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  // O quadro do fork arrasta as COLUNAS também: o `Droppable` do quadro devolve
+  // o render-prop com o `provided` mínimo.
+  Droppable: ({ children }: { children: (p: unknown) => React.ReactNode }) =>
+    children({ innerRef: () => {}, droppableProps: {}, placeholder: null }),
+  Draggable: ({ children }: { children: (p: unknown) => React.ReactNode }) =>
+    children({ innerRef: () => {}, draggableProps: {}, dragHandleProps: {} }),
 }));
 vi.mock("@/components/kanban/StageColumn", () => ({ StageColumn: () => null }));
 vi.mock("@/components/kanban/LeadDossier", () => ({

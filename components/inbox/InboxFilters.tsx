@@ -32,7 +32,7 @@ import {
   type ModoDeEtiqueta,
   marcadoresEscolhidos,
 } from "@/lib/inbox/marcador-da-conversa";
-import { useAuth, usePermission } from "@/hooks/auth/AuthProvider";
+import { useAuth } from "@/hooks/auth/AuthProvider";
 import { useContactTagVocabulary } from "@/hooks/contacts/useContactTagVocabulary";
 import { useConversationTagVocabulary } from "@/hooks/inbox/useConversationTags";
 import { useConversationCounts } from "@/hooks/inbox/useConversationCounts";
@@ -198,7 +198,7 @@ export function InboxFilters({ value, onChange }: Props) {
     }
   }, [value.search]);
   const { data: channels } = useChannelSessions({ refetchInterval: 30_000 });
-  const { activeOrg } = useAuth();
+  const { user, activeOrg } = useAuth();
   /**
    * As opções são a UNIÃO das duas caixas — as mesmas que o filtro consulta
    * (`conversations.tags` ou `contacts.tags`, no handler da lista).
@@ -251,7 +251,10 @@ export function InboxFilters({ value, onChange }: Props) {
   // gestão; o atendente comum continua vendo só o escopo dele, que a RLS impõe).
   const podeFiltrarPorAtendente = roleAtLeast(activeOrg?.role, "manager");
   const mostrarSeletorDeAtendente = podeFiltrarPorAtendente && value.tab !== "mine";
-  const podeIniciarConversa = usePermission("inbox.claim");
+  // A régua de `inbox.claim` (agent+), lida pelo papel que este componente já
+  // tem na mão — os testes da faixa mockam só `useAuth`.
+  const podeIniciarConversa =
+    (user?.is_platform_admin === true && !user?.support) || roleAtLeast(activeOrg?.role, "agent");
   const [iniciarConversaAberto, setIniciarConversaAberto] = useState(false);
 
   const tabs = activeOrg
@@ -432,7 +435,11 @@ export function InboxFilters({ value, onChange }: Props) {
 
   return (
     <div className="shrink-0">
-      <IniciarConversaDialog open={iniciarConversaAberto} onOpenChange={setIniciarConversaAberto} />
+      {/* Montado só aberto: o diálogo lê o router e o react-query, e a faixa
+          renderiza também fora deles (testes, prévias). */}
+      {iniciarConversaAberto && (
+        <IniciarConversaDialog open onOpenChange={setIniciarConversaAberto} />
+      )}
       <div className="space-y-2.5 px-3 pt-3.5 pb-2">
         <div className="flex h-8 items-center justify-between gap-2">
           <h1 className="text-[18px] font-semibold leading-none text-ibx-text">{t("Inbox")}</h1>
