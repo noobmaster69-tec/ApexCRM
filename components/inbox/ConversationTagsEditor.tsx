@@ -3,12 +3,19 @@ import { useState } from "react";
 import { useT } from "@/hooks/i18n/useT";
 import { ChipDeEtiqueta } from "@/components/tags/ChipDeEtiqueta";
 import { PontoDaEtiqueta } from "@/components/tags/PontoDaEtiqueta";
+import { DialogoDeNovaEtiqueta } from "@/components/tags/DialogoDeNovaEtiqueta";
+import { useCoresDasEtiquetas } from "@/components/tags/CoresDasEtiquetas";
+import { chaveDaEtiqueta } from "@/lib/tags/cor-da-etiqueta";
+import { useAuth } from "@/hooks/auth/AuthProvider";
+import { ROLE_RANK } from "@/lib/auth/types";
 import { Input } from "@/components/ui/input";
 import { X, Plus } from "@/lib/ui/icons";
 import {
   useUpdateConversationTags,
   useConversationTagVocabulary,
 } from "@/hooks/inbox/useConversationTags";
+import { useDefinirCorDaEtiqueta } from "@/hooks/tags/useDefinirCorDaEtiqueta";
+import { sugestoesDeEtiqueta, etiquetaParaGravar, opcaoDeCriar } from "@/lib/contacts/etiquetas";
 
 interface Props {
   conversationId: string;
@@ -20,19 +27,64 @@ interface Props {
 export function ConversationTagsEditor({ conversationId, orgId, tags }: Props) {
   const t = useT();
   const [draft, setDraft] = useState("");
+  // Issue #2718 — tom escolhido ANTES do "+": a etiqueta nasce colorida.
+  const [cor, setCor] = useState<string | null>(null);
   const mutation = useUpdateConversationTags();
-  const { data: vocabulary } = useConversationTagVocabulary(orgId);
+  const { definirCor } = useDefinirCorDaEtiqueta();
+  const { data: vocabulary, isError: erroNoVocabulario } = useConversationTagVocabulary(orgId);
+  // #2855 — com texto, pergunta também ao vocabulário inteiro (curado + em uso).
+  // Sem texto é a MESMA chave da linha acima: uma requisição só.
+  const { data: encontradas, isError: erroNaBusca } = useConversationTagVocabulary(orgId, draft.trim());
+  const vocabularyError = erroNoVocabulario || erroNaBusca;
+  // A cor de quem JÁ está na conversa vem do MESMO mapa que o chip usa (#2771):
+  // uma leitura só, e o gatilho abre já com o tom atual marcado.
+  const cores = useCoresDasEtiquetas();
+  // #2789 — a sugestão escolhida, enquanto o diálogo está aberto. `null` = fechado.
+  // `corInicial` é o tom que o diálogo MOSTROU ao abrir: confirmar compara com
+  // ele, não com o mapa ao vivo, que pode chegar depois e não foi visto.
+  const [sugestao, setSugestao] = useState<{ tag: string; corInicial: string | null } | null>(null);
+  const { activeOrg } = useAuth();
+  // A mesma régua do SeletorDeCorDaEtiqueta: a rota exige manager + MFA, então
+  // para quem ela recusaria o clique continua DIRETO (#2718).
+  const podeDefinirCor =
+    !!activeOrg && ROLE_RANK[activeOrg.role] >= ROLE_RANK.manager;
+
+  /**
+   * O vocabulário que este editor conhece: o da organização (as MAIS usadas
+   * primeiro, ordem que a rota entrega) e, com texto digitado, o que a busca no
+   * vocabulário inteiro achou — sem repetir, e DEPOIS das em uso (#2855, #3180).
+   */
+  const conhecidas = [
+    ...new Set([...(vocabulary ?? []), ...(draft.trim() ? (encontradas ?? []) : [])]),
+  ];
 
   // Normalização espelha o Zod do PATCH (trim+lowercase); dedup no set.
   function apply(next: string[]) {
     mutation.mutate({ conversation_id: conversationId, tags: next });
   }
 
-  function add(raw: string) {
-    const tag = raw.trim().toLowerCase().slice(0, 40);
-    if (!tag || tags.includes(tag) || tags.length >= 20) return;
+  /** Grava a etiqueta com o tom escolhido. Devolve a tag gravada, ou `null` se recusada (duplicada/cheia). */
+  function criar(raw: string, escolhida: string | null): string | null {
+    // #3180 — o que se digita NÃO vira variante de uma etiqueta que já existe:
+    // quando o texto casa pela chave larga (sem caixa, sem acento), é a grafia
+    // EXISTENTE que se grava. É o mesmo caminho da ficha do contato
+    // (`etiquetaParaGravar`), e é ele que faz o Enter aplicar a etiqueta em vez
+    // de criar mais uma.
+    const tag = etiquetaParaGravar({ conhecidas, selecionadas: tags, digitado: raw });
+    if (!tag || tags.length >= 20) return null;
     apply([...tags, tag]);
-    setDraft("");
+    // A cor é VOCABULÁRIO, não da linha (#2718): chamada independente do
+    // attach — a SQL faz append do verbete, e falhar aqui não desfaz a tag.
+    if (escolhida) void definirCor(tag, escolhida);
+    return tag;
+  }
+
+  /** Caminho DIGITADO: consome o tom escolhido no gatilho 🎨 e limpa o rascunho. */
+  function add(raw: string) {
+    if (criar(raw, cor)) {
+      setDraft("");
+      setCor(null);
+    }
   }
 
   function remove(tag: string) {
@@ -40,11 +92,20 @@ export function ConversationTagsEditor({ conversationId, orgId, tags }: Props) {
   }
 
   const [adicionando, setAdicionando] = useState(false);
-  const termo = draft.trim().toLowerCase();
-  // Autocompletar: o vocabulário da organização filtrado pelo que se digita.
-  const suggestions = (vocabulary ?? [])
-    .filter((v) => !tags.includes(v) && (termo === "" || v.includes(termo)))
-    .slice(0, 6);
+  // #3180 — o texto digitado ENTRA no filtro: a mesma chave larga da busca
+  // (`lib/contacts/etiquetas`), sem caixa e sem acento, casando no MEIO da
+  // palavra. Sem texto, as sugestões saem na ordem da FONTE — e a fonte
+  // (`GET /api/v1/conversation-tags`) entrega as mais usadas primeiro
+  // (`uso_em_conversas`), não as oito primeiras do alfabeto.
+  const suggestions = sugestoesDeEtiqueta({
+    conhecidas,
+    selecionadas: tags,
+    digitado: draft,
+  });
+
+  // #3180 (critério 3) — a etiqueta NOVA, a ÚLTIMA opção da lista e só quando
+  // o texto não casa com nenhuma existente: `null` = não há o que criar.
+  const nova = opcaoDeCriar({ conhecidas, selecionadas: tags, digitado: draft });
   const cheio = tags.length >= 20;
 
   return (
@@ -104,7 +165,12 @@ export function ConversationTagsEditor({ conversationId, orgId, tags }: Props) {
         )}
       </div>
 
-      {adicionando && suggestions.length > 0 && (
+      {vocabularyError && (
+        <p role="alert" className="text-[11px] text-ibx-danger">
+          {t("Não foi possível carregar as tags.")}
+        </p>
+      )}
+      {adicionando && (suggestions.length > 0 || nova !== null) && (
         <div className="flex flex-wrap gap-1" role="listbox" aria-label={t("Sugestões de tag")}>
           {suggestions.map((tag) => (
             <button
@@ -113,7 +179,13 @@ export function ConversationTagsEditor({ conversationId, orgId, tags }: Props) {
               role="option"
               aria-selected={false}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => add(tag)}
+              // #2789 — passa pela caixa de diálogo para escolher a cor antes de
+              // gravar; sem permissão o clique continua direto (a rota recusaria).
+              onClick={() =>
+                podeDefinirCor
+                  ? setSugestao({ tag, corInicial: cores[chaveDaEtiqueta(tag)] ?? null })
+                  : add(tag)
+              }
               disabled={mutation.isPending || cheio}
               className="inline-flex items-center gap-1 rounded-full bg-ibx-chip px-2 py-0.5 text-[11px] text-ibx-text-2 hover:bg-ibx-chip-strong hover:text-ibx-text disabled:opacity-50"
             >
@@ -121,8 +193,41 @@ export function ConversationTagsEditor({ conversationId, orgId, tags }: Props) {
               {tag}
             </button>
           ))}
+          {/* #3180 (critério 3) — CRIAR fica por ÚLTIMO e só quando o texto não
+              casa com nenhuma etiqueta existente: assim a lista diz, sem
+              ambiguidade, o que já existe e o que nasceria. Clicar (ou o Enter
+              no campo, que passa pelo mesmo caminho) grava. */}
+          {nova !== null && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => add(draft)}
+              disabled={mutation.isPending || cheio}
+              className="inline-flex items-center gap-1 rounded-full border border-dashed border-ibx-border-hover px-2 py-0.5 text-[11px] text-ibx-muted hover:border-solid hover:text-ibx-text disabled:opacity-50"
+            >
+              {t("Criar")} «{nova}»
+            </button>
+          )}
         </div>
       )}
+
+      {/* Montado só com a sugestão escolhida: cada abertura nasce com o tom do
+          vocabulário pré-marcado, sem estado herdado da abertura anterior. */}
+      {sugestao ? (
+        <DialogoDeNovaEtiqueta
+          tag={sugestao.tag}
+          corInicial={sugestao.corInicial}
+          onFechar={() => setSugestao(null)}
+          onConfirmar={(tom) => {
+            // No diálogo, `null` é "Sem cor" escolhido de propósito: a cor do
+            // vocabulário só é regravada quando a escolha difere da que foi mostrada.
+            const gravada = criar(sugestao.tag, null);
+            if (gravada && tom !== sugestao.corInicial) void definirCor(gravada, tom);
+            setSugestao(null);
+          }}
+          disabled={mutation.isPending}
+        />
+      ) : null}
     </section>
   );
 }

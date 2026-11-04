@@ -10,6 +10,9 @@ import {
 } from "@/components/campanhas/CamposDeRitmo";
 import type { ResumoDaLista } from "@/components/campanhas/ImportarLista";
 
+import type { EscolhaDoModelo } from "../_components/ModeloDaCampanha";
+import type { Velocidade } from "../_components/VelocidadeDaCampanha";
+
 /** Item 1: de onde vem o público. A consulta avançada ficou de fora (RESUMO.md). */
 export type FonteDoPublico = "crm" | "etiqueta" | "importacao";
 export type OperadorDeCampo = "igual" | "contem" | "preenchido" | "vazio";
@@ -83,7 +86,19 @@ export interface ValoresDaCampanha {
   idioma: string;
   tetoDiario: string;
   tetoHorario: string;
+  /** 1.99 (0710): no número oficial, o modelo aprovado no lugar do texto. */
+  modelo: EscolhaDoModelo | null;
+  /** 1.99 (0711): `rapida` = rajada, só com modelo no número oficial. */
+  velocidade: Velocidade;
 }
+
+/** O que o número escolhido aceita e se o modelo está completo — vem da tela. */
+export interface ContextoDoCanal {
+  ehOficial: boolean;
+  modeloPronto: boolean;
+}
+
+const SEM_MODELO: ContextoDoCanal = { ehOficial: false, modeloPronto: false };
 
 const juntar = (v: unknown): string => (Array.isArray(v) ? v.map(String).join(", ") : "");
 const num = (v: unknown): string => (v === null || v === undefined ? "" : String(v));
@@ -167,6 +182,15 @@ export function valoresDaCampanha(c?: CampanhaDetalhada | null): ValoresDaCampan
     ...(c ? {} : { modoRitmo: "cota" as const, cotaPeriodo: "dia" as const, janelaInicio: "09:00", janelaFim: "18:00" }),
     tetoDiario: num(c?.teto_diario),
     tetoHorario: num(c?.teto_horario),
+    modelo:
+      c?.provider_template_name && c?.provider_template_language
+        ? {
+            name: c.provider_template_name,
+            language: c.provider_template_language,
+            variables: c.provider_template_variables ?? {},
+          }
+        : null,
+    velocidade: c?.velocidade === "rapida" ? "rapida" : "gradual",
   };
 }
 
@@ -211,11 +235,13 @@ export function temCriterio(v: ValoresDaCampanha): boolean {
   );
 }
 
-export function podeSalvar(v: ValoresDaCampanha): boolean {
+export function podeSalvar(v: ValoresDaCampanha, canal: ContextoDoCanal = SEM_MODELO): boolean {
+  const temConteudo =
+    v.modo === "flow" ? v.fluxo !== "" : canal.ehOficial ? canal.modeloPronto : v.texto.trim() !== "";
   return (
     v.nome.trim() !== "" &&
     v.canal !== "" &&
-    (v.modo === "flow" ? v.fluxo !== "" : v.texto.trim() !== "") &&
+    temConteudo &&
     temCriterio(v) &&
     (v.baseLegal !== "legitimate_interest" || v.liaRef.trim() !== "") &&
     errosDoRitmo(v).length === 0
@@ -225,17 +251,29 @@ export function podeSalvar(v: ValoresDaCampanha): boolean {
 const ouNulo = (s: string): number | null => (s.trim() === "" ? null : Number(s));
 
 /** O corpo do POST/PATCH — o MESMO para criar e editar. */
-export function corpoDaCampanha(v: ValoresDaCampanha): Record<string, unknown> {
+export function corpoDaCampanha(v: ValoresDaCampanha, canal: ContextoDoCanal = SEM_MODELO): Record<string, unknown> {
+  const comModelo = canal.ehOficial && v.modo !== "flow" && v.modelo !== null;
+  // Rápida só no número oficial: trocar para um número por QR volta a gradual.
+  const rapida = comModelo && v.velocidade === "rapida";
   return {
     name: v.nome.trim(),
     channel_session_id: v.canal,
-    message_body: v.modo === "flow" ? v.texto.trim() || null : v.texto.trim(),
+    ...(comModelo && v.modelo
+      ? {
+          message_mode: "template",
+          provider_template_name: v.modelo.name,
+          provider_template_language: v.modelo.language,
+          provider_template_variables: v.modelo.variables,
+        }
+      : { message_body: v.modo === "flow" ? v.texto.trim() || null : v.texto.trim() }),
+    velocidade: rapida ? "rapida" : "gradual",
     mode: v.modo,
     flow_id: v.modo === "flow" ? v.fluxo || null : null,
     base_legal: v.baseLegal,
     lia_ref: v.liaRef.trim() || null,
     audience_filter: filtroDoFormulario(v),
-    intervalo_segundos: ouNulo(v.intervalo),
+    // Na rápida o intervalo não vale (a rajada tem o próprio espaçamento).
+    intervalo_segundos: rapida ? null : ouNulo(v.intervalo),
     ...corpoDaJanela(v),
     ...corpoDaCota(v),
     scheduled_at: instanteAgendado(v),
@@ -244,7 +282,8 @@ export function corpoDaCampanha(v: ValoresDaCampanha): Record<string, unknown> {
     max_interval_seconds: Number(v.maxIntervalo) || 180,
     timezone: v.fuso || null,
     language: v.idioma.trim() || null,
-    channel_session_ids: v.extras.filter((id) => id !== v.canal),
+    // Modelo aprovado sai por um número só: cada número tem os próprios modelos.
+    channel_session_ids: comModelo ? [] : v.extras.filter((id) => id !== v.canal),
     pipeline_id: v.funil || null,
     stage_id: v.etapa || null,
     agent_id: v.agente || null,

@@ -5,7 +5,7 @@ import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 import type { Locale } from "date-fns";
 import { formatDistanceToNowStrict } from "date-fns";
 import { useT } from "@/hooks/i18n/useT";
-import { Robot } from "@/lib/ui/icons";
+import { Check, Robot, Sparkle } from "@/lib/ui/icons";
 import { ChannelLogo } from "@/components/inbox/ChannelLogo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -14,9 +14,10 @@ import { telefoneLegivel } from "@/lib/inbox/telefone-legivel";
 import { comandoDaConversa, esperaDaConversa } from "@/lib/inbox/comando-da-conversa";
 import { cn } from "@/lib/utils";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
-import { nomeDoContato, rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { nomeDoContato, rotuloParaAEquipe } from "@/lib/contacts/rotulo-do-contato";
 import { initials, relativeTime } from "@/lib/contacts/apresentacao-na-lista";
 import { phoneForDisplay } from "@/lib/channels/phone-variants";
+import { rotuloDoCanalDaConversa } from "@/lib/channels/estado";
 
 interface Props {
   conversation: ConversationWithContact;
@@ -57,6 +58,31 @@ interface Props {
    * afirme nada".
    */
   automaticoDaOrg?: boolean;
+  /**
+   * Marca esta linha no lote (#2484, F1). Presente só quando a seleção
+   * múltipla está ligada — sem ela a caixa não aparece, e a lista continua
+   * sendo o que era.
+   */
+  selecionado?: boolean;
+  /**
+   * Liga o modo de seleção: com esta prop a linha ganha a caixa de marcação.
+   * A ação da caixa é SEPARADA do clique na linha — quem marca não abre a
+   * conversa, e quem abre não marca.
+   */
+  onAlternarSelecao?: (id: string) => void;
+  /**
+   * Marca (ou desmarca) ESTA conversa como exemplo para o agente aprender
+   * (#3006). Presente = a linha monta o controle; AUSENTE = a linha é
+   * exatamente a que era, sem controle nenhum e sem selo — é o que mantém os
+   * testes que renderizam a linha sozinha, e a lista que não oferece a ação.
+   *
+   * A CHAMADA À ROTA NÃO MORA AQUI, e isso é de propósito. Vem por prop, como
+   * o `automaticoDaOrg`: uma resposta por lista, não por linha — e, medido, a
+   * linha é renderizada sem `QueryClientProvider` em vários testes do repo, o
+   * que faria um `useQueryClient()` aqui dentro derrubar todos eles com "No
+   * QueryClient set". Quem faz o `POST .../usable-for-rag` é a lista.
+   */
+  onAlternarExemplo?: (id: string, enabled: boolean) => void;
 }
 
 /**
@@ -86,11 +112,14 @@ export function ConversationListItem({
   mostrarAtendente,
   mostrarAutomatico = true,
   automaticoDaOrg,
+  selecionado = false,
+  onAlternarSelecao,
+  onAlternarExemplo,
 }: Props) {
   const localeDaData = useLocaleDeData();
   const t = useT();
   const c = conversation.contacts ?? null;
-  const displayName = rotuloDoContato(c, t);
+  const displayName = rotuloParaAEquipe(c, t);
   const phoneFallback = c?.phone_number ? phoneForDisplay(c.phone_number) : "??";
   const tags = c?.tags ?? [];
   const preview = conversation.last_message_preview?.trim() || t("Sem mensagens");
@@ -142,11 +171,30 @@ export function ConversationListItem({
   });
   const isAi = comando.quem === "automatico";
 
-  // O número DA EMPRESA por onde esta conversa chegou — não o do cliente. Com
-  // dois canais é o que decide o tom da resposta e qual número a pessoa vê
-  // respondendo. Cai no nome do canal quando não há número (canal recém-criado).
+  // QUEM MANDA ESTA CONVERSA — o número DA EMPRESA por onde ela chegou, não o
+  // do cliente. Com dois canais é o que decide o tom da resposta e qual número
+  // a pessoa vê respondendo.
+  //
+  // #2383: quando o canal tem nome ou número, o texto é o MESMO do card da tela
+  // de canais (`/app/connections`), com o nome amigável na frente — antes o
+  // número vencia o nome, e um canal chamado "Peças" saía na lista como o
+  // número cru. Sem canal associado (grupo, conversa sem sessão, não-WA) e sem
+  // nome E sem número o badge continua não existindo, como estava.
   const canal = conversation.channel_sessions ?? null;
-  const rotuloCanal = canal?.phone_number ?? canal?.display_name ?? null;
+  const rotuloCanal = rotuloDoCanalDaConversa(canal, t);
+
+  /**
+   * A CONVERSA MARCADA COMO EXEMPLO PARA O AGENTE (#3006).
+   *
+   * `usable_for_rag` é a coluna que a rota `usable-for-rag` liga; quem a traz
+   * para cá é o `SELECT_COLS` da lista. Os dois rótulos são literais `t()`
+   * separados — a cerca de espanhol cobra chave por chave, e uma escolha
+   * ternária dentro do `t()` ficaria invisível para ela.
+   */
+  const exemploMarcado = Boolean(conversation.usable_for_rag);
+  const rotuloExemplo = exemploMarcado
+    ? t("Deixar de usar como exemplo")
+    : t("Usar como exemplo para a IA");
 
   // Tags, número de entrada e atendente saíram da linha (ficavam como chips
   // embaixo da prévia) e passaram para a dica do selo do canal — a linha fica
@@ -155,6 +203,7 @@ export function ConversationListItem({
     mostrarCanal && rotuloCanal ? `${t("Entrou por")} ${rotuloCanal}` : null,
     mostrarAtendente && comando.quem === "humano" ? `${t("Atendido por")} ${comando.nome ?? t("Atendente")}` : null,
     tags.length > 0 ? `${t("Tags")}: ${tags.join(", ")}` : null,
+    exemploMarcado ? t("Exemplo para a IA") : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -163,14 +212,45 @@ export function ConversationListItem({
   const nomeVisivel = nomeDoContato(c) ? displayName : c?.phone_number ? telefoneLegivel(c.phone_number) : displayName;
 
   return (
+    <div
+      className={cn(
+        "relative flex w-full items-start rounded-[10px]",
+        selecionado && "bg-ibx-accent-active-bg",
+      )}
+    >
+      {/*
+        A CAIXA DE SELEÇÃO (1.99, #2484) — fora do botão da linha, de propósito:
+        controle interativo dentro de `<button>` é HTML inválido, e o clique na
+        caixa NÃO pode abrir a conversa. Marcar e abrir são gestos diferentes.
+      */}
+      {onAlternarSelecao && (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={selecionado}
+          aria-label={t("Selecionar conversa")}
+          title={t("Selecionar conversa")}
+          data-testid={`selecao-em-lote-${conversation.id}`}
+          onClick={() => onAlternarSelecao(conversation.id)}
+          className={cn(
+            "ml-2 mt-[22px] flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+            "focus-visible:outline-2 focus-visible:outline-ibx-accent",
+            selecionado
+              ? "border-ibx-accent bg-ibx-accent text-white"
+              : "border-ibx-border-hover bg-ibx-pane hover:bg-ibx-field",
+          )}
+        >
+          {selecionado && <Check size={12} weight="bold" aria-hidden />}
+        </button>
+      )}
     <button
       type="button"
       data-conversation-id={conversation.id}
       onClick={() => onSelect(conversation.id)}
       className={cn(
-        "group relative flex w-full items-start gap-3 rounded-[10px] p-2.5 text-left transition-colors",
+        "group relative flex min-w-0 flex-1 items-start gap-3 rounded-[10px] p-2.5 text-left transition-colors",
         "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ibx-accent",
-        isSelected ? "bg-ibx-accent-active-bg" : "hover:bg-ibx-field",
+        isSelected ? "bg-ibx-accent-active-bg" : selecionado ? "hover:bg-transparent" : "hover:bg-ibx-field",
       )}
       aria-current={isSelected ? "true" : undefined}
       data-comando={comando.quem}
@@ -292,7 +372,44 @@ export function ConversationListItem({
           </div>
         )}
       </div>
-    </button>
+      </button>
+      {/*
+        O CONTROLE DE "EXEMPLO PARA A IA" (#3006) fica FORA do botão da linha,
+        como a caixa de seleção logo acima e pelo mesmo motivo: controle
+        interativo dentro de `<button>` é HTML inválido, e marcar não pode abrir
+        a conversa. O gesto de marcar é separado do gesto de abrir.
+
+        Fica sempre visível, e não só no hover: o defeito que esta issue
+        conserta é justamente um recurso que ninguém achava. Um ícone que só
+        aparece sob o cursor continuaria escondido no celular, onde não há
+        hover — e o alvo de toque é maior do que o desenho sugere.
+
+        Desmarcado usa `text-text-muted`, não `text-text-subtle`: é componente
+        gráfico e precisa de 3:1 contra o fundo da linha. Medido na prova de
+        tela, subtle dava 2,81:1 no escuro (#605e54 sobre #161510). Muted, no
+        pior fundo de cada tema (linha selecionada, `bg-accent-soft`): 5,74:1 no
+        claro (#5d594f sobre #e4ebe0) e 4,23:1 no escuro (#8e8b7f sobre #272b20).
+      */}
+      {onAlternarExemplo && (
+        <button
+          type="button"
+          data-testid={`exemplo-ia-${conversation.id}`}
+          aria-pressed={exemploMarcado}
+          aria-label={rotuloExemplo}
+          title={rotuloExemplo}
+          onClick={() => onAlternarExemplo(conversation.id, !exemploMarcado)}
+          className={cn(
+            "mr-1 mt-2.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm transition-colors",
+            "focus-visible:outline-2 focus-visible:outline-ibx-accent",
+            exemploMarcado
+              ? "text-ibx-accent hover:bg-ibx-accent-active-bg"
+              : "text-ibx-muted hover:bg-ibx-field hover:text-ibx-text",
+          )}
+        >
+          <Sparkle size={14} weight={exemploMarcado ? "fill" : "regular"} aria-hidden />
+        </button>
+      )}
+    </div>
   );
 }
 

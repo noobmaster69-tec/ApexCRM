@@ -1,6 +1,10 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import type { ModuloOpcional } from "@/lib/instalacao/modulos";
+import type { CapacidadeDaOrganizacao } from "@/lib/organizacao/capacidades";
 import {
   NAV_DESTINATIONS,
   NAV_GROUPS,

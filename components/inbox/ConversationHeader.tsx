@@ -24,6 +24,11 @@ import { useAuth } from "@/hooks/auth/AuthProvider";
 import { useClaimConversation } from "@/hooks/inbox/useClaimConversation";
 import { useReleaseConversation } from "@/hooks/inbox/useReleaseConversation";
 import {
+  useMarkPersonalContact,
+  useUnmarkPersonalContact,
+} from "@/hooks/contacts/usePersonalContact";
+import { ROLE_RANK } from "@/lib/auth/types";
+import {
   useArchiveConversation,
   useCloseConversation,
   useReopenConversation,
@@ -35,7 +40,12 @@ import { comandoDaConversa, ROTULO_DO_MOTIVO } from "@/lib/inbox/comando-da-conv
 import { ReassignDialog } from "@/components/inbox/ReassignDialog";
 import { SnoozeButton } from "@/components/inbox/SnoozeButton";
 import { DispararFluxoButton } from "@/components/inbox/DispararFluxoButton";
+import { FaixaDaCarteira } from "@/components/inbox/FaixaDaCarteira";
+import { ParticipantesDaConversa } from "@/components/inbox/ParticipantesDaConversa";
 import { DialButton } from "@/components/voice/DialButton";
+import { VideoCallButton } from "@/components/inbox/VideoCallButton";
+import { ReservarServicoNaConversa } from "@/components/agenda/ReservarServicoNaConversa";
+import { motivoDoContato } from "@/lib/inbox/motivo-do-envio-bloqueado";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 
@@ -93,7 +103,7 @@ export function ConversationHeader({
   onAlternarPainel,
 }: Props) {
   const t = useT();
-  const { user } = useAuth();
+  const { user, activeOrg } = useAuth();
   const claim = useClaimConversation();
   const release = useReleaseConversation();
   const close = useCloseConversation();
@@ -106,7 +116,19 @@ export function ConversationHeader({
   const automaticoDaOrg = useAutomaticoAtivo();
   const [reassignOpen, setReassignOpen] = useState(false);
   const [confirmFecharOpen, setConfirmFecharOpen] = useState(false);
+  /**
+   * A ESCOLHA AO FECHAR (#3313, item 1), e ela começa MARCADA em "devolver".
+   *
+   * O padrão não é preferência de produto: é o desfecho que a operação espera
+   * ao fechar. Medido na issue — a equipe fechava conversas achando que a trava
+   * de humano tinha ido embora com elas, e a próxima mensagem daquele cliente,
+   * dias depois, ficava sem resposta da IA. "Manter com a equipe" continua a um
+   * clique e é relembrado a cada abertura do diálogo (quem escolheu manter na
+   * conversa anterior não deve ver a escolha já virada na seguinte).
+   */
+  const [devolverAoFechar, setDevolverAoFechar] = useState(true);
   const [confirmArquivarOpen, setConfirmArquivarOpen] = useState(false);
+  const [confirmPessoalOpen, setConfirmPessoalOpen] = useState(false);
 
   const c = conversation.contacts ?? null;
   const displayName = rotuloDoContato(c, t);
@@ -114,6 +136,41 @@ export function ConversationHeader({
   const status = conversation.status;
   const isMineAssigned = conversation.assigned_to_user_id === user.id;
   const isOpen = status === "open" || conversation.assigned_to_user_id == null;
+
+  // Marcar/desmarcar pessoal (spec 21, etapa 15 — botão no cabeçalho).
+  //
+  // GERENTE pode (spec decisão 1, D3): pessoal é decisão operacional — esconder
+  // uma conversa da operação. Desbloquear exige ADMIN porque reabre um canal
+  // que o cliente fechou (direito do titular, LGPD): dois gestos parecidos,
+  // dois gates diferentes, cada um com seu motivo.
+  //
+  // Os hooks ficam AQUI, antes de qualquer early return (a ordem dos hooks não
+  // pode mudar entre renderizações); com contato ausente o id vazio nunca
+  // dispara porque o botão nem é desenhado.
+  const ehPessoal = c?.is_personal === true;
+  /**
+   * A TRAVA DE HUMANO MORA NO CONTATO, não na conversa (1.99) — fechar a
+   * conversa não a solta. Enquanto `force_human` for `true`, o motor continua
+   * vetando a IA; o diálogo de fechar pergunta sobre ela só quando existe.
+   */
+  const contatoTravadoComEquipe = c?.force_human === true;
+  const podeMarcarPessoal =
+    (user.is_platform_admin && !user.support) ||
+    (activeOrg != null && ROLE_RANK[activeOrg.role] >= ROLE_RANK.manager);
+  /**
+   * ATENDIMENTO CONJUNTO (#2542): quem pode CONVIDAR é o dono da conversa ou um
+   * gestor+ — exatamente o gate da rota. A tela não oferece o que a rota recusa:
+   * um botão que devolve 403 é pior que um botão que não existe, porque a pessoa
+   * descobre o limite depois de escolher o colega na lista. Não é gate de
+   * SEGURANÇA (esse mora na rota, que revalida papel e organização): é o mesmo
+   * desenho de `podeMarcarPessoal`, que também espelha a régua do servidor.
+   */
+  const podeConvidar =
+    isMineAssigned ||
+    (user.is_platform_admin && !user.support) ||
+    (activeOrg != null && ROLE_RANK[activeOrg.role] >= ROLE_RANK.manager);
+  const marcarPessoal = useMarkPersonalContact(c?.id ?? "");
+  const desmarcarPessoal = useUnmarkPersonalContact(c?.id ?? "");
 
   /**
    * QUEM MANDA, uma pergunta com uma resposta.
@@ -125,7 +182,7 @@ export function ConversationHeader({
    * leituras divergiram em primeiro lugar. A regra mora em `lib/inbox`,
    * espelhando os gates que o MOTOR lê, e esta tela só a consome.
    */
-  const { comando, automaticoAtivo, travaVigente, motivo } = comandoDaConversa({
+  const fatosDoComando = {
     status,
     assigned_to_user_id: conversation.assigned_to_user_id,
     assigned_to_user_name: conversation.assigned_to_user_name ?? null,
@@ -136,7 +193,28 @@ export function ConversationHeader({
     is_blocked: conversation.contacts?.is_blocked ?? null,
     is_group: conversation.is_group ?? false,
     automaticoDaOrg: automaticoDaOrg.data,
-  });
+  };
+  const { comando, automaticoAtivo, travaVigente, motivo } = comandoDaConversa(fatosDoComando);
+  /**
+   * O QUE "LIBERAR" FAZ DEPENDE DO ESTADO, e a guia do botão (#3003) não pode
+   * prometer o automático de volta quando ele não volta.
+   *
+   * `fn_conversation_assign` com dono `null` deixa a conversa aberta e sem dono,
+   * mas só limpa `bot_silenced_until` quando NÃO houve escalação
+   * (`last_handoff_at is null`). Depois de uma escalação, com o contato travado
+   * (`force_human`), descadastrado, em grupo ou numa org sem automático, a
+   * conversa cai na fila esperando gente. A pergunta é a mesma regra de quem
+   * manda, aplicada ao estado que a RPC vai gravar.
+   */
+  const liberarDevolveAoAutomatico =
+    comandoDaConversa({
+      ...fatosDoComando,
+      status: "open",
+      assigned_to_user_id: null,
+      assigned_to_user_name: null,
+      assignee_kind: null,
+      bot_silenced_until: conversation.last_handoff_at ? fatosDoComando.bot_silenced_until : null,
+    }).comando.quem === "automatico";
 
   const encerrada = status === "closed" || status === "archived" || status === "resolved";
   /**
@@ -198,6 +276,13 @@ export function ConversationHeader({
     // `min-content` com a barra `shrink-0`). A barra pode encolher e quebrar
     // para a linha de baixo; nenhuma ação some.
     <div className="flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-ibx-line px-4 py-3.5">
+      {/* FAIXA DA CARTEIRA (1.99, #2591): "este cliente pertence à carteira de
+          A". Linha própria acima da identidade; sem carteira não desenha nada. */}
+      {c?.id && (
+        <div className="w-full empty:hidden">
+          <FaixaDaCarteira contactId={c.id} quemAtendeId={conversation.assigned_to_user_id} />
+        </div>
+      )}
       <div className="flex min-w-0 items-center gap-3">
         <Avatar className="h-9 w-9 shrink-0">
           {c?.avatar_storage_path && !c?.is_anonymized ? (
@@ -243,6 +328,29 @@ export function ConversationHeader({
         {!conversation.is_group && c?.id && (
           <DialButton contactId={c.id} hasPhone={!!c.phone_number} />
         )}
+        {!conversation.is_group && c?.id && activeOrg && ROLE_RANK[activeOrg.role] >= ROLE_RANK.agent && (
+          <ReservarServicoNaConversa
+            key={`${activeOrg.orgId}:${conversation.id}`}
+            contactId={c.id}
+            conversationId={conversation.id}
+            contactName={displayName}
+          />
+        )}
+        {/* Videochamada (1.99, #2440): sem JITSI_SERVER_URL o botão não existe. */}
+        <VideoCallButton
+          conversationId={conversation.id}
+          provider={conversation.channel_sessions?.provider ?? null}
+          lastInboundAt={conversation.last_inbound_at}
+          bloqueio={motivoDoContato(c, t)}
+          encerrada={status === "closed"}
+        />
+        {/* Atendimento conjunto (1.99, #2542): quem participa e a porta para
+            convidar — não desenha nada sem participante nem permissão. */}
+        <ParticipantesDaConversa
+          conversationId={conversation.id}
+          podeConvidar={podeConvidar}
+          atendenteId={user.id}
+        />
         {isOpen && !isMineAssigned && (
           <button
             type="button"
@@ -267,6 +375,21 @@ export function ConversationHeader({
             type="button"
             className={botaoSecundario}
             disabled={release.isPending}
+            // GUIA CURTA (#3003): o rótulo diz o GESTO, não a consequência. "Liberar"
+            // não conta para onde a conversa vai — de volta ao automático ou para a
+            // fila (ver `liberarDevolveAoAutomatico`) — e essa é exatamente a
+            // pergunta "o que acontece se eu clicar aqui?".
+            //
+            // A guia vai em `title`, e NÃO em `aria-label`: o `aria-label`
+            // SUBSTITUI o nome acessível, e `getByRole("button", { name: "Liberar" })`
+            // de `inbox-header-nao-trava` e de `ConversationHeader.test` deixaria de
+            // achar o botão. É o mesmo caminho já usado por "Assumir", "Devolver ao
+            // automático" e "Pausar o automático" neste arquivo.
+            title={
+              liberarDevolveAoAutomatico
+                ? t("Solta esta conversa: ela fica sem dono e o atendimento automático volta a responder.")
+                : t("Solta esta conversa: ela fica sem dono e volta para a fila, esperando um atendente.")
+            }
             onClick={() => release.mutate({ conversation_id: conversation.id })}
           >
             {t("Liberar")}
@@ -360,12 +483,46 @@ export function ConversationHeader({
           )}
         </div>
 
+        {/* PESSOAL (spec 21): marcar tira a conversa do inbox na hora; desmarcar
+            relista. O `data-testid` é contrato do e2e da spec. */}
+        {podeMarcarPessoal && c?.id && !ehPessoal && (
+          <button
+            type="button"
+            className={botaoSecundario}
+            disabled={marcarPessoal.isPending}
+            data-testid="marcar-pessoal"
+            title={t("Tira este contato da operação: a conversa sai do inbox.")}
+            onClick={() => setConfirmPessoalOpen(true)}
+          >
+            {t("Marcar como pessoal")}
+          </button>
+        )}
+        {podeMarcarPessoal && c?.id && ehPessoal && (
+          <button
+            type="button"
+            className={botaoSecundario}
+            disabled={desmarcarPessoal.isPending}
+            data-testid="desmarcar-pessoal"
+            title={t("Devolve este contato à operação: a conversa volta ao inbox.")}
+            onClick={() => desmarcarPessoal.mutate()}
+          >
+            {desmarcarPessoal.isPending ? t("Desmarcando...") : t("Desmarcar pessoal")}
+          </button>
+        )}
         {!encerrada && (
           <button
             type="button"
             className={botaoSecundario}
             disabled={close.isPending}
-            onClick={() => setConfirmFecharOpen(true)}
+            // GUIA CURTA (#3003): "Fechar" sozinho não distingue encerrar de
+            // arquivar — que é o clique errado relatado na issue. A guia diz o que
+            // muda e o que continua disponível depois (reabrir).
+            title={t("Encerra o atendimento. Depois você pode reabrir a conversa.")}
+            onClick={() => {
+              // Padrão marcado a cada abertura: a escolha é DESTA conversa.
+              setDevolverAoFechar(true);
+              setConfirmFecharOpen(true);
+            }}
           >
             <Check size={15} aria-hidden />
             {t("Fechar")}
@@ -434,15 +591,79 @@ export function ConversationHeader({
               {t("O atendimento é encerrado. Se o cliente escrever de novo, você pode reabrir.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {/* A PERGUNTA QUE FALTAVA (#3313, item 1). A trava de humano fica no
+              CONTATO: fechar a conversa não a solta, e a equipe descobria isso
+              dias depois, com o cliente sem resposta. Só aparece com a trava
+              ligada — sem ela não há o que perguntar, e fechar continua sendo
+              só fechar (nenhuma chave nova viaja no corpo).
+
+              Rádio nativo, e não um `Switch`: as duas opções são excludentes e
+              o estado atual PRECISA estar visível na abertura, que é justamente
+              o que o item pede ("padrão marcado"). */}
+          {contatoTravadoComEquipe ? (
+            <div className="space-y-2" data-testid="escolha-ao-fechar">
+              <p className="text-sm font-medium">
+                {t("Este contato está com a equipe. Ao fechar, o que acontece?")}
+              </p>
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="radio"
+                  name="devolver-ao-fechar"
+                  data-testid="fechar-devolver-ao-automatico"
+                  checked={devolverAoFechar}
+                  onChange={() => setDevolverAoFechar(true)}
+                  className="mt-1 h-4 w-4 shrink-0 accent-primary"
+                />
+                <span className="space-y-1">
+                  <span className="block text-sm font-medium">
+                    {t("Devolver ao automático ao fechar")}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {t(
+                      "A IA volta a atender este cliente na próxima mensagem dele. Se o contato estiver marcado como sempre atendimento humano, ele continua com a equipe.",
+                    )}
+                  </span>
+                </span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="radio"
+                  name="devolver-ao-fechar"
+                  data-testid="fechar-manter-com-a-equipe"
+                  checked={!devolverAoFechar}
+                  onChange={() => setDevolverAoFechar(false)}
+                  className="mt-1 h-4 w-4 shrink-0 accent-primary"
+                />
+                <span className="space-y-1">
+                  <span className="block text-sm font-medium">{t("Manter com a equipe")}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {t(
+                      "A conversa fecha e a IA continua calada para este cliente: a próxima mensagem dele espera uma pessoa.",
+                    )}
+                  </span>
+                </span>
+              </label>
+            </div>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() =>
-                close.mutate({
+              onClick={() => {
+                // A chave só entra no corpo quando a escolha existe: sem contato
+                // travado a tela não pergunta nada, e o fechamento é o de sempre.
+                const escolha: {
+                  conversation_id: string;
+                  expected_revision?: number;
+                  devolver_ao_automatico?: boolean;
+                } = {
                   conversation_id: conversation.id,
                   expected_revision: conversation.service_revision,
-                })
-              }
+                };
+                if (contatoTravadoComEquipe) {
+                  escolha.devolver_ao_automatico = devolverAoFechar;
+                }
+                close.mutate(escolha);
+              }}
             >
               {t("Fechar")}
             </AlertDialogAction>
@@ -481,6 +702,27 @@ export function ConversationHeader({
               }
             >
               {t("Arquivar")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* A confirmação diz o que ACONTECE ao marcar: a conversa fecha e sai do
+          atendente, e o contato fica inutilizado para envio — sem apagar nada.
+          Desmarcar é direto no botão porque só relista o que já está lá. */}
+      <AlertDialog open={confirmPessoalOpen} onOpenChange={setConfirmPessoalOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Marcar este contato como pessoal?")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                "A conversa sai do inbox e o contato fica fora da operação: sem IA, sem follow-up, sem campanha e sem envio. O histórico continua no banco e volta à vista ao desmarcar; follow-ups e campanhas cancelados não voltam.",
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Cancelar")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => marcarPessoal.mutate()}>
+              {t("Marcar como pessoal")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

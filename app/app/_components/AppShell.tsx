@@ -15,6 +15,7 @@ import { useInboundCallAlerts } from "@/hooks/calls/useInboundCallAlerts";
 import { useCrmAlerts } from "@/hooks/notifications/useCrmAlerts";
 import { useNotifyOpenFromServiceWorker } from "@/lib/notifications/notify_open";
 import { useTheme } from "@/lib/theme";
+import { ensureNotifyServiceWorker } from "@/lib/notifications/service_worker";
 import { estiloDaReserva, useOcupacaoDoRodape } from "@/lib/ui/rodape-ocupado";
 
 interface AppShellProps {
@@ -48,6 +49,13 @@ export function AppShell({ preferenciaDaLateral = null, podeAtender, faixas, chi
   useInboundCallAlerts();
   useCrmAlerts();
   useNotifyOpenFromServiceWorker();
+  // O SW em todo /app, e não só depois da permissão de avisos: é ele que
+  // responde a página neutra quando a navegação cai sem rede (ADR-0006, D4),
+  // e é aqui que a versão nova dele substitui a antiga depois de um deploy.
+  // Sem contexto seguro (http://IP) a função devolve null e nada acontece.
+  useEffect(() => {
+    void ensureNotifyServiceWorker();
+  }, []);
   // O SINAL DE PRESENÇA (issue #996) sai daqui porque presença é "esta aba
   // está aberta" — não "a pessoa está na tela Equipe".
   useSinalDePresenca(podeAtender);

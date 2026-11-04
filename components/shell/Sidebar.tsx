@@ -31,6 +31,8 @@ import { useMarcaDaInstalacao } from "@/lib/branding/contexto";
 import { GRUPO_NO_RODAPE, sidebarGroups, type NavDestination } from "@/lib/navigation/registry";
 import { aplicarMenuOculto, chaveDoMenuOculto, lerMenuOculto } from "@/lib/navigation/menu-pessoal";
 import "./shell.css";
+import { GRUPO_NO_RODAPE, sidebarGroups } from "@/lib/navigation/registry";
+import { usePrefetchPorIntencao } from "@/hooks/navigation/prefetchPorIntencao";
 
 /**
  * A ordem e os ícones da lateral (Etapa 7). Quem decide QUAIS telas aparecem
@@ -129,7 +131,11 @@ export function SidebarContent({
     ocultoDoServidor ?? ocultoDoNavegador ?? [],
   );
   // Configurações sai da área que rola e vira o 4º botão do rodapé.
-  const rodape = todos.find((g) => g.group.id === GRUPO_NO_RODAPE)?.group.hub ?? null;
+  const grupoDoRodape = todos.find((g) => g.group.id === GRUPO_NO_RODAPE);
+  const rodape = grupoDoRodape?.group.hub ?? null;
+  // "Ajuda" (1.99, #3567) chega pelo registro, com o mesmo filtro de papel e de
+  // módulo do resto do menu — nunca como link escrito à mão aqui.
+  const ajuda = grupoDoRodape?.items.find((d) => d.href === "/app/ajuda") ?? null;
 
   const brand = useMarcaDaInstalacao();
   /**
@@ -231,6 +237,20 @@ export function SidebarContent({
             <ChevronsLeft size={16} aria-hidden />
           </button>
         )}
+        {/* Issue #2722 — o controle de recolher mora no ALTO, como no
+            mercado: na linha da logo, à direita, quando a barra está aberta. */}
+        {showCollapseControl && !collapsed && (
+          // `shrink-0`: sem isso o botão é o primeiro a ser espremido quando a
+          // marca é larga — e ele é o controle, não sobra.
+          <div className="ml-auto shrink-0 pl-2">
+            <BotaoDeRecolher
+              collapsed={false}
+              isPending={isPending}
+              soIcone
+              onClick={() => startTransition(() => toggleSidebar(collapsed))}
+            />
+          </div>
+        )}
       </div>
       <nav className="sh-nav" aria-label={t("Navegação principal")}>
         {grupos.map(({ group, items }, i) => {
@@ -263,6 +283,7 @@ export function SidebarContent({
       <RodapeDaLateral
         recolhida={collapsed}
         configuracoes={rodape && { href: rodape.href, label: t(rodape.label) }}
+        ajuda={ajuda && { href: ajuda.href, label: t(ajuda.label) }}
         onNavigate={onNavigate}
         onExpandir={podeRecolher ? onToggle : undefined}
       />
@@ -282,11 +303,19 @@ function ItemDaLateral({
   onNavigate?: () => void;
 }) {
   const t = useT();
+  /**
+   * O menu não prefetcha sozinho (#3170): um render RSC por link do menu (19
+   * destinos × as duas instâncias, lateral e móvel), e eles disputam o servidor
+   * com o render que o clique pediu. O prefetch passa a ser
+   * por intenção (ponteiro/foco) — ver `hooks/navigation/prefetchPorIntencao.ts`.
+   */
+  const intencao = usePrefetchPorIntencao();
   const IconeLucide = ICONE_DA_LATERAL[item.href];
   const IconeDoRegistro = item.icon;
   const link = (
     <Link
       href={item.href}
+      {...intencao(item.href)}
       aria-current={ativo ? "page" : undefined}
       onClick={onNavigate}
       className="sh-item"

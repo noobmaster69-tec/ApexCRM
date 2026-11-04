@@ -224,7 +224,7 @@ describe("menu e fiação", () => {
   });
 
   it("migration 9002 e o apêndice do baseline são o mesmo texto — salvo o CHECK, que mora no bloco único", () => {
-    const mig = readFileSync("supabase/migrations/20261002200000_9002_fluxos_fundacao.sql", "utf8");
+    const mig = readFileSync("supabase/migrations/20261002200000_9902_fluxos_fundacao.sql", "utf8");
     const baseline = readFileSync("supabase/baseline.sql", "utf8");
     const ini = mig.indexOf("-- 1. a superfície\n");
     const fim = mig.indexOf("-- 2. as pastas\n");
