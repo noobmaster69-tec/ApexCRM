@@ -341,9 +341,11 @@ export function Sidebar({
       // ⚠️ `sticky top-0`, e NUNCA `fixed`: com `fixed` a barra sai do fluxo e
       // alguém precisa afastar o conteúdo com uma segunda medida — no dia em que
       // as duas discordaram, a barra passou por cima da lista de conversas. Na
-      // casca de altura fixa (`.sh-app`, 100vh) ela não rola de qualquer jeito;
-      // o `sticky` fica como garantia caso a casca volte a rolar.
-      className="sh-side sh-side--fixa sticky top-0 h-screen shrink-0"
+      // casca de altura fixa (`.sh-app`, 100dvh) ela não rola de qualquer jeito;
+      // o `sticky` fica como garantia caso a casca volte a rolar. `h-full`, e não
+      // `h-screen`: 100vh passa da casca no celular (a barra de endereço) e o pé
+      // da barra lateral ficava cortado.
+      className="sh-side sh-side--fixa sticky top-0 h-full shrink-0"
       data-recolhida={collapsed ? "true" : undefined}
       data-automatica={automatica ? "true" : undefined}
       data-pronta={pronta ? "true" : undefined}

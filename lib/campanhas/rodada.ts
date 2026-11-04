@@ -696,7 +696,13 @@ async function rodarUmaCampanha(
       .eq("id", sessionEscolhida)
       .maybeSingle();
     const linhaSessao = sessao as unknown as ChannelSessionRef | null;
-    if (linhaSessao && !(await contatoJaFalou(admin, campanha.organization_id, alvo.contact_id))) {
+    // Só o número com risco de banimento (o não oficial) precisa da conferência:
+    // o oficial recusa sozinho o número sem conta, sem pesar contra quem envia.
+    if (
+      linhaSessao &&
+      canalTemRiscoDeBanimento(linhaSessao.provider ?? DEFAULT_CHANNEL_PROVIDER) &&
+      !(await contatoJaFalou(admin, campanha.organization_id, alvo.contact_id))
+    ) {
       const tem = await verificarWhatsapp(admin, {
         organizationId: campanha.organization_id,
         contactId: alvo.contact_id,

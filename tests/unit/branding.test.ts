@@ -1076,6 +1076,11 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     motivo:
       "o encurtador de link do próprio WhatsApp, num exemplo de link GERADO pela tela de Conversões (issue #924): é o formato que quem opera vai colar no botão da landing page. Não é destino de chamada — o produto nunca fala com `wa.me`; quem abre o link é o visitante do site, no navegador dele. E não é marca nossa que um revendedor troque: o endereço é da Meta, e trocá-lo faria o link não abrir conversa nenhuma. Fica AMOSTRA porque chega à TELA, que é a razão de a régua exigir declaração em vez de silêncio.",
   },
+  "schemas.openxmlformats.org": {
+    categoria: "PROTOCOLO",
+    motivo:
+      "namespace XML do formato .xlsx (OOXML) no modelo de planilha que a importação de audiência gera (fork jhoow): é o nome que o Excel e o LibreOffice reconhecem no arquivo, não endereço de rede — o código nunca fala com ele.",
+  },
   "meusistema.com": {
     categoria: "AMOSTRA",
     motivo:

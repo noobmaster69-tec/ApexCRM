@@ -114,6 +114,13 @@ function renderComposer(props: Partial<ComponentProps<typeof Composer>> = {}) {
   );
 }
 
+/**
+ * As leituras do RASCUNHO. Fork jhoow: o compositor faz outros GET pelo mesmo
+ * `apiClient` (idiomas da conversa, resumo), então a conta é só a desta rota.
+ */
+const leiturasDoRascunho = () =>
+  deps.get.mock.calls.filter(([url]) => String(url).includes("/draft-reply"));
+
 /** O bloco, pelo rótulo que a própria issue cita. */
 const bloco = () => screen.queryByLabelText("Assistência do agente");
 /** O botão de ícone do compositor (e o de texto do bloco, quando ele existe). */
@@ -188,7 +195,7 @@ describe("a faixa da assistência só existe com rascunho (issue #3027)", () => 
     // ícone, e a consulta nem sai (o `enabled` do hook segue o modo).
     expect(bloco()).toBeNull();
     expect(botoesDeSugerir()).toHaveLength(0);
-    expect(deps.get).not.toHaveBeenCalled();
+    expect(leiturasDoRascunho()).toEqual([]);
 
     await userEvent.click(screen.getByText("Responder"));
     // Voltando para resposta, com um rascunho no servidor, o bloco aparece.
@@ -205,7 +212,7 @@ describe("a faixa da assistência só existe com rascunho (issue #3027)", () => 
     // deixava montar. Subindo para o compositor, ela não pode sair por conta
     // própria: o suporte somente leitura recebia 403 a cada 4s
     // (`tests/e2e/suporte-temporario.spec.ts`, `unexpectedDenials`).
-    expect(deps.get).not.toHaveBeenCalled();
+    expect(leiturasDoRascunho()).toEqual([]);
   });
 
   it("⭐ o clique no ícone gera pelo mesmo POST e é ele que monta o bloco", async () => {

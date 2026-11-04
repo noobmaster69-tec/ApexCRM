@@ -454,13 +454,6 @@ describe("#3644 · o caminho real (garantirLeadDaConversa)", () => {
   });
 });
 
-describe("#3644 · o custo por mensagem recebida", () => {
-  // (fork jhoow) Caso removido: fixa a ordem/contagem de leituras do 1.99; no fork
-  // a regra é UM lead aberto POR CRM, que precisa do destino antes de decidir.
-
-  // (fork jhoow) Caso removido: fixa a ordem/contagem de leituras do 1.99; no fork
-  // a regra é UM lead aberto POR CRM, que precisa do destino antes de decidir.
-
-  // (fork jhoow) Caso removido: fixa a ordem/contagem de leituras do 1.99; no fork
-  // a regra é UM lead aberto POR CRM, que precisa do destino antes de decidir.
-});
+// (fork jhoow) "#3644 · o custo por mensagem recebida" saiu inteiro: os casos
+// fixavam a ordem/contagem de leituras do 1.99, e no fork a regra é UM lead
+// aberto POR CRM, que precisa do destino antes de decidir.

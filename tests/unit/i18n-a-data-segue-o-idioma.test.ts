@@ -90,6 +90,12 @@ const FORA_DE_INTERFACE: Record<string, string> = {
   // da interface faria um documento de conformidade mudar de forma conforme
   // quem apertou o botão.
   "lib/lgpd/pdf-renderer.tsx": "documento legal brasileiro: a data acompanha a lei, não a interface",
+
+  // ─── Fork jhoow ───
+  "lib/variables/resolve.ts":
+    "valor de variável ({{data_atual}}, {{ultima_interacao}}) dentro da MENSAGEM que vai ao contato — conteúdo enviado, não interface; o idioma do texto é o da campanha, que o operador escreveu",
+  "lib/campanhas/fuso.ts":
+    "hora HH:mm em 24h (`hourCycle: h23`) da prévia do fuso: só dígitos, igual em todo idioma",
 };
 
 function arquivos(dir: string, acc: string[] = []): string[] {

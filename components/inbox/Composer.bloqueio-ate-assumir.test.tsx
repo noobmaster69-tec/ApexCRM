@@ -264,7 +264,8 @@ describe("opção LIGADA, depois de ASSUMIR: a caixa libera e o envio funciona",
   it("nota interna também passa quando a conversa é sua", async () => {
     renderComposer({ ligada: true, donoDaConversa: ATENDENTE });
 
-    await userEvent.click(screen.getByText("Nota interna"));
+    // Fork jhoow: o modo é um par de rádios ("Responder" / "Nota").
+    await userEvent.click(screen.getByRole("radio", { name: /^nota$/i }));
     await userEvent.type(screen.getByLabelText("Mensagem"), "combinado com o time");
     await userEvent.click(screen.getByLabelText("Enviar"));
 

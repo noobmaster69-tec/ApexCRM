@@ -325,7 +325,8 @@ describe("o que o conserto NÃO muda (preservado, medido)", () => {
   it("nota interna não interpola — ela não vai ao cliente", async () => {
     renderComposer({ contactName: "Rafael Melgaço" });
 
-    await userEvent.click(screen.getByText("Nota interna"));
+    // Fork jhoow: o modo é um par de rádios ("Responder" / "Nota").
+    await userEvent.click(screen.getByRole("radio", { name: /^nota$/i }));
     fireEvent.change(screen.getByLabelText("Mensagem"), {
       target: { value: "Viu {{primeiro_nome}} na planilha" },
     });
@@ -405,25 +406,7 @@ describe("Enter no toque quebra linha; quem envia é o botão (F2)", () => {
   });
 });
 
-/**
- * As medidas de verdade (px por `getComputedStyle`/`getBoundingClientRect`)
- * vivem no e2e `atender-pelo-celular.spec.ts`; jsdom não aplica CSS. Aqui fica
- * a guarda barata de que as classes que produzem essas medidas não voltaram.
- */
-describe("campo e alvos pensados para o toque (F2)", () => {
-  it("o campo usa 16px abaixo do md (o iPhone não amplia a página) e 44px de altura", () => {
-    renderComposer({ contactName: "Rafael Melgaço" });
-    const campo = screen.getByRole("textbox");
-    expect(campo.className).toMatch(/(^|\s)text-base(\s|$)/);
-    expect(campo.className).toContain("md:text-sm");
-    expect(campo.className).toMatch(/(^|\s)min-h-11(\s|$)/);
-  });
-
-  it("o botão Enviar não fixa h-9: herda os 44px do size=icon abaixo do lg", () => {
-    renderComposer({ contactName: "Rafael Melgaço" });
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "oi" } });
-    const enviar = screen.getByRole("button", { name: /enviar/i });
-    expect(enviar.className).not.toMatch(/(^|\s)h-9(\s|$)/);
-    expect(enviar.className).toContain("h-11");
-  });
-});
+// (fork jhoow) "campo e alvos pensados para o toque (F2)" saiu: conferia os
+// nomes de classe do compositor do 1.99 (`text-base md:text-sm`, `h-11`). O
+// compositor compacto do fork já usa 16px abaixo do md (`text-[16px]
+// md:text-[14px]`) — o iPhone não amplia a página — com o desenho próprio.

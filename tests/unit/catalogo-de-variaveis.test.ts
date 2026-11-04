@@ -133,9 +133,12 @@ describe("o vocabulário do catálogo é exatamente o dos dois resolvedores", ()
     // O que o módulo exporta e o que está escrito no fonte são a mesma lista —
     // se divergirem, quem lê o código e quem importa estão vendo coisas diferentes.
     expect([...VARIAVEIS_DA_CAMPANHA]).toEqual(VARIAVEIS_DA_CAMPANHA_DO_FONTE);
-    expect([...variaveisDe("campanha")].sort()).toEqual(
-      [...VARIAVEIS_DA_CAMPANHA_NO_CATALOGO].sort(),
-    );
+    // Fork jhoow: o renderizador da campanha resolve as variáveis do sistema do
+    // fork (`VARIAVEIS_DO_SISTEMA`, com o menu próprio na tela) — um conjunto
+    // MAIOR que o catálogo do 1.99. O que não pode é o catálogo oferecer uma
+    // chave que o renderizador não resolve.
+    const resolvidas = new Set(VARIAVEIS_DA_CAMPANHA_NO_CATALOGO);
+    expect([...variaveisDe("campanha")].filter((v) => !resolvidas.has(v))).toEqual([]);
   });
 
   it("as raízes do catálogo são as mesmas que o renderizador da campanha aceita", () => {

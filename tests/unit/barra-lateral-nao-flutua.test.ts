@@ -66,7 +66,9 @@ describe("a barra ocupa lugar, em vez de flutuar", () => {
     //
     // A altura é `100dvh` MENOS `--faixas-de-cima` (as faixas de aviso grudam
     // acima dela; sem o desconto o documento mede a tela mais a faixa).
-    expect(BARRA, "a barra voltou a medir `100vh`").toMatch(/h-\[calc\(100dvh-var\(--faixas-de-cima,0px\)\)\]/);
+    // Fork jhoow: a casca (`.sh-app`) já mede 100dvh e as faixas ficam na coluna
+    // de conteúdo, ao lado da barra — ela ocupa a altura INTEIRA da casca.
+    expect(BARRA, "a barra voltou a medir `100vh`").toMatch(/\bh-full\b/);
     expect(BARRA, "`h-screen` não acompanha a barra do navegador móvel").not.toMatch(/h-screen/);
   });
 

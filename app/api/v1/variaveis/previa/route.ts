@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
+import { requireSupportWrite } from "@/lib/impersonate/support";
 import { fusoDoContato, fusoValido } from "@/lib/campanhas/fuso";
 import { idiomaDoEnvio } from "@/lib/campanhas/idioma";
 import { renderizar } from "@/lib/campanhas/renderizador";
@@ -30,6 +31,9 @@ const schema = z.strictObject({
  * silêncio. Só leitura; agent+ (quem escreve mensagens).
  */
 export async function POST(req: NextRequest): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("agent", { requestId, resource: "contacts" });
   if (!authz.ok) return authz.response;

@@ -1257,7 +1257,7 @@ async function controlledDelivery(
     })(setup.job, executionPool);
     if (crashBeforeSettle) await expect(run).rejects.toThrow("test_crash_before_settle");
     else await run;
-    console.log("DEBUG-MEET fim", JSON.stringify({ mutation, bodies: bodies.length, errors: db.errors }).slice(0, 1500));
+    console.log("DEBUG-MEET fim", JSON.stringify({ mutation, bodies, errors: db.errors }).slice(0, 2500));
     expect(receiverError).toBeUndefined();
     return { bodies, mutation, errors: db.errors };
   } finally {

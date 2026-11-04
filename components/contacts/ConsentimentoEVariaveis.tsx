@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { apiClient } from "@/lib/api/client";
 import { consentiuMarketing, recusouMarketing } from "@/lib/campanhas/elegibilidade";
 import { useT } from "@/hooks/i18n/useT";
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 
 /**
  * Consentimento para campanhas (fork jhoow, Campanhas › item 6). A campanha
@@ -26,6 +27,7 @@ export function ConsentimentoDeCampanhas({
   podeEditar: boolean;
 }) {
   const t = useT();
+  const tagDeIdioma = useTagDeIdioma();
   const qc = useQueryClient();
   const [ocupado, setOcupado] = useState(false);
   const consentiu = consentiuMarketing(consent);
@@ -51,7 +53,7 @@ export function ConsentimentoDeCampanhas({
       <h3 className="text-sm font-semibold">{t("Consentimento para campanhas")}</h3>
       <p className="text-sm" data-testid="estado-do-consentimento">
         {consentiu
-          ? `${t("Consentiu em")} ${new Date(String(marketing.granted_at)).toLocaleDateString("pt-BR")}`
+          ? `${t("Consentiu em")} ${new Date(String(marketing.granted_at)).toLocaleDateString(tagDeIdioma)}`
           : recusou
             ? t("Recusou receber contato comercial")
             : t("Sem consentimento registrado — campanhas com base legal “consentimento” não falam com este contato.")}

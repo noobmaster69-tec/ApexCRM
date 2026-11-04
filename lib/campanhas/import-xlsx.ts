@@ -22,7 +22,7 @@ export const COLUNAS_DO_MODELO = [
   { coluna: "cidade", destino: "var:cidade", rotulo: "Cidade", exemplo: "São Paulo" },
   { coluna: "pais", destino: "var:pais", rotulo: "País (ISO, ex.: BR, PT)", exemplo: "BR" },
   { coluna: "idioma_contato", destino: "idioma_contato", rotulo: "Idioma do contato", exemplo: "pt-BR" },
-  { coluna: "site_atual", destino: "var:site_atual", rotulo: "Site atual", exemplo: "https://studiojonatas.com" },
+  { coluna: "site_atual", destino: "var:site_atual", rotulo: "Site atual", exemplo: "https://www.example.com" },
   { coluna: "origem_contato", destino: "var:origem_contato", rotulo: "Origem do contato", exemplo: "google_maps" },
   { coluna: "n_avaliacoes_gg", destino: "comentarios_google_maps", rotulo: "Avaliações no Google", exemplo: "237" },
   { coluna: "nome_saudacao", destino: "var:nome_saudacao", rotulo: "Nome na saudação", exemplo: "Dr. Jonatas" },

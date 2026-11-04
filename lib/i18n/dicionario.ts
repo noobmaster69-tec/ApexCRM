@@ -11026,6 +11026,14 @@ export const DICIONARIO: Traducoes = {
   },
   "Ex: Cliente desistiu por X motivo": { es: "Ej: El cliente desistió por X motivo" },
   "Confirmar": { es: "Confirmar" },
+  "No envio rápido o intervalo da campanha não vale: a rajada tem o próprio espaçamento.": {
+    es: "En el envío rápido el intervalo de la campaña no se aplica: la ráfaga tiene su propio espaciado.",
+  },
+  "Nada encontrado para": { es: "Nada encontrado para" },
+  "ferramenta": { es: "herramienta" },
+  "ferramentas": { es: "herramientas" },
+  "Use as setas ↑↓ e Enter para navegar": { es: "Usa las flechas ↑↓ y Enter para navegar" },
+  "ESC para fechar": { es: "ESC para cerrar" },
   "Lead criado": { es: "Lead creado" },
   "Negócio criado": { es: "Negocio creado" },
   "O fluxo começa quando um negócio nasce: a primeira mensagem que abre o card, um formulário ou o cadastro manual. Negócios importados por planilha não entram. A entrada na fila leva poucos minutos, não é instantânea.":

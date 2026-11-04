@@ -363,10 +363,8 @@ jobs:
       # são a suíte inteira, uma vez só. A parte 7 não roda unit: é cercas e kit
       # bash (cabeçalho do job). Localmente o comando continua sendo
       # `pnpm test:unit`, sem recorte.
-      # Fork jhoow: roda mesmo que um gate anterior da mesma parte tenha
-      # reprovado — o job segue vermelho, mas a fatia da suíte não fica sem medir.
       - name: Unit tests (parte ${{ matrix.parte }}/6)
-        if: ${{ !cancelled() && matrix.parte != 7 }}
+        if: matrix.parte != 7
         run: pnpm test:unit --project produto --shard=${{ matrix.parte }}/6
 
       # O MAPA DA SKILL COBRE O MENU? — aviso, nunca reprova.

@@ -1,4 +1,5 @@
 "use client";
+import { toast } from "sonner";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
@@ -69,14 +70,13 @@ export function useSugestaoDoAgente(conversationId: string, opcoes: { enabled?: 
         body,
         feedback,
       });
-      setNotice({
-        draftId: draft.id,
-        kind: "success",
-        message:
-          action === "approve"
-            ? t("Resposta aprovada. Acompanhe o envio aqui.")
-            : t("Sugestão rejeitada. O feedback será usado na próxima sugestão."),
-      });
+      // A confirmação é toast (1.99): o cartão sai da tela quando a sugestão é
+      // enviada ou descartada, e o aviso inline sairia junto com ele.
+      toast.success(
+        action === "approve"
+          ? t("Resposta aprovada. Acompanhe o envio aqui.")
+          : t("Sugestão rejeitada. O feedback será usado na próxima sugestão."),
+      );
       await qc.invalidateQueries({ queryKey: key });
     } catch (e) {
       showApiError(e);
