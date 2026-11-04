@@ -183,7 +183,7 @@ describe("não contatar (fork jhoow)", () => {
     expect(marcadoNaoContatar({ nao_contatar: false })).toBe(false);
     expect(marcadoNaoContatar({})).toBe(false);
     expect(
-      motivoParaExcluir({ contactId: "c", telefone: "+5511999990001", bloqueado: false, anonimizado: false, recusouMarketing: false, naoContatar: true }),
+      motivoParaExcluir({ contactId: "c", telefone: "+5511999990001", bloqueado: false, pessoal: false, anonimizado: false, recusouMarketing: false, naoContatar: true }),
     ).toBe("nao_contatar");
   });
 });

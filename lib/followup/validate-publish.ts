@@ -506,6 +506,18 @@ export const CONTA_NO_TETO: Record<NodeType, boolean> = {
   move_lead: false, // move o card no funil
   edit_lead_tag: false, // grava tag no lead
   end: false, // desfecho
+  // Blocos do construtor de FLUXOS (fork jhoow).
+  mensagem: true, // fala com o cliente
+  aguardar_resposta: true, // parado esperando o lead responder
+  intervalo: true, // faz o cliente esperar
+  etiquetas: false,
+  notificacao: false, // avisa a equipe
+  condicional: false,
+  distribuidor: false,
+  conexao_fluxo: false,
+  pixel: false,
+  bloco_ia: false, // gera/classifica; quem fala é a Mensagem
+  kanban: false,
 };
 
 function waitMs(config: Extract<FlowNode, { type: 'wait' }>['config']): number {

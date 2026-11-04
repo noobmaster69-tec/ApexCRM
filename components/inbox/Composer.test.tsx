@@ -58,6 +58,11 @@ const { sendMutate, noteMutate, toastWarning } = vi.hoisted(() => ({
 
 let idioma: "pt_BR" | "es" = "pt_BR";
 
+// Tradução do fork (jhoow): o arquivo não monta QueryClientProvider.
+vi.mock("@/hooks/inbox/useIdiomasDaConversa", () => ({
+  useIdiomasDaConversa: () => ({ data: undefined }),
+  useMudarIdiomasDaConversa: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock("@/hooks/i18n/useT", () => ({
   useT: () => fazTradutor(idioma),
 }));

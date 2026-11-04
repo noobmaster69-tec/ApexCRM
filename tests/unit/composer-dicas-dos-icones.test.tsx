@@ -149,11 +149,14 @@ describe("a dica não muda a linha de ações do compositor", () => {
 
     const anexos = screen.getByRole("button", { name: /anexar/i });
     const linha = anexos.parentElement;
-    // A fileira é a mesma (`flex items-end gap-2`) e nada foi inserido entre ela
-    // e os botões: Provider/Tooltip/Trigger do Radix não criam nó no DOM.
-    expect(linha?.className).toContain("items-end");
+    // A fileira é a mesma (no fork jhoow, `flex items-center gap-0.5`) e nada
+    // foi inserido entre ela e os botões: Provider/Tooltip/Trigger do Radix não
+    // criam nó no DOM. O "Sugerir resposta" do fork é um chip das ações rápidas.
+    expect(linha?.className).toContain("items-center");
     expect(screen.getByRole("button", { name: /emoji/i }).parentElement).toBe(linha);
-    expect(screen.getByRole("button", { name: /sugerir resposta/i }).parentElement).toBe(linha);
+    expect(screen.getByRole("button", { name: /sugerir resposta/i }).parentElement).toBe(
+      screen.getByTestId("acoes-rapidas"),
+    );
 
     // O balão fechado não ocupa lugar nenhum na fileira.
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();

@@ -20,7 +20,7 @@ vi.mock("@/hooks/inbox/useSendMessage", () => ({
 }));
 
 import { Composer } from "@/components/inbox/Composer";
-import { Button } from "@/components/ui/button";
+import { BOTAO_DE_ICONE } from "@/components/inbox/estilo";
 
 function renderComposer() {
   const qc = new QueryClient();
@@ -58,16 +58,12 @@ describe("Composer + anexos", () => {
     renderComposer();
     const botao = screen.getByRole("button", { name: /anexar/i });
     // jsdom não calcula layout: o que dá para afirmar é o que DECIDE a altura —
-    // (1) o botão segue filho DIRETO da linha (`flex items-end gap-2`), ou seja,
-    // Provider/Tooltip/Trigger não inseriram nó nenhum na fileira; (2) a classe
-    // do botão é a MESMA de um Button size="icon" sem Tooltip — comparada
-    // inteira, e não por um pedaço como "h-9", que segue presente quando alguém
-    // força um tamanho fixo e tira o alvo de 44px do toque.
-    expect(botao.parentElement?.className).toContain("items-end");
-    const { getByRole } = render(
-      <Button type="button" size="icon" variant="ghost" className="shrink-0" aria-label="referência" />,
-    );
-    expect(botao.className).toBe(getByRole("button", { name: "referência" }).className);
+    // (1) o botão segue filho DIRETO da linha (no fork jhoow, `flex items-center
+    // gap-0.5`), ou seja, Provider/Tooltip/Trigger não inseriram nó nenhum na
+    // fileira; (2) a classe do botão é a MESMA do ícone do fork sem Tooltip
+    // (`BOTAO_DE_ICONE`) — comparada inteira, e não por um pedaço.
+    expect(botao.parentElement?.className).toContain("items-center");
+    expect(botao.className).toBe(BOTAO_DE_ICONE);
     // E o balão fechado não ocupa lugar nenhum no lugar do ícone.
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });

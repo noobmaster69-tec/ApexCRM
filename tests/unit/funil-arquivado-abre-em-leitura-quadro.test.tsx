@@ -57,9 +57,10 @@ vi.mock("@/components/kanban/BulkActionBar", () => ({ BulkActionBar: () => null 
 vi.mock("@/components/kanban/ListaDoFunil", () => ({ ListaDoFunil: () => null }));
 vi.mock("@/components/kanban/CalendarioDoFunil", () => ({ CalendarioDoFunil: () => null }));
 vi.mock("@/components/kanban/KanbanBoard", () => ({
-  KanbanBoard: (props: { somenteLeitura?: boolean; podeRenomearEtapa?: boolean }) => {
+  // No fork (jhoow) a etapa se edita pelo diálogo da coluna: a régua é `podeEditarEtapas`.
+  KanbanBoard: (props: { somenteLeitura?: boolean; podeEditarEtapas?: boolean }) => {
     visto.somenteLeitura = props.somenteLeitura ?? false;
-    visto.podeRenomearEtapa = props.podeRenomearEtapa ?? false;
+    visto.podeRenomearEtapa = props.podeEditarEtapas ?? false;
     return <div data-testid="quadro" />;
   },
 }));
@@ -83,6 +84,7 @@ function montarPagina() {
         pipelineId="p-1"
         initialName="Comercial 2025"
         role="admin"
+        crm={null}
         funis={[]}
         funilInicial={FUNIL_LEVE}
         etapasIniciais={ETAPAS}

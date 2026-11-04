@@ -236,20 +236,6 @@ export function SidebarContent({
             <ChevronsLeft size={16} aria-hidden />
           </button>
         )}
-        {/* Issue #2722 — o controle de recolher mora no ALTO, como no
-            mercado: na linha da logo, à direita, quando a barra está aberta. */}
-        {showCollapseControl && !collapsed && (
-          // `shrink-0`: sem isso o botão é o primeiro a ser espremido quando a
-          // marca é larga — e ele é o controle, não sobra.
-          <div className="ml-auto shrink-0 pl-2">
-            <BotaoDeRecolher
-              collapsed={false}
-              isPending={isPending}
-              soIcone
-              onClick={() => startTransition(() => toggleSidebar(collapsed))}
-            />
-          </div>
-        )}
       </div>
       <nav className="sh-nav" aria-label={t("Navegação principal")}>
         {grupos.map(({ group, items }, i) => {

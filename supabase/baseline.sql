@@ -66685,6 +66685,7 @@ revoke execute on function public.fn_validate_lost_reason_required() from public
 grant  execute on function public.fn_validate_lost_reason_required() to authenticated, service_role;
 
 -- ---- menu lateral pessoal: o que cada pessoa esconde do próprio menu (migration 9901) ----
+-- (Era a 9001: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9901 (fork jhoow, P6) — Configurações › Aparência › Menu lateral. Cada pessoa,
 -- em cada organização, escolhe telas e grupos que NÃO quer ver no menu. A faixa
 -- 9xxx é do fork: a numeração do upstream (05xx) segue sem colisão nos merges.
@@ -66759,6 +66760,7 @@ grant execute on function public.fn_definir_menu_oculto(uuid, jsonb) to authenti
 
 notify pgrst, 'reload schema';
 -- ---- fluxos: a superfície `fluxo` e as pastas da lista (migration 9902) ----
+-- (Era a 9002: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9902 (fork jhoow, Etapa 2 do master plan, Fase A) — o construtor visual de
 -- FLUXOS (/app/fluxos) reaproveita as tabelas de follow-up: um fluxo é uma linha
 -- de `followup_flow_pointers` com `surface = 'fluxo'`. Versões, publicar,
@@ -66839,6 +66841,7 @@ comment on column public.followup_flow_pointers.pasta_id is
 
 notify pgrst, 'reload schema';
 -- ---- fluxos: o passo do fluxo na fila do worker (migration 9903) ----
+-- (Era a 9003: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9903 (fork jhoow, Etapa 2, Fase B) — os fluxos rodam NA HORA, pelo worker que
 -- já drena a `job_queue` continuamente, e não pelo relógio de minuto do
 -- follow-up. Cada passo é um job `fluxo_step` (payload: enrollment e motivo); as
@@ -66853,6 +66856,7 @@ notify pgrst, 'reload schema';
 -- As duas constraints já estão no bloco único acima (o da 0226), com 'fluxo_step'.
 
 -- ---- CRMs: o nível acima dos funis (migration 9904) ----
+-- (Era a 9004: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9904 (fork jhoow, CRMs, Fase A) — a hierarquia passa a ser
 -- Organização → CRMs → Funis → Etapas → Cards. Um CRM agrupa funis que
 -- compartilham público ou marca ("PA Advogados - EUROPA", "Clientes Girly").
@@ -67178,6 +67182,7 @@ revoke execute on function public.fn_crm_duplicar(uuid, text, text) from public,
 grant execute on function public.fn_crm_duplicar(uuid, text, text) to authenticated, service_role;
 
 -- ---- CRMs: as métricas dos cards numa passada só (migration 9906) ----
+-- (Era a 9006: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9906 (fork jhoow, CRMs, Fase B) — `fn_crms_com_metricas` (9904) fazia um
 -- `left join lateral` por CRM, e o plano lia `crm_leads` INTEIRA uma vez para
 -- cada CRM. Medido num pg15 descartável com o baseline (3 CRMs, 10 funis):
@@ -67242,6 +67247,7 @@ revoke execute on function public.fn_crms_com_metricas(uuid) from public, anon;
 grant execute on function public.fn_crms_com_metricas(uuid) to authenticated, service_role;
 
 -- ---- funil principal e etapa de entrada (migration 9907) ----
+-- (Era a 9007: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9907 (fork jhoow, Funis no modelo Kommo, Fase A) — dentro de um CRM, o
 -- PRIMEIRO funil é o principal, e só ele tem a "Etapa de entrada": a coluna
 -- fixa onde cai todo contato novo daquele CRM. Os outros funis do CRM
@@ -67670,6 +67676,7 @@ create policy "crm_waha_bindings_manager_write" on public.crm_waha_session_bindi
 notify pgrst, 'reload schema';
 
 -- ---- cor do funil (migration 9908) ----
+-- (Era a 9008: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9908 (fork jhoow, Funis no modelo Kommo, Fase C) — a "cor da aba" de cada
 -- funil: a bolinha que aparece ao lado do nome no seletor de funis do quadro e
 -- na lista de "Gerenciar funis". Mesmo formato da cor da etapa
@@ -67691,6 +67698,7 @@ alter table public.crm_pipelines add constraint crm_pipelines_color_format
 notify pgrst, 'reload schema';
 
 -- ---- um lead aberto por CRM e arquivar CRM com o funil principal (migration 9909) ----
+-- (Era a 9009: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9909 (fork jhoow, Funis no modelo Kommo, Fase D).
 --
 -- 1. UM LEAD ABERTO POR CRM. `fn_nascer_lead_da_conversa` recusava (devolvia
@@ -67831,6 +67839,7 @@ grant execute on function public.fn_crm_arquivar(uuid) to authenticated, service
 notify pgrst, 'reload schema';
 
 -- ---- fluxos: arquivar e compartilhar (migration 9910) ----
+-- (Era a 9010: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9910 (fork jhoow, Fluxos no modelo Leona, item 2) — o menu "⋯" da lista de
 -- Fluxos ganha Arquivar e Compartilhar.
 --
@@ -67887,6 +67896,7 @@ revoke all on function public.fn_fluxo_compartilhado(uuid) from public, anon;
 grant execute on function public.fn_fluxo_compartilhado(uuid) to authenticated, service_role;
 
 -- ---- disparos dos fluxos (migration 9911) ----
+-- (Era a 9011: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9911 (fork jhoow, Fluxos no modelo Leona, item 12) — a tela /app/disparos:
 -- o que faz um fluxo começar, num lugar só, como no Leona.
 --
@@ -68000,6 +68010,7 @@ create policy tenant_isolation_crm_fluxo_global_triggers_all on public.crm_fluxo
 revoke all on public.crm_fluxo_global_triggers from anon;
 
 -- ---- excluir CRM de vez (migration 9912) ----
+-- (Era a 9012: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9912 (fork jhoow, card de CRM reorganizado) — o "Excluir" do menu "⋯" do
 -- card. Arquivar (9909) continua sendo o caminho de quem TEM história; excluir
 -- é para o CRM que nunca recebeu negócio (criado por engano, teste).
@@ -68087,6 +68098,7 @@ revoke all on function public.fn_crm_excluir(uuid) from public, anon;
 grant execute on function public.fn_crm_excluir(uuid) to authenticated, service_role;
 
 -- ---- variáveis da organização (migration 9913) ----
+-- (Era a 9013: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9913 (fork jhoow, Campanhas › item 2) — as DEFINIÇÕES das variáveis
 -- personalizadas da organização (tela Configurações › Variáveis).
 --
@@ -68161,6 +68173,7 @@ create policy contact_custom_fields_delete on public.contact_custom_fields
 revoke all on public.contact_custom_fields from anon;
 
 -- ---- campanha que dispara fluxo (migration 9914) ----
+-- (Era a 9014: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9914 (fork jhoow, Campanhas › item 4) — a campanha pode, em vez de mandar
 -- um texto, COLOCAR cada contato num fluxo publicado (Fluxos): a campanha cuida
 -- de QUEM e QUANDO (público, ritmo, janela, rodízio); o fluxo conduz o resto.
@@ -68192,6 +68205,7 @@ comment on column public.campaigns.mode is
   'O que a campanha faz com cada contato (9914): text = manda message_body; flow = inscreve no fluxo flow_id.';
 
 -- ---- ritmo aleatório e fuso da campanha (migration 9915) ----
+-- (Era a 9015: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9915 (fork jhoow, Campanhas › item 7):
 --
 --  - `min_interval_seconds` / `max_interval_seconds` (60 / 180 por padrão):
@@ -68228,6 +68242,7 @@ comment on column public.campaigns.timezone is
   'Fuso da janela de envio desta campanha (9915, IANA). Nulo = o fuso do número.';
 
 -- ---- etapa de quem recebe a campanha (migration 9916) ----
+-- (Era a 9016: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9916 (fork jhoow, Campanhas › item 3) — o progresso da campanha no FUNIL:
 --
 --  - "Quem recebe" (NOVO): `recipients_pipeline_id` / `recipients_stage_id` —
@@ -68261,6 +68276,7 @@ comment on column public.campaigns.recipients_stage_id is
   'Etapa onde o contato entra quando a campanha ENVIA para ele (9916). A etapa de quem RESPONDE é stage_id (0378).';
 
 -- ---- fonte do público da campanha (migration 9917) ----
+-- (Era a 9017: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9917 (fork jhoow, Campanhas › item 1) — a "Fonte do público" ganha nome e
 -- quatro modos: Do CRM, Por etiqueta, Importar lista, Consulta. Os modos CRM e
 -- etiqueta continuam sendo o FILTRO de `campaigns.audience_filter`; esta tabela
@@ -68359,6 +68375,7 @@ values (
 on conflict (id) do nothing;
 
 -- ---- janela diária em minutos da campanha (migration 9918) ----
+-- (Era a 9018: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9918 (fork jhoow, "Ritmo e Programação"): a janela diária da campanha em
 -- HH:mm. Até aqui ela era só em horas inteiras (`janela_inicio_hora` /
 -- `janela_fim_hora`, 0375).
@@ -68403,6 +68420,7 @@ comment on column public.campaigns.janela_fim_minuto is
   'Fim (exclusivo) da janela diária de envio em minutos do dia (9918). Nulo = vale janela_fim_hora.';
 
 -- ---- idioma da campanha (migration 9919) ----
+-- (Era a 9019: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9919 (fork jhoow, campos do contato e idioma): `campaigns.language`, o idioma
 -- em que a campanha fala (ex.: pt-PT, es, en). No envio ele INICIA
 -- `idioma_prospeccao` e `idioma_conversa` — em `contacts.custom_fields` e em
@@ -68422,6 +68440,7 @@ comment on column public.campaigns.language is
   'Idioma da campanha (9919, ex.: pt-PT). Inicia idioma_prospeccao/idioma_conversa do contato e da conversa quando vazios.';
 
 -- ---- cota da campanha e verificação de WhatsApp (migration 9920) ----
+-- (Era a 9020: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9920 (fork jhoow, Campanhas):
 --
 --  - `campaigns.cota_quantidade` + `cota_periodo` (hora/dia/semana/mes):
@@ -68462,6 +68481,7 @@ comment on column public.contacts.wa_existe is
   'Este número tem WhatsApp? (9920) — verificado antes da 1ª mensagem; nulo = nunca verificado.';
 
 -- ---- listas nomeadas (migration 9921) ----
+-- (Era a 9021: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9921 (fork jhoow, Operações › Listas): a lista importada (9917) ganha NOME e
 -- vira cidadã de primeira classe — a aba Listas mostra todas (subidas lá ou na
 -- campanha) e a campanha reaproveita qualquer uma. Mesma tabela: nada de
@@ -68479,6 +68499,7 @@ comment on column public.campaign_audience_sources.name is
   'Nome da lista (9921), mostrado em Operações › Listas e no "Usar uma lista salva" da campanha.';
 
 -- ---- tradução automática (migration 9922) ----
+-- (Era a 9022: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9922 (fork jhoow, Inbox › Tradução automática, Fase A): o idioma do contato
 -- ganha ORIGEM (manual > DDI > detectado) e cache da detecção; cada mensagem
 -- ganha as colunas do cache de tradução (nunca re-chamar o LLM para a mesma
@@ -68650,73 +68671,8 @@ grant  execute on function public.fn_nascer_lead_da_conversa(uuid, uuid, uuid, u
 notify pgrst, 'reload schema';
 
 
--- ---- menu: a porta "Funis" (/app/kanban) vira "CRMs" (/app/crms) (migration 9905) ----
--- 9905 (fork jhoow, CRMs, Fase B) — o item do grupo CRM no menu passou a ser a
--- grade de CRMs, em `/app/crms`. No catálogo de navegação o `href` é também o
--- IDENTIFICADOR do item, e três lugares o guardam como dado:
---   * `user_organizations.menu_oculto`      — o que a pessoa escondeu do menu (9901);
---   * `user_organizations.interface_settings.destinos` — a interface do vínculo;
---   * `organizations.interface_settings.destinos`      — a interface da empresa.
--- Sem esta reescrita, quem escondeu "Funis" veria "CRMs" aparecer de volta, e
--- uma interface simplificada perderia a porta do funil: o leitor descarta id que
--- o catálogo não conhece, em silêncio.
---
--- Reaplicável: só toca linha que ainda cita `/app/kanban`. Não duplica — se a
--- lista já tinha `/app/crms`, sobra um — e preserva a ordem do resto.
-
-update public.user_organizations uo
-   set menu_oculto = (
-     select coalesce(jsonb_agg(item order by ord), '[]'::jsonb)
-       from (
-         select distinct on (item) item, ord
-           from (
-             select case when e #>> '{}' = '/app/kanban' then to_jsonb('/app/crms'::text) else e end as item, ord
-               from jsonb_array_elements(uo.menu_oculto) with ordinality as t(e, ord)
-           ) trocados
-          order by item, ord
-       ) unicos
-   )
- where uo.menu_oculto @> '["/app/kanban"]'::jsonb;
-
-update public.user_organizations uo
-   set interface_settings = jsonb_set(
-     uo.interface_settings,
-     '{destinos}',
-     (
-       select coalesce(jsonb_agg(item order by ord), '[]'::jsonb)
-         from (
-           select distinct on (item) item, ord
-             from (
-               select case when e #>> '{}' = '/app/kanban' then to_jsonb('/app/crms'::text) else e end as item, ord
-                 from jsonb_array_elements(uo.interface_settings->'destinos') with ordinality as t(e, ord)
-             ) trocados
-            order by item, ord
-         ) unicos
-     )
-   )
- where jsonb_typeof(uo.interface_settings->'destinos') = 'array'
-   and uo.interface_settings->'destinos' @> '["/app/kanban"]'::jsonb;
-
-update public.organizations o
-   set interface_settings = jsonb_set(
-     o.interface_settings,
-     '{destinos}',
-     (
-       select coalesce(jsonb_agg(item order by ord), '[]'::jsonb)
-         from (
-           select distinct on (item) item, ord
-             from (
-               select case when e #>> '{}' = '/app/kanban' then to_jsonb('/app/crms'::text) else e end as item, ord
-                 from jsonb_array_elements(o.interface_settings->'destinos') with ordinality as t(e, ord)
-             ) trocados
-            order by item, ord
-         ) unicos
-     )
-   )
- where jsonb_typeof(o.interface_settings->'destinos') = 'array'
-   and o.interface_settings->'destinos' @> '["/app/kanban"]'::jsonb;
-
 -- ---- conexões MCP seguras (migration 9923) ----
+-- (Era a 9023: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
 -- 9923 (fork jhoow, Configurações › Integrações › MCP): a organização conecta o
 -- Claude (Code, Desktop, claude.ai), o Cursor ou outra ferramenta MCP ao CRM, e
 -- quem conecta alcança SÓ o que a conexão liberou (escopos `recurso:ação`).
@@ -73421,3 +73377,71 @@ create index if not exists avisos_org_publicar_idx
 alter table public.avisos enable row level security;
 revoke all on public.avisos from public, anon, authenticated;
 grant select, insert, update, delete on public.avisos to service_role;
+
+-- (fork jhoow) O bloco da 9905 fica no fim: depende de `organizations.interface_settings`, que o bloco da 0367 cria acima.
+-- ---- menu: a porta "Funis" (/app/kanban) vira "CRMs" (/app/crms) (migration 9905) ----
+-- (Era a 9005: renumerada para a faixa 99xx no merge da 1.99, que passou a usar 90xx.)
+-- 9905 (fork jhoow, CRMs, Fase B) — o item do grupo CRM no menu passou a ser a
+-- grade de CRMs, em `/app/crms`. No catálogo de navegação o `href` é também o
+-- IDENTIFICADOR do item, e três lugares o guardam como dado:
+--   * `user_organizations.menu_oculto`      — o que a pessoa escondeu do menu (9901);
+--   * `user_organizations.interface_settings.destinos` — a interface do vínculo;
+--   * `organizations.interface_settings.destinos`      — a interface da empresa.
+-- Sem esta reescrita, quem escondeu "Funis" veria "CRMs" aparecer de volta, e
+-- uma interface simplificada perderia a porta do funil: o leitor descarta id que
+-- o catálogo não conhece, em silêncio.
+--
+-- Reaplicável: só toca linha que ainda cita `/app/kanban`. Não duplica — se a
+-- lista já tinha `/app/crms`, sobra um — e preserva a ordem do resto.
+
+update public.user_organizations uo
+   set menu_oculto = (
+     select coalesce(jsonb_agg(item order by ord), '[]'::jsonb)
+       from (
+         select distinct on (item) item, ord
+           from (
+             select case when e #>> '{}' = '/app/kanban' then to_jsonb('/app/crms'::text) else e end as item, ord
+               from jsonb_array_elements(uo.menu_oculto) with ordinality as t(e, ord)
+           ) trocados
+          order by item, ord
+       ) unicos
+   )
+ where uo.menu_oculto @> '["/app/kanban"]'::jsonb;
+
+update public.user_organizations uo
+   set interface_settings = jsonb_set(
+     uo.interface_settings,
+     '{destinos}',
+     (
+       select coalesce(jsonb_agg(item order by ord), '[]'::jsonb)
+         from (
+           select distinct on (item) item, ord
+             from (
+               select case when e #>> '{}' = '/app/kanban' then to_jsonb('/app/crms'::text) else e end as item, ord
+                 from jsonb_array_elements(uo.interface_settings->'destinos') with ordinality as t(e, ord)
+             ) trocados
+            order by item, ord
+         ) unicos
+     )
+   )
+ where jsonb_typeof(uo.interface_settings->'destinos') = 'array'
+   and uo.interface_settings->'destinos' @> '["/app/kanban"]'::jsonb;
+
+update public.organizations o
+   set interface_settings = jsonb_set(
+     o.interface_settings,
+     '{destinos}',
+     (
+       select coalesce(jsonb_agg(item order by ord), '[]'::jsonb)
+         from (
+           select distinct on (item) item, ord
+             from (
+               select case when e #>> '{}' = '/app/kanban' then to_jsonb('/app/crms'::text) else e end as item, ord
+                 from jsonb_array_elements(o.interface_settings->'destinos') with ordinality as t(e, ord)
+             ) trocados
+            order by item, ord
+         ) unicos
+     )
+   )
+ where jsonb_typeof(o.interface_settings->'destinos') = 'array'
+   and o.interface_settings->'destinos' @> '["/app/kanban"]'::jsonb;

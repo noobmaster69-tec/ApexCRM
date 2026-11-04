@@ -58,7 +58,7 @@ export const BLOCOS_DE_AJUDA: readonly BlocoDeAjuda[] = [
       },
       {
         texto: "Mover um negócio no funil",
-        href: "/app/kanban",
+        href: "/app/crms",
         detalhe: "Em que etapa cada oportunidade está e o que falta para fechar.",
       },
       {

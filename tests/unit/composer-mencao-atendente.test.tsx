@@ -86,7 +86,7 @@ function renderComposer() {
 
 function abrirModoNota() {
   renderComposer();
-  fireEvent.click(screen.getByRole("button", { name: /nota interna/i }));
+  fireEvent.click(screen.getByRole("radio", { name: /^nota$/i }));
   return screen.getByLabelText(/mensagem/i);
 }
 

@@ -71,7 +71,7 @@ describe("Composer + curinga de nome literal (#2744)", () => {
 
   it("(b) o MESMO texto em nota interna passa: a nota vai para o time", () => {
     renderComposer({ contactName: null, contactDisplayName: null });
-    fireEvent.click(screen.getByRole("button", { name: /nota interna/i }));
+    fireEvent.click(screen.getByRole("radio", { name: /^nota$/i }));
 
     const campo = screen.getByPlaceholderText(/nota interna/i);
     fireEvent.change(campo, { target: { value: "Cliente sem nome — {{nome}} ficou literal" } });

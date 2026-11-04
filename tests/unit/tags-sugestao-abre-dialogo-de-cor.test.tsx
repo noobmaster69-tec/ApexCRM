@@ -235,7 +235,10 @@ describe("sugestão de etiqueta no editor da CONVERSA", () => {
       </QueryClientProvider>,
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "+ google" }, { timeout: 5000 }));
+    // No fork (jhoow) o campo nasce fechado atrás do chip "+ Adicionar tag", e a
+    // sugestão é uma opção da lista, sem o "+ " na frente.
+    await userEvent.click(screen.getByRole("button", { name: "Adicionar tag" }));
+    await userEvent.click(await screen.findByRole("option", { name: "google" }, { timeout: 5000 }));
     expect(mutateConversa).not.toHaveBeenCalled();
 
     const caixa = dialogo();

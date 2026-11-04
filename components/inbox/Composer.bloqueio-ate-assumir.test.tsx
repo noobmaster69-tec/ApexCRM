@@ -36,6 +36,11 @@ const DICIONARIO: Record<string, { es: string }> = {
 
 let idioma: "pt_BR" | "es" = "pt_BR";
 
+// Tradução do fork (jhoow): o arquivo não monta QueryClientProvider.
+vi.mock("@/hooks/inbox/useIdiomasDaConversa", () => ({
+  useIdiomasDaConversa: () => ({ data: undefined }),
+  useMudarIdiomasDaConversa: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock("@/hooks/i18n/useT", () => ({
   useT: () => ((texto: string) =>
     idioma === "pt_BR" ? texto : (DICIONARIO[texto]?.es ?? texto)) as Tradutor,

@@ -55,15 +55,6 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/app/inbox" }));
 vi.mock("@/components/shell/BarraDeProgressoNavegacao", () => ({
   BarraDeProgressoNavegacao: () => null,
 }));
-// A barra de abas do celular é a SEGUNDA peça fixa do rodapé, e ela fica fora
-// aqui pelo mesmo critério das três acima: não é o assunto. Ela lê `useAuth`
-// para herdar o portão do sidebar, e montá-la exigiria um `<AuthProvider>` em
-// volta de um teste que mede geometria de rodapé.
-//
-// Isto NÃO a deixa sem cobertura — ela declara a própria ocupação e o gate
-// `tests/unit/rodape-ocupado-contrato.test.ts` cobra isso dela por arquivo, mais
-// `components/shell/BarraInferior.celular.test.tsx`, que prova a regra da tela.
-vi.mock("@/components/shell/BarraInferior", () => ({ BarraInferior: () => null }));
 vi.mock("@/hooks/atendimento/useSinalDePresenca", () => ({ useSinalDePresenca: () => {} }));
 vi.mock("@/hooks/notifications/useInboundMessageAlerts", () => ({
   useInboundMessageAlerts: () => {},

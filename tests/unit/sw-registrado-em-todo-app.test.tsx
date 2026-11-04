@@ -9,9 +9,10 @@ import { describe, expect, it, vi } from "vitest";
 const registrar = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("@/lib/notifications/service_worker", () => ({ ensureNotifyServiceWorker: registrar }));
 vi.mock("@/components/shell/Sidebar", () => ({ Sidebar: () => null }));
+// A casca do fork (jhoow) lê o tema para o atalho de claro/escuro.
+vi.mock("@/lib/theme", () => ({ useTheme: () => ({ toggle: () => {} }) }));
 vi.mock("@/components/shell/TopBar", () => ({ TopBar: () => null }));
 vi.mock("@/components/shell/BarraDeProgressoNavegacao", () => ({ BarraDeProgressoNavegacao: () => null }));
-vi.mock("@/components/shell/BarraInferior", () => ({ BarraInferior: () => null }));
 vi.mock("@/hooks/atendimento/useSinalDePresenca", () => ({ useSinalDePresenca: () => {} }));
 vi.mock("@/hooks/notifications/useInboundMessageAlerts", () => ({ useInboundMessageAlerts: () => {} }));
 vi.mock("@/hooks/notifications/useCrmAlerts", () => ({ useCrmAlerts: () => {} }));
@@ -26,7 +27,7 @@ describe("service worker em todo /app", () => {
     expect(typeof Notification === "undefined" || Notification.permission !== "granted").toBe(true);
     render(
       <ProvedorDaOcupacaoDoRodape>
-        <AppShell sidebarCollapsed={false} podeAtender={false}>
+        <AppShell preferenciaDaLateral={null} podeAtender={false}>
           <p>conteúdo</p>
         </AppShell>
       </ProvedorDaOcupacaoDoRodape>,

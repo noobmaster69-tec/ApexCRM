@@ -1,7 +1,7 @@
 {
   "id": "funis",
   "titulo": "Funis",
-  "tela": "/app/kanban",
+  "tela": "/app/crms",
   "resumo": "Onde você acompanha cada negócio da empresa num quadro: cada cliente é um cartão que anda pelas etapas, do primeiro contato até ganhar ou perder.",
   "licoes": [
     {

@@ -25,6 +25,11 @@ import { ApiError } from "@/lib/api/types";
 
 type Tradutor = (texto: string) => string;
 
+// Tradução do fork (jhoow): o arquivo não monta QueryClientProvider.
+vi.mock("@/hooks/inbox/useIdiomasDaConversa", () => ({
+  useIdiomasDaConversa: () => ({ data: undefined }),
+  useMudarIdiomasDaConversa: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => ((texto: string) => texto) as Tradutor }));
 
 const { sendMutate, noteMutate, erroDoEnvio } = vi.hoisted(() => ({

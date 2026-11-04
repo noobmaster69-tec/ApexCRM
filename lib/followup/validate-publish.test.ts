@@ -476,6 +476,10 @@ describe('validateFlowForPublish', () => {
         'collect',
         'skill',
         'action',
+        // Blocos do construtor de FLUXOS (fork jhoow) que o cliente sente.
+        'mensagem',
+        'aguardar_resposta',
+        'intervalo',
       ]);
     });
   });

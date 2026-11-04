@@ -42,6 +42,11 @@ const deps = vi.hoisted(() => ({
   noteMutate: vi.fn(),
 }));
 
+// Tradução do fork (jhoow): o arquivo não monta QueryClientProvider.
+vi.mock("@/hooks/inbox/useIdiomasDaConversa", () => ({
+  useIdiomasDaConversa: () => ({ data: undefined }),
+  useMudarIdiomasDaConversa: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (texto: string) => texto }));
 
 vi.mock("@/hooks/inbox/useSendMessage", () => ({

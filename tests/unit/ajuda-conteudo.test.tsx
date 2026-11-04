@@ -30,7 +30,7 @@ function urls() {
 describe("conteúdo da Ajuda acompanha o contexto do menu", () => {
   it("delega ao filtro real com os mesmos cinco parâmetros do Sidebar", () => {
     const settings = navegacao.combinarInterfaces(
-      { preset: "completa", destinos: ["/app/ajuda", "/app/contacts", "/app/kanban"] },
+      { preset: "completa", destinos: ["/app/ajuda", "/app/contacts", "/app/crms"] },
       { preset: "completa", destinos: ["/app/ajuda", "/app/contacts"] },
     );
     const modulos = ["crm_b2b", "propostas"] as const;
@@ -72,7 +72,7 @@ describe("conteúdo da Ajuda acompanha o contexto do menu", () => {
     const filtro = vi.spyOn(navegacao, "destinosDaInterface");
     render(<AjudaConteudo />);
     expect(filtro).toHaveBeenLastCalledWith(undefined, false, "viewer", [], []);
-    expect(urls()).toEqual(["/app/contacts", "/app/inbox", "/app/kanban", "/app/settings/atualizacao", "/app/team"]);
+    expect(urls()).toEqual(["/app/contacts", "/app/crms", "/app/inbox", "/app/settings/atualizacao", "/app/team"]);
   });
 
   it("o idioma do provider muda o conteúdo antes de mudar user.idioma", () => {

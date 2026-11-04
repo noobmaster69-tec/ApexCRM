@@ -57,6 +57,8 @@ import { lgpdRedactHandler } from "@/workers/lgpd-redact-worker.handler";
 import { mediaDeriveHandler } from "@/workers/media-derive-worker.handler";
 import { mediaPersistHandler } from "@/workers/media-persist-worker.handler";
 import { ragIndexerHandler } from "@/workers/rag-indexer.handler";
+import { idiomaDoContatoHandler } from "@/lib/translation/idioma-do-contato.handler";
+import { traducaoHandler } from "@/lib/translation/traducao.handler";
 
 const RODA: EventHandler[] = [
   followupReactivityHandler,
@@ -100,6 +102,9 @@ const PULA: EventHandler[] = [
   conversaoDeNascimentoMetaHandler,
   conversaoDeCliqueMetaHandler,
   pinoReintentoHandler,
+  // Fork jhoow: idioma do contato e tradução automática chamam o modelo.
+  idiomaDoContatoHandler,
+  traducaoHandler,
 ];
 
 const PREFIXO_DE_TESTE = "teste-org-parada";

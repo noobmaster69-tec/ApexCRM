@@ -558,16 +558,16 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
       );
       return;
     }
-    const enviar = (corpo: string, traduzida?: { para: string; de: string }) =>
+    const enviar = (texto: string, traduzida?: { para: string; de: string }) =>
     send.mutate(
       {
         conversation_id: conversationId,
-        body: corpo,
+        body: texto,
         type: "text",
         ...(respondendo ? { reply_to_message_id: respondendo.id } : {}),
         // Traduzida: o original (meu idioma) vai junto, e a bolha mostra
         // "Enviado em inglês · Ver original".
-        ...(traduzida ? { content_original: body, content_locale: traduzida.de, translated_to: traduzida.para } : {}),
+        ...(traduzida ? { content_original: corpo, content_locale: traduzida.de, translated_to: traduzida.para } : {}),
       },
       {
         onSuccess: () => {
@@ -608,7 +608,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
       });
       return;
     }
-    enviar(body);
+    enviar(corpo);
   }
 
   /**

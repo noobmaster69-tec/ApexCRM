@@ -25,6 +25,16 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useT } from "@/hooks/i18n/useT";
 import type { FunilDaResposta } from "@/hooks/pipelines/usePipelines";
+import { NAV_DESTINATIONS, NAV_GROUPS } from "@/lib/navigation/registry";
+
+/**
+ * O caminho da tela das etapas, LIDO do catálogo da navegação: grupo, o hub
+ * quando o grupo tem um, e a tela. No fork (jhoow) os grupos não têm hub, e o
+ * texto fixo do 1.99 ("CRM › Ver tudo em CRM › …") mandava para um menu que não
+ * existe aqui.
+ */
+const ETAPAS_DO_FUNIL = NAV_DESTINATIONS.find((d) => d.href === "/app/settings/tenant/pipelines");
+const GRUPO_DAS_ETAPAS = NAV_GROUPS.find((g) => g.id === ETAPAS_DO_FUNIL?.group);
 
 /** Quanto de cada funil o assistente sabe percorrer (spec 17 passo 4). */
 export interface CoberturaPorFunil {
@@ -145,7 +155,13 @@ export function FunisDoAgente({ funis, value, onChange, cobertura, disabled = fa
             className="underline underline-offset-2"
             data-testid="agente-funis-mudos-caminho"
           >
-            {`CRM › ${t("Ver tudo em CRM")} › ${t("Etapas do funil")}`}
+            {[
+              GRUPO_DAS_ETAPAS && t(GRUPO_DAS_ETAPAS.label),
+              GRUPO_DAS_ETAPAS?.hub && t(GRUPO_DAS_ETAPAS.hub.label),
+              ETAPAS_DO_FUNIL && t(ETAPAS_DO_FUNIL.label),
+            ]
+              .filter(Boolean)
+              .join(" › ")}
           </Link>
           .
         </p>

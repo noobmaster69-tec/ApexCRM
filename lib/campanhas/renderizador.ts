@@ -28,6 +28,7 @@
  */
 
 import { horaNoFuso } from "./relogio";
+import { RESERVA_DA_VARIAVEL } from "@/lib/texto/reserva-da-variavel";
 import { chaveCanonica, VARIAVEIS_DO_SISTEMA } from "@/lib/variables/sistema";
 import {
   BURACO,
@@ -123,9 +124,15 @@ export function renderizar(
   const texto = template.replace(TOKEN_DE_VARIAVEL, (literal, ...grupos: (string | undefined)[]) => {
     const partes = partesDoToken([literal, ...grupos]);
     const nome = partes.nome;
-    // A reserva do oficial vem entre aspas (`{{primeiro_nome|"aluno"}}`); a do
-    // fork, sem (`{primeiro_nome|aluno}`). As duas querem dizer o mesmo.
-    const alternativo = partes.alternativo === null ? null : semAspas(partes.alternativo);
+    // A reserva do oficial vem entre aspas (`{{primeiro_nome|"aluno"}}`, régua de
+    // `lib/texto/reserva-da-variavel`); a do fork, sem (`{primeiro_nome|aluno}`).
+    // Nas chaves duplas vale a régua do oficial: reserva torta fica como foi escrita.
+    const chavesDuplas = grupos[0] !== undefined;
+    let alternativo: string | null = null;
+    if (partes.alternativo !== null) {
+      alternativo = chavesDuplas ? reservaEntreAspas(partes.alternativo) : semAspas(partes.alternativo);
+      if (alternativo === null) return literal;
+    }
     // `{{lead.x}}` / `{{contato.x}}` (oficial): campo personalizado pela raiz.
     const raiz = raizDeCampo(nome);
     if (raiz) {
@@ -146,6 +153,8 @@ export function renderizar(
     const v = conhecida ? resolverVariavel(nome, ctx) : "";
     if (v !== "") return sistema && VARIAVEIS_DE_TEMPO.has(sistema) ? v : blindar(v);
     if (!conhecida) desconhecidas.add(nome);
+    // Variável desconhecida não ganha a reserva do oficial: fica literal.
+    if (!conhecida && chavesDuplas) return literal;
     // `{x|texto}`: o alternativo é o fallback SEGURO escrito por quem fez o texto.
     if (alternativo !== null) {
       if (alternativo !== "") return alternativo;
@@ -177,6 +186,13 @@ const CHAVE_BLINDADA = "{\u2060";
 
 function blindar(valor: string): string {
   return valor.replaceAll("{", CHAVE_BLINDADA);
+}
+
+const RESERVA_ENTRE_ASPAS = new RegExp(String.raw`^${RESERVA_DA_VARIAVEL}$`);
+
+/** `"aluno"` / `“aluno”` → `aluno`; fora da régua do oficial → `null`. */
+function reservaEntreAspas(texto: string): string | null {
+  return RESERVA_ENTRE_ASPAS.exec(`|${texto}`)?.[1] ?? null;
 }
 
 function semAspas(texto: string): string {

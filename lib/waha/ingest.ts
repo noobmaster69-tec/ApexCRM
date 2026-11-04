@@ -20,7 +20,6 @@ import { sincronizarSaudeDaConexao } from "@/lib/channels/health";
 import { marcarConversaComMensagem } from "@/lib/channels/marcar-conversa";
 import { gravarReacaoDeMensagem } from "@/lib/channels/reacao";
 import { aplicarEfeitosPosEntrada } from "@/lib/channels/pos-entrada";
-import { aplicarEfeitosPosSaida } from "@/lib/channels/pos-saida";
 import { ORIGEM_DO_WHATSAPP_OPERADOR } from "@/lib/channels/origem-do-negocio";
 import { garantirLeadDaConversa } from "@/lib/leads/nascimento-do-lead";
 import {
@@ -1731,15 +1730,6 @@ async function handleOutboundFromUserPhone(
   }
 
   await markConversation(admin, session.organization_id, conversationId, "outbound", previewFromMessage(p), now);
-
-  // Quem falou primeiro pelo CELULAR também vira card — só se o contato nunca
-  // teve um (ver `lib/channels/pos-saida.ts`). Grupo já desviou lá em cima.
-  await aplicarEfeitosPosSaida(admin, {
-    organizationId: session.organization_id,
-    contactId,
-    conversationId,
-    origem: "celular",
-  });
 
   // ── CONTROLE DO AUTOMÁTICO NESTA CONVERSA ─────────────────────────────────
   //

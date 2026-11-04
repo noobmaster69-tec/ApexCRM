@@ -4,7 +4,7 @@ import { blocosVisiveis } from "@/lib/ajuda/hub";
 import type { Role } from "@/lib/auth/types";
 import { combinarInterfaces, destinosDaInterface } from "@/lib/navigation/interface";
 
-const basicos = ["/app/inbox", "/app/kanban", "/app/contacts"];
+const basicos = ["/app/inbox", "/app/crms", "/app/contacts"];
 const equipe = "/app/team";
 const casos = "/app/ai/cases";
 const montagem = ["/app/ai/agents", "/app/ai/knowledge/sources"];
@@ -35,7 +35,7 @@ describe("Ajuda respeita a mesma interface do menu", () => {
   it("a escolha da empresa e do vínculo continua sendo interseção", () => {
     const settings = combinarInterfaces(
       { preset: "completa", destinos: ["/app/ajuda", "/app/inbox", "/app/contacts"] },
-      { preset: "completa", destinos: ["/app/ajuda", "/app/inbox", "/app/kanban"] },
+      { preset: "completa", destinos: ["/app/ajuda", "/app/inbox", "/app/crms"] },
     );
     expect(hrefs(blocos("agent", settings))).toEqual(["/app/inbox"]);
   });

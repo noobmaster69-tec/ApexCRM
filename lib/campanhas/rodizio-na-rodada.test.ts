@@ -125,6 +125,11 @@ const campanha = (id: string, principal: string, startedAt: string): Linha => ({
   message_body: "oi",
   content_version: 1,
   intervalo_segundos: null,
+  // O fork (jhoow, 9915) sorteia o próximo envio entre mín e máx (padrão
+  // 60–180s). As rodadas daqui andam de minuto em minuto: com 1s, o sorteio
+  // nunca segura a rodada seguinte e o caso mede só o rodízio.
+  min_interval_seconds: 1,
+  max_interval_seconds: 1,
   janela_inicio_hora: null,
   janela_fim_hora: null,
   teto_diario: null,

@@ -324,7 +324,7 @@ export const NAV_CATALOG = [
     label: "Planos de tarefa",
     description: "Sequências reutilizáveis de tarefas — montar uma vez e aplicar a cada negócio.",
     icon: "FlowArrow",
-    group: "crm",
+    group: "operacoes",
     section: "O dia a dia da venda",
   },
   {

@@ -67,7 +67,7 @@ function abrirModoNota() {
       <Composer conversationId="conv-1" />
     </QueryClientProvider>,
   );
-  fireEvent.click(screen.getByRole("button", { name: /nota interna/i }));
+  fireEvent.click(screen.getByRole("radio", { name: /^nota$/i }));
   return screen.getByLabelText(/mensagem/i);
 }
 

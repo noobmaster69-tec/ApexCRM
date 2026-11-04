@@ -15,6 +15,8 @@ export const IDIOMA_DO_CONTATO_HANDLER_KEY = "idioma-do-contato.v1";
 export const idiomaDoContatoHandler: EventHandler = {
   key: IDIOMA_DO_CONTATO_HANDLER_KEY,
   events: ["message.received"],
+  // Sem ficha nem DDI, pergunta ao modelo da empresa (custa): org parada pula.
+  naOrgParada: "pula",
   async handle(row): Promise<HandlerResult> {
     const contactId = typeof row.payload.contact_id === "string" ? row.payload.contact_id : null;
     const direcao = row.payload.direction;

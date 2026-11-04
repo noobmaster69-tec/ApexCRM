@@ -22,7 +22,6 @@ import { describe, expect, it } from "vitest";
 
 const ARQUIVOS_DO_MENU = [
   "components/shell/Sidebar.tsx",
-  "components/shell/BarraInferior.tsx",
 ];
 
 function fonte(relativo: string): string {

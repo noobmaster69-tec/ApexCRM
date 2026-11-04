@@ -50,6 +50,19 @@ export const CUSTO_NO_MOTOR: Record<NodeType, number> = {
   // este preço que a publicação multiplica pelas voltas que o `repeat` permite
   // (`custoNoMotorDoFluxo`, #2977).
   repeat: 1,
+  // Os blocos do construtor de FLUXOS (fork jhoow). Os que esperam (resposta ou
+  // tempo) armam e fecham, como o `wait`; o resto atravessa num tick.
+  aguardar_resposta: 2,
+  intervalo: 2,
+  mensagem: 1,
+  etiquetas: 1,
+  notificacao: 1,
+  condicional: 1,
+  distribuidor: 1,
+  conexao_fluxo: 1,
+  pixel: 1,
+  bloco_ia: 1,
+  kanban: 1,
 };
 
 /**

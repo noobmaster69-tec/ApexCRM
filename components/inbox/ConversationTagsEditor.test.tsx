@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConversationTagsEditor } from "./ConversationTagsEditor";
@@ -38,11 +38,14 @@ function renderEditor(tags: string[] = []) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  const montado = render(
     <QueryClientProvider client={client}>
       <ConversationTagsEditor conversationId="c1" orgId="o1" tags={tags} />
     </QueryClientProvider>,
   );
+  // No fork (jhoow) o campo nasce fechado atrás do chip "+ Adicionar tag".
+  fireEvent.click(screen.getByRole("button", { name: "Adicionar tag" }));
+  return montado;
 }
 
 describe("ConversationTagsEditor — cor na criação (#2718)", () => {
@@ -57,7 +60,7 @@ describe("ConversationTagsEditor — cor na criação (#2718)", () => {
     const user = userEvent.setup();
     renderEditor();
     await user.type(screen.getByLabelText("Adicionar tag à conversa"), "vip");
-    await user.click(screen.getByRole("button", { name: "Adicionar tag" }));
+    await user.keyboard("{Enter}");
     expect(mutateSpy).toHaveBeenCalledWith({ conversation_id: "c1", tags: ["vip"] });
     expect(apiClient.post).not.toHaveBeenCalled();
   });
@@ -68,7 +71,7 @@ describe("ConversationTagsEditor — cor na criação (#2718)", () => {
     await user.click(screen.getByRole("button", { name: "Cor da etiqueta" }));
     await user.click(screen.getByRole("button", { name: "Roxo" }));
     await user.type(screen.getByLabelText("Adicionar tag à conversa"), "VIP");
-    await user.click(screen.getByRole("button", { name: "Adicionar tag" }));
+    await user.keyboard("{Enter}");
     expect(mutateSpy).toHaveBeenCalledWith({ conversation_id: "c1", tags: ["vip"] });
     expect(apiClient.post).toHaveBeenCalledWith("/api/v1/tags/vocabulario", {
       acao: "definir_cor",
@@ -116,7 +119,8 @@ describe("ConversationTagsEditor — sugestões filtram pelo digitado (#3180)", 
   afterEach(() => cleanup());
 
   const campo = () => screen.getByLabelText("Adicionar tag à conversa");
-  const sugestao = (tag: string) => screen.queryByRole("button", { name: `+ ${tag}` });
+  // No fork as sugestões são opções da lista, sem o "+ " na frente.
+  const sugestao = (tag: string) => screen.queryByRole("option", { name: tag });
 
   it("digitar “carteira” acha carteira-* com hífen e acento fora da conta", async () => {
     const user = userEvent.setup();
@@ -233,14 +237,14 @@ describe("ConversationTagsEditor — criar só o que não existe (#3180)", () =>
   afterEach(() => cleanup());
 
   const campo = () => screen.getByLabelText("Adicionar tag à conversa");
-  const sugestao = (tag: string) => screen.queryByRole("button", { name: `+ ${tag}` });
+  // No fork as sugestões são opções da lista, sem o "+ " na frente.
+  const sugestao = (tag: string) => screen.queryByRole("option", { name: tag });
   const opcaoDeCriar = () => screen.queryByRole("button", { name: /^Criar «/ });
   /** Os chips da lista, na ordem em que a tela os desenha. */
   const opcoes = () =>
-    screen
-      .getAllByRole("button")
-      .map((b) => (b.textContent ?? "").replace(/\s+/g, " ").trim())
-      .filter((rotulo) => rotulo.startsWith("+ ") || rotulo.startsWith("Criar «"));
+    Array.from(screen.getByRole("listbox", { name: "Sugestões de tag" }).children).map((b) =>
+      (b.textContent ?? "").replace(/\s+/g, " ").trim(),
+    );
 
   it("o Enter APLICA a etiqueta existente quando o texto casa por caixa e acento", async () => {
     const user = userEvent.setup();
@@ -268,8 +272,8 @@ describe("ConversationTagsEditor — criar só o que não existe (#3180)", () =>
     expect(sugestao("carteira-andreia")).not.toBeNull();
     expect(sugestao("carteira-danilo")).not.toBeNull();
     expect(opcoes()).toEqual([
-      "+ carteira-andreia",
-      "+ carteira-danilo",
+      "carteira-andreia",
+      "carteira-danilo",
       "Criar «carteira»",
     ]);
   });

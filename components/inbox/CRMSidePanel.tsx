@@ -1389,7 +1389,9 @@ export function CRMSidePanel({
       {/* A FAIXA DO ALTO (#3008): o botão que abre a personalização da lateral
           e, quando há, o recolher do painel. */}
       <div
-        className="flex shrink-0 items-center justify-between gap-2 border-b border-ibx-line px-3 py-1"
+        // `z-10` (#3008): no celular a lateral mora num Sheet, cujo X (z-20) vem
+        // antes no DOM — a faixa fica num degrau abaixo dele.
+        className="relative z-10 flex shrink-0 items-center justify-between gap-2 border-b border-ibx-line px-3 py-1"
         data-testid="inbox-cabecalho-do-painel"
       >
         <DialogoDosModulos modulos={modulos} onSalvos={setModulos} />

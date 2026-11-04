@@ -3,13 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 // ingest.ts importa @/lib/audit (→ supabase/server → validação de env);
 // o mock corta a cadeia sem tocar no que está sob teste.
 vi.mock("@/lib/audit", () => ({ audit: vi.fn() }));
-// O seam do card nascido do envio tem os próprios testes
-// (`tests/unit/pos-saida-lead-do-primeiro-envio.test.ts`); aqui só importa SE o
-// ingest o chama, e com o quê.
-const aplicarEfeitosPosSaida = vi.fn(async (..._a: unknown[]) => {});
-vi.mock("@/lib/channels/pos-saida", () => ({
-  aplicarEfeitosPosSaida: (...a: unknown[]) => aplicarEfeitosPosSaida(...a),
-}));
 
 import { dispatchWahaEvent, parseChatId, type WahaEnvelope, type WahaPayload } from "@/lib/waha/ingest";
 
@@ -454,49 +447,7 @@ describe("precedência dos três candidatos a chat", () => {
   });
 });
 
-describe("quem fala primeiro pelo celular abre card (pos-saida)", () => {
-  it("mensagem do celular gravada chama o seam com o contato e a conversa", async () => {
-    aplicarEfeitosPosSaida.mockClear();
-    const { admin } = bancoDeMentira();
-
-    await dispatchWahaEvent(admin as never, SESSION as never, envelope(CELULAR_NOWEB), "req-1");
-
-    expect(aplicarEfeitosPosSaida, "o envio do celular não chegou ao funil").toHaveBeenCalledTimes(1);
-    expect(aplicarEfeitosPosSaida.mock.calls[0]?.[1]).toEqual({
-      organizationId: "org-1",
-      contactId: "contato-1",
-      conversationId: "conversa-1",
-      origem: "celular",
-    });
-  });
-
-  it("eco de envio já gravado não chama — quem enviou pelo CRM já chamou", async () => {
-    aplicarEfeitosPosSaida.mockClear();
-    const { admin } = bancoDeMentira([
-      { organization_id: "org-1", external_id: "2A1B890FB8AA87730CBC", direction: "outbound" },
-    ]);
-
-    await dispatchWahaEvent(admin as never, SESSION as never, envelope(CELULAR_NOWEB), "req-1");
-
-    expect(aplicarEfeitosPosSaida).not.toHaveBeenCalled();
-  });
-
-  it("grupo não vira card", async () => {
-    aplicarEfeitosPosSaida.mockClear();
-    const { admin } = bancoDeMentira();
-
-    await dispatchWahaEvent(
-      admin as never,
-      SESSION as never,
-      envelope({
-        id: "true_120363000000000000@g.us_2A1B890FB8AA87730CBC",
-        from: "120363000000000000@g.us",
-        fromMe: true,
-        body: "mensagem no grupo",
-      }),
-      "req-1",
-    );
-
-    expect(aplicarEfeitosPosSaida).not.toHaveBeenCalled();
-  });
-});
+// O card de quem fala primeiro pelo CELULAR nasce pelo caminho do 1.99 (#2448,
+// `nascerLeadDaConversaPeloCelular`), coberto por
+// `tests/unit/fromme-nasce-lead-no-funil-padrao.test.ts`. O `pos-saida` do fork
+// ficou só para o envio pelo CRM — os dois juntos criavam o card duas vezes.

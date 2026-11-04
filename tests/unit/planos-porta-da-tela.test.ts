@@ -18,7 +18,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-import { hubSections, searchable } from "@/lib/navigation/registry";
+import { hubSections } from "@/lib/navigation/registry";
 import { LIMITES_DO_PLANO } from "@/lib/tarefas/limites-do-plano";
 import { explicarRecusaDoPlano } from "@/lib/tarefas/recusa-do-plano";
 
@@ -86,18 +86,14 @@ beforeEach(() => {
 });
 
 describe("a tela Tarefas › Planos aparece no menu", () => {
-  it("está no registro e nas projeções do hub do CRM e do ⌘K", () => {
+  // No fork (jhoow) não há ⌘K, e Tarefas mora no grupo Operações: a porta dos
+  // planos fica no MESMO hub de Tarefas.
+  it("está no registro e na projeção do hub de Operações", () => {
     const HREF = "/app/tasks/planos";
 
-    const noBuscador = searchable(false, "manager");
-    expect(
-      noBuscador.map((d) => d.href),
-      "sem a entrada em lib/navigation/catalogo.ts o registry deriva nada",
-    ).toContain(HREF);
-
-    const secoes = hubSections("crm", false, "manager");
+    const secoes = hubSections("operacoes", false, "manager");
     const destino = secoes.flatMap((s) => s.items).find((d) => d.href === HREF);
-    expect(destino, "destino ausente do hub do CRM").toBeDefined();
+    expect(destino, "destino ausente do hub de Operações").toBeDefined();
     expect(destino!.section).toBe("O dia a dia da venda");
     // É cadastro, não uso diário: cabe no hub, não ganha um pixel de sidebar.
     expect(destino!.sidebar).toBeUndefined();

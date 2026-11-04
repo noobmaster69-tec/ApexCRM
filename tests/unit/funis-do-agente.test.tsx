@@ -148,12 +148,15 @@ describe("a lacuna de tradução (passo 4)", () => {
     // quando alguém renomear o menu.
     const etapas = NAV_DESTINATIONS.find((d) => d.href === "/app/settings/tenant/pipelines");
     const grupo = NAV_GROUPS.find((g) => g.id === etapas?.group);
-    expect(etapas && grupo?.hub).toBeTruthy();
+    // No fork (jhoow) os grupos não têm hub: o caminho é grupo › tela.
+    expect(etapas && grupo).toBeTruthy();
     render(
       <FunisDoAgente funis={TODOS} value={[ANDREA.id]} onChange={() => {}} cobertura={MUDO} />,
     );
     const caminho = screen.getByTestId("agente-funis-mudos-caminho");
-    expect(caminho.textContent).toBe(`${grupo!.label} › ${grupo!.hub!.label} › ${etapas!.label}`);
+    expect(caminho.textContent).toBe(
+      [grupo!.label, grupo!.hub?.label, etapas!.label].filter(Boolean).join(" › "),
+    );
     expect(caminho.getAttribute("href")).toBe(etapas!.href);
     expect(screen.getByTestId("agente-funis-mudos").textContent).not.toContain("Configurações");
   });

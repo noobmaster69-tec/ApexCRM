@@ -1,9 +1,10 @@
 "use client";
-import { useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { useT } from "@/hooks/i18n/useT";
 import { ChipDeEtiqueta } from "@/components/tags/ChipDeEtiqueta";
 import { PontoDaEtiqueta } from "@/components/tags/PontoDaEtiqueta";
 import { DialogoDeNovaEtiqueta } from "@/components/tags/DialogoDeNovaEtiqueta";
+import { SeletorDeCorDaEtiqueta } from "@/components/tags/SeletorDeCorDaEtiqueta";
 import { useCoresDasEtiquetas } from "@/components/tags/CoresDasEtiquetas";
 import { chaveDaEtiqueta } from "@/lib/tags/cor-da-etiqueta";
 import { useAuth } from "@/hooks/auth/AuthProvider";
@@ -92,6 +93,7 @@ export function ConversationTagsEditor({ conversationId, orgId, tags }: Props) {
   }
 
   const [adicionando, setAdicionando] = useState(false);
+  const secaoRef = useRef<HTMLElement | null>(null);
   // #3180 — o texto digitado ENTRA no filtro: a mesma chave larga da busca
   // (`lib/contacts/etiquetas`), sem caixa e sem acento, casando no MEIO da
   // palavra. Sem texto, as sugestões saem na ordem da FONTE — e a fonte
@@ -109,24 +111,34 @@ export function ConversationTagsEditor({ conversationId, orgId, tags }: Props) {
   const cheio = tags.length >= 20;
 
   return (
-    <section className="space-y-2">
+    <section ref={secaoRef} className="space-y-2">
       <h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ibx-muted">
         {t("Tags da conversa")}
       </h3>
 
       <div className="flex flex-wrap items-center gap-1.5">
         {tags.map((tag) => (
-          <ChipDeEtiqueta key={tag} tag={tag} className="h-6 gap-1 rounded-full px-2 text-[12px]">
-            <button
-              type="button"
-              onClick={() => remove(tag)}
+          <Fragment key={tag}>
+            <ChipDeEtiqueta tag={tag} className="h-6 gap-1 rounded-full px-2 text-[12px]">
+              <button
+                type="button"
+                onClick={() => remove(tag)}
+                disabled={mutation.isPending}
+                aria-label={`${t("Remover tag")} ${tag}`}
+                className="rounded-sm hover:text-ibx-danger"
+              >
+                <X size={10} weight="bold" aria-hidden />
+              </button>
+            </ChipDeEtiqueta>
+            {/* #2771 — mesma paleta, mesmo caminho do editor do contato. */}
+            <SeletorDeCorDaEtiqueta
+              cor={cores[chaveDaEtiqueta(tag)] ?? null}
+              onChange={(tom) => void definirCor(tag, tom)}
+              tag={tag}
+              rotulo={`${t("Cor da etiqueta")} ${tag}`}
               disabled={mutation.isPending}
-              aria-label={`${t("Remover tag")} ${tag}`}
-              className="rounded-sm hover:text-ibx-danger"
-            >
-              <X size={10} weight="bold" aria-hidden />
-            </button>
-          </ChipDeEtiqueta>
+            />
+          </Fragment>
         ))}
         {adicionando ? (
           <Input
@@ -142,7 +154,9 @@ export function ConversationTagsEditor({ conversationId, orgId, tags }: Props) {
                 setAdicionando(false);
               }
             }}
-            onBlur={() => {
+            onBlur={(e) => {
+              // O foco foi para o 🎨 ou outra parte do editor: o campo segue aberto.
+              if (secaoRef.current?.contains(e.relatedTarget as Node | null)) return;
               // Dá tempo do clique numa sugestão chegar antes de fechar.
               setTimeout(() => setAdicionando(false), 150);
             }}
@@ -152,7 +166,17 @@ export function ConversationTagsEditor({ conversationId, orgId, tags }: Props) {
             className="h-6 w-32 rounded-full border-ibx-border bg-ibx-field px-2.5 text-[12px] shadow-none"
             aria-label={t("Adicionar tag à conversa")}
           />
-        ) : (
+        ) : null}
+        {adicionando && (
+          // #2718 — o tom escolhido ANTES do Enter: a etiqueta já nasce colorida.
+          <SeletorDeCorDaEtiqueta
+            cor={cor}
+            onChange={setCor}
+            tag={draft.trim() || undefined}
+            disabled={mutation.isPending || cheio}
+          />
+        )}
+        {adicionando ? null : (
           <button
             type="button"
             onClick={() => setAdicionando(true)}

@@ -47,10 +47,6 @@ const LAYOUT = "app/app/layout.tsx";
  */
 const PECAS = [
   "components/voice/ActiveCallPanel.tsx",
-  // A barra de abas do celular encosta na borda de baixo (`distancia: 0`) e é a
-  // peça mais ALTA do rodapé — sem ela declarada, o fim de toda lista ficava por
-  // baixo das abas, que é o mesmo defeito da #1305 numa peça nova.
-  "components/shell/BarraInferior.tsx",
 ] as const;
 
 /** O arquivo sem comentários: o que o código diz, não o que o comentário conta. */

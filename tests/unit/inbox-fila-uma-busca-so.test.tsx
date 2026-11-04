@@ -183,7 +183,8 @@ function montar() {
 
 beforeEach(() => {
   chamadas.length = 0;
-  window.history.replaceState(null, "", "/app/inbox");
+  // O fork (jhoow) abre em Minhas; a Fila é a aba `unassigned`, pedida pela URL.
+  window.history.replaceState(null, "", "/app/inbox?filter=unassigned");
 });
 afterEach(() => cleanup());
 

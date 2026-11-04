@@ -22,6 +22,7 @@ vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (texto: string) => texto }));
 
 import { motivoDoVeto } from "@/lib/agent-engine/agent/sugestao-de-resposta";
 import { ReplyReviewPanel } from "./ReplyReviewPanel";
+import { useSugestaoDoAgente } from "./useSugestaoDoAgente";
 
 const GENERICA = "Confira a configuração do agente e tente gerar novamente.";
 const REESCRITA = /Uma versão anterior desta sugestão foi barrada/;
@@ -37,12 +38,18 @@ const draft = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+// No fork (jhoow, composer compacto) o estado da sugestão mora no Composer e o
+// painel recebe `sugestao` pronto: o teste monta o mesmo par hook + painel.
+function PainelDaConversa({ conversationId }: { conversationId: string }) {
+  return <ReplyReviewPanel sugestao={useSugestaoDoAgente(conversationId)} />;
+}
+
 function montar(drafts: unknown[]) {
   deps.get.mockResolvedValue({ data: { drafts } });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <ReplyReviewPanel conversationId="c1" />
+      <PainelDaConversa conversationId="c1" />
     </QueryClientProvider>,
   );
 }

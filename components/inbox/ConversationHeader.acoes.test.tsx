@@ -46,6 +46,8 @@ const estado = vi.hoisted(() => ({
   automaticoDaOrg: true as boolean | undefined,
 }));
 
+// Tradução do fork (jhoow): o arquivo não monta QueryClientProvider.
+vi.mock("@/components/inbox/SeloDeIdiomas", () => ({ SeloDeIdiomas: () => null }));
 vi.mock("@/hooks/auth/AuthProvider", () => ({
   useAuth: () => estado.auth,
   usePermission: () => true,
