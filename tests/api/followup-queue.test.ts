@@ -68,7 +68,7 @@ function bancoFalso(tabelas: Record<string, Linha[]>) {
       let select = "*";
       const b = {
         select(s: string) { select = s; return b; },
-        eq() { return b; }, order() { return b; }, limit() { return b; },
+        eq() { return b; }, neq() { return b; }, order() { return b; }, limit() { return b; },
         in() { return b; }, or() { return b; }, is() { return b; }, gt() { return b; },
         then(res: (v: { data: Linha[]; error: null }) => unknown) {
           return Promise.resolve({ data: projetar(tabelas[tabela] ?? [], select), error: null }).then(res);

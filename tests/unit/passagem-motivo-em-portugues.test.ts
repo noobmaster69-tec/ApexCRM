@@ -74,6 +74,15 @@ function separadorPosix(relativo: string): string {
  * allowlist que cresce sozinha.
  */
 const USO_COMO_CHAVE: Array<{ arquivo: string; codigo: string; razao: string }> = [
+  // (fork jhoow) `campaigns.wait_reason` (9018) também tem `fora_da_janela`:
+  // a tela da campanha usa o código como CHAVE da tabela `TEXTO_DA_ESPERA` e
+  // exibe t("Fora da janela diária de envio.") — outra coluna, mesma palavra.
+  {
+    arquivo: "app/app/campaigns/[id]/_client.tsx",
+    codigo: "fora_da_janela",
+    razao:
+      "chave da tabela TEXTO_DA_ESPERA do motivo de espera da campanha (9018) — a tela exibe a frase traduzida",
+  },
   {
     arquivo: "components/connections/ChannelAiAccess.tsx",
     codigo: "pre_go_live",

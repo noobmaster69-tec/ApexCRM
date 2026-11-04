@@ -57,6 +57,7 @@ vi.mock("@/hooks/campanhas/useDestinoDaCampanha", () => ({
   useEtapas: () => ({ data: [], isLoading: false }),
   useAgentesPublicados: () => ({ data: [], isLoading: false }),
   useCrms: () => ({ data: [], isLoading: false }),
+  useVariaveisDaOrganizacao: () => ({ data: [], isLoading: false }),
 }));
 
 const AVISO = /bateu o teto de 20\.000 negócios desta prévia/;

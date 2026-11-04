@@ -137,9 +137,10 @@ function achar(no: ReactNode, alvo: unknown): ReactElement | null {
     }
     return null;
   }
-  const elemento = no as ReactElement<{ children?: ReactNode }>;
+  const elemento = no as ReactElement<{ children?: ReactNode; faixas?: ReactNode }>;
   if (elemento.type === alvo) return elemento;
-  return achar(elemento.props?.children, alvo);
+  // No fork (jhoow) as faixas de aviso entram pela prop `faixas` da casca.
+  return achar(elemento.props?.children, alvo) ?? achar(elemento.props?.faixas, alvo);
 }
 
 type Caida = { id: string; apelido: string; status: string };

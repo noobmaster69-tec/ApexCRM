@@ -93,7 +93,12 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<Response> {
   const b = parsed.data;
 
   if (b.contato_locale) {
-    const { data: antes } = await admin.from("contacts").select("locale").eq("id", conv.contact_id).maybeSingle();
+    const { data: antes } = await admin
+      .from("contacts")
+      .select("locale")
+      .eq("id", conv.contact_id)
+      .eq("organization_id", authz.org.orgId)
+      .maybeSingle();
     await admin
       .from("contacts")
       .update({ locale: b.contato_locale, locale_source: "manual" })

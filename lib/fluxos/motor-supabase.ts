@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendMessageHandler } from "@/app/api/v1/messages/_handler";
+import { OrgNaoOperanteError } from "@/lib/organizacao/operante";
 import { sendWithLedger, supabaseSendLedger } from "@/lib/agent-engine/edge/crm/send-ledger";
 import { normalizarTags } from "@/lib/contacts/tag-normalizada";
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
@@ -162,7 +163,12 @@ export function criarDepsDoMotor(admin: SupabaseClient, ctx: { jobId: string }):
         .maybeSingle();
       // O hash do ledger é sobre um retrato estável do que vai sair — corpo e mídia.
       const retrato = JSON.stringify([msg.type, msg.body ?? "", msg.media_storage_path ?? msg.media_url ?? "", msg.shared_contact ?? null]);
-      const r = await sendWithLedger(
+      // Org parada (suspensão/cancelamento): o envio LANÇA `OrgNaoOperanteError`.
+      // O fluxo encerra com o motivo, em vez de a fila refazer e a mensagem sair
+      // em rajada na reativação (`tests/unit/chamadores-do-envio-tratam-org-parada.test.ts`).
+      let r: Awaited<ReturnType<typeof sendWithLedger>>;
+      try {
+        r = await sendWithLedger(
         supabaseSendLedger(admin),
         { tenantId: org, leadId: (conv?.contact_id as string | undefined) ?? null, jobId: ctx.jobId, seq, body: retrato },
         async (key, messageId) =>
@@ -191,7 +197,11 @@ export function criarDepsDoMotor(admin: SupabaseClient, ctx: { jobId: string }):
               },
             },
           ),
-      );
+        );
+      } catch (err) {
+        if (err instanceof OrgNaoOperanteError) return { recusada: "org_nao_operante" };
+        throw err;
+      }
       if (r.kind === "blocked") return "bloqueada";
       if (r.kind === "failed") {
         // Falha com código PERMANENTE encerra o fluxo; o resto a fila refaz.

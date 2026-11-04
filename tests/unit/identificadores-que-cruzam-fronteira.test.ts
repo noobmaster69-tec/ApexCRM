@@ -202,6 +202,10 @@ const SITES: { arquivo: string; fronteira: string; papel?: "gerador" | "validado
   { arquivo: "app/api/v1/fluxos/[id]/midia/route.ts", fronteira: "storage.chave-de-objeto" },
   // A mídia de um fluxo importado do Leona, no mesmo lugar: `{org}/fluxos/{fluxo}/{uuid}.{ext}`.
   { arquivo: "lib/fluxos/copiar-midia-importada.ts", fronteira: "storage.chave-de-objeto" },
+  // A planilha original da importação de audiência (fork jhoow), para auditoria:
+  // `{org}/[contatos/]{uuid}.{xlsx|csv}` — org do JWT, uuid gerado aqui, e a
+  // extensão é uma das duas fixas que a rota escolhe (nunca o nome do arquivo).
+  { arquivo: "lib/campanhas/importar-audiencia.ts", fronteira: "storage.chave-de-objeto" },
   // O anexo de lead (#2829): anexo em campo customizado do lead, bucket `internal-media`.
   { arquivo: "app/api/v1/leads/[id]/attachments/route.ts", fronteira: "storage.chave-de-objeto" },
   { arquivo: "app/api/v1/ai/knowledge/sources/upload/route.ts", fronteira: "storage.chave-de-objeto" },

@@ -48,8 +48,16 @@ function paraContexto(l: LinhaDoContato, padroes: Record<string, string>, fusoPa
 /** Interpola `texto` para o contato (cliente Supabase). Texto sem variável não lê nada. */
 export async function interpolarParaContato(
   admin: SupabaseClient,
-  e: { organizationId: string; contactId: string; texto: string; fusoPadrao?: string },
+  e: {
+    organizationId: string;
+    contactId: string;
+    texto: string;
+    fusoPadrao?: string;
+    /** `false`: o que não resolve fica como está (texto que já chegou renderizado). */
+    vazioQuandoFalta?: boolean;
+  },
 ): Promise<string> {
+  const vazioQuandoFalta = e.vazioQuandoFalta ?? true;
   if (variaveisDoTexto(e.texto).length === 0) return e.texto;
   const [{ data }, vars] = await Promise.all([
     admin.from("contacts").select(COLUNAS).eq("organization_id", e.organizationId).eq("id", e.contactId).maybeSingle(),
@@ -81,6 +89,6 @@ export async function interpolarParaContatoPg(
       .catch(() => ({}) as Record<string, string>),
   ]);
   const l = rows[0];
-  if (!l) return interpolarVariaveis(e.texto, { nome: null, telefone: null, campos: {} }, { vazioQuandoFalta: true }).texto;
-  return interpolarVariaveis(e.texto, paraContexto(l, padroes, e.fusoPadrao ?? "America/Sao_Paulo"), { vazioQuandoFalta: true }).texto;
+  if (!l) return interpolarVariaveis(e.texto, { nome: null, telefone: null, campos: {} }, { vazioQuandoFalta }).texto;
+  return interpolarVariaveis(e.texto, paraContexto(l, padroes, e.fusoPadrao ?? "America/Sao_Paulo"), { vazioQuandoFalta }).texto;
 }

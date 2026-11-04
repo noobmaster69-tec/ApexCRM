@@ -4158,7 +4158,7 @@
   "Sair de todos os dispositivos": "Sign out of all devices",
   "A verificação em duas etapas da sua conta, os códigos de recuperação e as sessões abertas.": "Your account's two-step verification, recovery codes, and open sessions.",
   "Você ainda não tem nenhum funil. Enquanto for assim, o agente atende normalmente, mas não tem para onde levar o card de ninguém — não há etapas para onde mover.": "You don't have any pipelines yet. Until you do, the agent answers normally, but it has nowhere to move anyone's card — there are no stages to move to.",
-  "Crie o primeiro na tela Funis": "Create the first one on the Pipelines screen",
+  "Crie o primeiro na tela CRMs": "Create the first one on the CRMs screen",
   ": ele já nasce com etapas, e depois aparece aqui para você escolher a etapa de cada passo.": ": it already comes with stages, and then it shows up here so you can pick the stage for each step.",
   "Custom fields: JSON inválido. Esperado um array.": "Custom fields: Invalid JSON. An array was expected.",
   "atualizado.": "updated.",

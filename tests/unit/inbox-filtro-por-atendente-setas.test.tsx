@@ -48,10 +48,12 @@ afterEach(() => {
 const COM_ATENDENTE: InboxFiltersValue = { tab: "unassigned", search: "", onlyUnread: false, assigned_to: ATENDENTE };
 
 describe("filtro por atendente — as setas de aba", () => {
-  it("'Próxima aba' para Minhas limpa o atendente escolhido", () => {
+  // No fork (jhoow) Minhas é a PRIMEIRA aba, antes da Fila: chega-se a ela pela
+  // seta de trás.
+  it("'Aba anterior' para Minhas limpa o atendente escolhido", () => {
     const onChange = vi.fn();
     render(<InboxFilters value={COM_ATENDENTE} onChange={onChange} />);
-    fireEvent.click(screen.getByRole("button", { name: "Próxima aba" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aba anterior" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ tab: "mine", assigned_to: undefined }));
   });
 

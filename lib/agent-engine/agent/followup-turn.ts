@@ -756,7 +756,9 @@ async function runFlowDrivenTurn(
     }
     let passo = await resolveFlowSendBody(pool, target.tenantId, target.channelSessionId, target.leadId, input);
     // Fork jhoow: o texto pronto resolve as variáveis do CONTATO ({nome_saudacao},
-    // {saudacao_horario}…) — antes saía com o token cru.
+    // {saudacao_horario}…) — antes saía com o token cru. O que não resolve FICA:
+    // o `fixed_body` já chega renderizado do enfileiramento (#2528), e apagar o
+    // que sobrou mudaria um texto que o motor já fechou.
     if (passo !== null && passo.tipo === 'texto') {
       passo = {
         ...passo,
@@ -764,6 +766,7 @@ async function runFlowDrivenTurn(
           organizationId: target.tenantId,
           contactId: target.leadId,
           texto: passo.body,
+          vazioQuandoFalta: false,
         }),
       };
     }

@@ -959,7 +959,7 @@ describe("organização sem nenhum funil", () => {
     render(<PipelinesClient pipelines={[]} podeEditarConfig />);
     const vazio = screen.getByTestId("sem-funil-configuracao");
     expect(vazio.textContent).not.toMatch(/banco|quem instalou/i);
-    const funis = NAV_DESTINATIONS.find((d) => d.href === "/app/kanban");
+    const funis = NAV_DESTINATIONS.find((d) => d.href === "/app/crms");
     expect(funis).toBeTruthy();
     const link = screen.getByTestId("link-criar-funil");
     expect(link.getAttribute("href")).toBe(funis!.href);

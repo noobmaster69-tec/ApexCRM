@@ -187,7 +187,7 @@ export function StageColumn({
           opaco (`bg-background`) é o que impede os cards de aparecerem por baixo;
           por dentro, a mesma camada translúcida da coluna, para o tom não mudar. */}
       <div className="sticky top-0 z-10 rounded-t-lg bg-background" data-cabecalho-da-etapa>
-        <div className="bg-surface-muted/40 rounded-t-lg">
+        <div className="bg-surface-elevated/40 rounded-t-lg">
           {/* A COR É A FAIXA DE BAIXO do cabeçalho, como no Kommo: é o que dá para
               ler de longe num quadro com dez colunas. Sombra INTERNA, e não borda
               mais grossa: a borda de 3px deixava o cabeçalho colorido 2px mais alto

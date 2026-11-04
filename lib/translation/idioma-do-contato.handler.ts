@@ -25,7 +25,12 @@ export const idiomaDoContatoHandler: EventHandler = {
     }
     try {
       const admin = createAdminClient();
-      const { data } = await admin.from("contacts").select("locale_source").eq("id", contactId).maybeSingle();
+      const { data } = await admin
+        .from("contacts")
+        .select("locale_source")
+        .eq("id", contactId)
+        .eq("organization_id", row.organization_id)
+        .maybeSingle();
       if ((data as { locale_source: string | null } | null)?.locale_source) {
         return { consumer_key: IDIOMA_DO_CONTATO_HANDLER_KEY, status: "skipped", detail: "idioma já resolvido" };
       }

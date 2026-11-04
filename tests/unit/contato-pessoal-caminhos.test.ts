@@ -205,7 +205,12 @@ describe("caminho 10 — métricas não somam pessoal", () => {
     const src = semComentarios(
       fonte("app", "api", "v1", "campaigns", "[id]", "metrics", "route.ts"),
     );
-    expect(src).toMatch(/opted_out_at !== null/);
+    // No fork (jhoow) a contagem mora em `lib/campanhas/metricas.ts` (a tela de
+    // métricas e a lista leem a mesma régua); a rota só a chama.
+    const contagem = semComentarios(fonte("lib", "campanhas", "metricas.ts"));
+    expect(src).toMatch(/contagemDasLinhas\(/);
+    expect(contagem).toMatch(/opted_out_at !== null/);
     expect(src).not.toMatch(/personal/);
+    expect(contagem).not.toMatch(/personal/);
   });
 });

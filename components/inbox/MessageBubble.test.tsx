@@ -152,9 +152,8 @@ describe("MessageBubble — ações sobre mensagem própria", () => {
     expect(screen.getByText("valor combinado")).toBeInTheDocument();
     expect(screen.getByText("Visível só aqui no CRM")).toBeInTheDocument();
     const classes = screen.getByTestId("message-bubble").className;
-    // Cinza: a apagada sai das cores da direção — `bg-primary` é o envio vivo.
-    expect(classes).toContain("bg-muted/60");
-    expect(classes).not.toContain("bg-primary");
+    // No fork (jhoow) a apagada fica APAGADA (opacidade) na cor da direção.
+    expect(classes).toContain("opacity-70");
   });
 
   it("apagada pelo CONTATO: cinza, diz quem apagou e NÃO mostra o texto", () => {
@@ -162,7 +161,7 @@ describe("MessageBubble — ações sobre mensagem própria", () => {
     expect(screen.getByText("Esta mensagem foi apagada pelo contato")).toBeInTheDocument();
     expect(screen.queryByText("texto do cliente")).not.toBeInTheDocument();
     expect(screen.queryByText("Visível só aqui no CRM")).not.toBeInTheDocument();
-    expect(screen.getByTestId("message-bubble").className).toContain("bg-muted/60");
+    expect(screen.getByTestId("message-bubble").className).toContain("opacity-70");
   });
 
   it("põe o menu dentro da bolha sem ocupar uma coluna ao lado", () => {

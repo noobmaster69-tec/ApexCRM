@@ -32,6 +32,9 @@ const h = vi.hoisted(() => ({
   fetch: vi.fn(),
 }));
 
+// O fork (jhoow) marca a conversa como lida ao focar o campo: não é o envio
+// que este arquivo mede, e o POST de `/lidas` contaria como "tocou na rede".
+vi.mock("@/hooks/inbox/useMarcarComoLidas", () => ({ useMarcarComoLidas: () => () => {} }));
 vi.mock("sonner", () => ({
   toast: { error: h.toastErro, success: h.toastOk, warning: vi.fn() },
 }));

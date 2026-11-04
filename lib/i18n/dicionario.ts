@@ -8736,8 +8736,8 @@ export const DICIONARIO: Traducoes = {
   "Você ainda não tem nenhum funil. Enquanto for assim, o agente atende normalmente, mas não tem para onde levar o card de ninguém — não há etapas para onde mover.": {
     es: "Todavía no tienes ningún embudo. Mientras tanto, el agente atiende con normalidad, pero no puede mover la tarjeta de nadie porque no hay etapas.",
   },
-  "Crie o primeiro na tela Funis": {
-    es: "Crea el primero en la pantalla Embudos",
+  "Crie o primeiro na tela CRMs": {
+    es: "Crea el primero en la pantalla CRMs",
   },
   ": ele já nasce com etapas, e depois aparece aqui para você escolher a etapa de cada passo.": {
     es: ": ya nace con etapas, y después aparece aquí para que elijas la etapa de cada paso.",

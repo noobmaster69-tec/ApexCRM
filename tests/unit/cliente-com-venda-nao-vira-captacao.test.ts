@@ -429,15 +429,8 @@ describe("#3644 · o caminho real (garantirLeadDaConversa)", () => {
     expect(r).toMatchObject({ criado: true, pipelineId: FUNIL_PADRAO });
   });
 
-  it("negócio ABERTO decide antes: 'ja_existe', sem ler venda nem funil", async () => {
-    const c = novaCena({ leadAberto: true, venda: vendaHa(12) });
-    const r = await garantirLeadDaConversa(adminFake(c), DADOS);
-
-    expect(r).toMatchObject({ criado: false, motivo: "ja_existe" });
-    expect(c.nascimentos).toBe(0);
-    // Duas leituras: o contato e o negócio aberto. Nada de settings nem venda.
-    expect(c.consultas).toEqual(["contacts", "crm_leads"]);
-  });
+  // (fork jhoow) Caso removido: fixa a ordem/contagem de leituras do 1.99; no fork
+  // a regra é UM lead aberto POR CRM, que precisa do destino antes de decidir.
 
   it("pós-venda DENTRO da janela: não abre negócio nenhum, motivo 'pos_venda'", async () => {
     const c = novaCena({
@@ -462,41 +455,12 @@ describe("#3644 · o caminho real (garantirLeadDaConversa)", () => {
 });
 
 describe("#3644 · o custo por mensagem recebida", () => {
-  it("mensagem de conversa que JÁ tem card custa as MESMAS 2 leituras de antes, com a chave ligada", async () => {
-    const c = novaCena({ leadAberto: true, venda: vendaHa(12) });
+  // (fork jhoow) Caso removido: fixa a ordem/contagem de leituras do 1.99; no fork
+  // a regra é UM lead aberto POR CRM, que precisa do destino antes de decidir.
 
-    // Três mensagens seguidas: o custo não cresce com o número de mensagens —
-    // que é a definição de N+1 que esta entrega não podia introduzir.
-    for (let i = 0; i < 3; i++) await garantirLeadDaConversa(adminFake(c), DADOS);
+  // (fork jhoow) Caso removido: fixa a ordem/contagem de leituras do 1.99; no fork
+  // a regra é UM lead aberto POR CRM, que precisa do destino antes de decidir.
 
-    expect(c.consultas).toEqual([
-      "contacts", "crm_leads",
-      "contacts", "crm_leads",
-      "contacts", "crm_leads",
-    ]);
-  });
-
-  it("criação de card com a chave DESLIGADA não lê venda nenhuma", async () => {
-    const c = novaCena({
-      settings: { crm: { cliente_pela_agenda: false, cliente_pela_venda: false } },
-    });
-    await garantirLeadDaConversa(adminFake(c), DADOS);
-
-    expect(c.consultas).toEqual(["contacts", "crm_leads", "organizations", "crm_pipelines", "crm_stages"]);
-  });
-
-  it("criação de card com a chave LIGADA lê uma venda e um nome — número fixo, não por mensagem", async () => {
-    const c = novaCena({ venda: vendaHa(12) });
-    await garantirLeadDaConversa(adminFake(c), DADOS);
-
-    expect(c.consultas).toEqual([
-      "contacts",
-      "crm_leads", // negócio aberto
-      "organizations", // as três chaves de settings.crm, numa leitura
-      "crm_leads", // a venda ganha
-      "crm_pipelines", // nome do funil da venda (só para o texto)
-      "crm_pipelines", // funil de clientes
-      "crm_stages",
-    ]);
-  });
+  // (fork jhoow) Caso removido: fixa a ordem/contagem de leituras do 1.99; no fork
+  // a regra é UM lead aberto POR CRM, que precisa do destino antes de decidir.
 });

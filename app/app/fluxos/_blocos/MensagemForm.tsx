@@ -14,6 +14,7 @@ import {
 } from "@/lib/followup/blocos-do-fluxo";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { useTelefoneExemplo } from "@/hooks/contacts/useTelefoneExemplo";
 import { useT } from "@/hooks/i18n/useT";
 import {
   ChevronDown,
@@ -357,6 +358,7 @@ function EditorDoItem({
   aceita: string | undefined;
 }) {
   const t = useT();
+  const telefoneExemplo = useTelefoneExemplo();
   switch (item.tipo) {
     case "texto":
       return (
@@ -383,7 +385,7 @@ function EditorDoItem({
           />
           <Input
             aria-label={t("Telefone com DDI")}
-            placeholder="5511999999999"
+            placeholder={telefoneExemplo}
             inputMode="numeric"
             value={item.telefone}
             onChange={(e) => onChange({ ...item, telefone: e.target.value.replace(/[^\d+]/g, "") })}
