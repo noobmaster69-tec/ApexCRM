@@ -71805,7 +71805,7 @@ begin
   alter table public.channel_knobs
     add constraint channel_knobs_prospeccao_dias_validos
     check (
-      prospeccao_dias <@ '{0,1,2,3,4,5,6}'::smallint[]
+      prospeccao_dias operator(pg_catalog.<@) '{0,1,2,3,4,5,6}'::smallint[]
       and cardinality(prospeccao_dias) between 1 and 7
     );
 end $dias$;
