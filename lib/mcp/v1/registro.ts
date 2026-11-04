@@ -1,5 +1,5 @@
 /**
- * O RASTRO de cada chamada MCP v1 (migration 9023).
+ * O RASTRO de cada chamada MCP v1 (migration 9923).
  *
  * Toda chamada gera uma linha em `mcp_call_log` — organização, conexão, dono,
  * ferramenta, resultado (ok/negado/erro), quantos registros voltaram, duração,

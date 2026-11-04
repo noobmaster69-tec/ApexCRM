@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * TRADUÇÃO AUTOMÁTICA (migration 9022, fork jhoow — Inbox › Fase A).
+ * TRADUÇÃO AUTOMÁTICA (migration 9922, fork jhoow — Inbox › Fase A).
  * Origem do idioma do contato, cache de tradução na mensagem, idioma do
  * atendente (RLS: cada um só o seu), chave do fluxo e reaplicação.
  */
@@ -58,7 +58,7 @@ const ORG = "90220000-0000-4000-8000-00000000000a";
 const ANA = "90220000-1111-4000-8000-00000000000a";
 const BETO = "90220000-1111-4000-8000-00000000000b";
 const CONTATO = "90220000-2222-4000-8000-00000000000a";
-const ROTULO = "-- ---- tradução automática (migration 9022) ----";
+const ROTULO = "-- ---- tradução automática (migration 9922) ----";
 
 beforeAll(() => {
   sql(`

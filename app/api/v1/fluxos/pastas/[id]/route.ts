@@ -11,7 +11,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 /**
  * PATCH  /api/v1/fluxos/pastas/:id — renomeia ou move a pasta (manager+).
  * DELETE /api/v1/fluxos/pastas/:id — apaga a pasta e as subpastas; os fluxos
- *   voltam para a raiz (`on delete set null (pasta_id)`, migration 9002).
+ *   voltam para a raiz (`on delete set null (pasta_id)`, migration 9902).
  */
 type Ctx = { params: Promise<{ id: string }> };
 

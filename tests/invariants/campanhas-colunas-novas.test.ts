@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * COLUNAS NOVAS DE CAMPANHA (fork jhoow — Campanhas, migrations 9014+).
+ * COLUNAS NOVAS DE CAMPANHA (fork jhoow — Campanhas, migrations 9914+).
  *  - 9014: mode (text/flow) e flow_id (FK mesma org, on delete set null).
  *  - 9015: intervalo sorteado (60/180, min ≤ max, ≥ 10s), timezone, next_send_at.
  *  - 9016: etapa de quem recebe (FKs compostas mesma org, on delete set null).
@@ -98,9 +98,9 @@ describe("9015 — intervalo sorteado e fuso", () => {
 
   it("reaplicar os blocos não muda nada", () => {
     for (const r of [
-      "-- ---- campanha que dispara fluxo (migration 9014) ----",
-      "-- ---- ritmo aleatório e fuso da campanha (migration 9015) ----",
-      "-- ---- etapa de quem recebe a campanha (migration 9016) ----",
+      "-- ---- campanha que dispara fluxo (migration 9914) ----",
+      "-- ---- ritmo aleatório e fuso da campanha (migration 9915) ----",
+      "-- ---- etapa de quem recebe a campanha (migration 9916) ----",
     ]) {
       sql(blocoDoBaseline(r));
       sql(blocoDoBaseline(r));
@@ -134,7 +134,7 @@ describe("9018 — janela em minutos e motivo da espera", () => {
   });
 
   it("reaplicar o bloco não muda nada", () => {
-    const r = "-- ---- janela diária em minutos da campanha (migration 9018) ----";
+    const r = "-- ---- janela diária em minutos da campanha (migration 9918) ----";
     sql(blocoDoBaseline(r));
     sql(blocoDoBaseline(r));
     expect(sql(`select janela_fim_minuto from public.campaigns where id = '${CAMP}'`)).toBe("1440");
@@ -150,7 +150,7 @@ describe("9019 — idioma da campanha", () => {
   });
 
   it("reaplicar o bloco não muda nada", () => {
-    const r = "-- ---- idioma da campanha (migration 9019) ----";
+    const r = "-- ---- idioma da campanha (migration 9919) ----";
     sql(blocoDoBaseline(r));
     sql(blocoDoBaseline(r));
     expect(sql(`select count(*) from public.campaigns where id = '${CAMP}'`)).toBe("1");
@@ -158,7 +158,7 @@ describe("9019 — idioma da campanha", () => {
 });
 
 describe("9020 — cota por período e verificação de WhatsApp", () => {
-  const r9020 = "-- ---- cota da campanha e verificação de WhatsApp (migration 9020) ----";
+  const r9020 = "-- ---- cota da campanha e verificação de WhatsApp (migration 9920) ----";
   it("cota: quantidade e período juntos, no vocabulário", () => {
     // O teste da 9018 reaplica o bloco dela (que recria o CHECK do motivo sem
     // os motivos novos); aqui a 9020 volta a ser a última aplicada, como em produção.

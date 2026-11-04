@@ -328,14 +328,20 @@ export async function funilDeEntrada(
   if (crmId) {
     const { data: principal } = await db
       .from("crm_pipelines")
-      .select("id")
+      .select("id, settings")
       .eq("organization_id", organizationId)
       .eq("crm_id", crmId)
       .eq("is_primary", true)
       .eq("is_archived", false)
       .maybeSingle();
     if (principal) {
-      const stageId = await primeiraEtapa(db, organizationId, principal.id as string);
+      // A etapa declarada no funil (#3011) vale também no funil principal do CRM.
+      const stageId = await etapaDeEntrada(
+        db,
+        organizationId,
+        principal.id as string,
+        (principal as { settings?: unknown }).settings,
+      );
       if (stageId) return { pipelineId: principal.id as string, stageId };
     }
   }

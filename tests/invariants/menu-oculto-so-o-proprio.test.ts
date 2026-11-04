@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * `fn_definir_menu_oculto` SÓ MEXE NO MENU DE QUEM CHAMA (migration 9001, fork jhoow).
+ * `fn_definir_menu_oculto` SÓ MEXE NO MENU DE QUEM CHAMA (migration 9901, fork jhoow).
  *
  * A função é `security definer` e executável por `authenticated` — de propósito:
  * a policy de escrita de `user_organizations` é de admin, e esconder item do

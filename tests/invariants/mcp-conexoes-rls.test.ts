@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 /**
  * AS CONEXÕES MCP NÃO VAZAM — NEM ENTRE ORGANIZAÇÕES, NEM PARA QUEM NÃO É ADMIN
- * (migration 9023, fork jhoow).
+ * (migration 9923, fork jhoow).
  *
  * `mcp_connections` e `mcp_call_log` têm RLS de admin (`fn_role_at_least(...,
  * 'admin')`): a tela de MCP é só do admin, e a sessão de um atendente não lê nem

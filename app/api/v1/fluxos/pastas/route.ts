@@ -9,7 +9,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 
 /**
  * GET  /api/v1/fluxos/pastas — pastas da organização ativa (qualquer membro).
- * POST /api/v1/fluxos/pastas — cria pasta (manager+). Fork jhoow, migration 9002.
+ * POST /api/v1/fluxos/pastas — cria pasta (manager+). Fork jhoow, migration 9902.
  */
 export const dynamic = "force-dynamic";
 

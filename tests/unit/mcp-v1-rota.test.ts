@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BancoEmMemoria } from "../helpers/banco-em-memoria";
 
 /**
- * O caminho de `/api/mcp` para as CONEXÕES (migration 9023), de ponta a ponta:
+ * O caminho de `/api/mcp` para as CONEXÕES (migration 9923), de ponta a ponta:
  * o cliente OFICIAL do SDK (`Client` + `StreamableHTTPClientTransport`) fala
  * com `atenderConexao` por um `fetch` próprio, sobre um banco em memória.
  *

@@ -7,7 +7,7 @@ import { pgComoSupabase } from "../pg-como-supabase";
 
 /**
  * ROTEAMENTO POR NÚMERO E UM LEAD ABERTO POR CRM (Funis no modelo Kommo, Fase D;
- * migration 9009) — o que só o Postgres responde, com a função de nascimento de
+ * migration 9909) — o que só o Postgres responde, com a função de nascimento de
  * verdade e o RPC de verdade:
  *
  * 1. Conversa de número VINCULADO nasce na Etapa de entrada do funil principal

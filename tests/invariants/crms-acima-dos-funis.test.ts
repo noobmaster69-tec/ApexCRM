@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * CRMs ACIMA DOS FUNIS (migration 9004) — o que só o Postgres pode responder.
+ * CRMs ACIMA DOS FUNIS (migration 9904) — o que só o Postgres pode responder.
  *
  * 1. O baseline aplicado TEM a tabela, a coluna NOT NULL e a FK composta — prova
  *    que a mudança chegou ao apêndice, e não só a `migrations/` (o kit self-host
@@ -74,7 +74,7 @@ function numero(saida: string): number {
 
 /** O bloco da 9004 no apêndice do baseline, como o `update.sh` o reaplica. */
 function blocoDaMigration(): string {
-  return blocoDoBaseline("-- ---- CRMs: o nível acima dos funis (migration 9004) ----");
+  return blocoDoBaseline("-- ---- CRMs: o nível acima dos funis (migration 9904) ----");
 }
 
 /** Um bloco rotulado do apêndice do baseline. */
@@ -238,10 +238,10 @@ describe("backfill e reaplicação (update.sh)", () => {
     // O update.sh aplica o baseline INTEIRO, em ordem: depois da 9004 vem a 9007,
     // que redefine fn_crm_duplicar para conviver com o funil principal. Reaplicar
     // só a 9004 deixaria a versão antiga para o caso de duplicar, lá embaixo.
-    sql(blocoDoBaseline("-- ---- funil principal e etapa de entrada (migration 9007) ----"));
+    sql(blocoDoBaseline("-- ---- funil principal e etapa de entrada (migration 9907) ----"));
     // E a 9009, que redefine a guarda do principal e os gatilhos de nascimento
     // que a 9007 acabou de recriar.
-    sql(blocoDoBaseline("-- ---- um lead aberto por CRM e arquivar CRM com o funil principal (migration 9009) ----"));
+    sql(blocoDoBaseline("-- ---- um lead aberto por CRM e arquivar CRM com o funil principal (migration 9909) ----"));
     expect(sql(`select count(*) || ':' || string_agg(id::text || crm_id::text, ',' order by id)
                   from public.crm_pipelines`)).toBe(antes);
     expect(sql(`select count(*) from public.crm_crms`)).toBe(crmsAntes);

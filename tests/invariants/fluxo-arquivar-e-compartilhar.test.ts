@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * ARQUIVAR E COMPARTILHAR FLUXO (migration 9010, fork jhoow — item 2).
+ * ARQUIVAR E COMPARTILHAR FLUXO (migration 9910, fork jhoow — item 2).
  *
  * 1. O baseline aplicado tem `archived_at`, `share_token` (único parcial) e a
  *    função `fn_fluxo_compartilhado`.
@@ -150,7 +150,7 @@ describe("o link compartilhado", () => {
 
 describe("reaplicar", () => {
   it("o bloco do baseline roda de novo sem erro e sem mudar dado", () => {
-    const bloco = blocoDoBaseline("-- ---- fluxos: arquivar e compartilhar (migration 9010) ----");
+    const bloco = blocoDoBaseline("-- ---- fluxos: arquivar e compartilhar (migration 9910) ----");
     sql(bloco);
     sql(bloco);
     expect(sql(`select share_token from public.followup_flow_pointers where id = '${FLUXO_A}'`)).toBe(TOKEN);

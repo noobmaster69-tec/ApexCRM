@@ -61,13 +61,16 @@ function pularOPassoDoFunil(org: string): void {
   `);
 }
 
-/** `total|quantas_com_hint` — a mesma régua da 0156. */
+/**
+ * `total|quantas_com_hint` — a mesma régua da 0156. Fork jhoow: a Etapa de
+ * entrada (9907) não é coluna do quadro semeado e fica fora da conta.
+ */
 function quadro(pipeline: string): string {
   return lastLine(
     sql(`
       select count(*)::text || '|' ||
              count(*) filter (where agent_stage_hint is not null)::text
-        from public.crm_stages where pipeline_id = '${pipeline}'::uuid;
+        from public.crm_stages where pipeline_id = '${pipeline}'::uuid and not is_entry;
     `),
   );
 }
@@ -101,7 +104,7 @@ describe("2451 · quem pula o passo do funil não fica com o agente mudo", () =>
       sql(`
         select string_agg(name || '/' || coalesce(agent_stage_hint, '-'), ', '
                          order by position)
-          from public.crm_stages where pipeline_id = '${pipeline}'::uuid;
+          from public.crm_stages where pipeline_id = '${pipeline}'::uuid and not is_entry;
       `),
     );
     expect(estado).toBe(
@@ -117,7 +120,7 @@ describe("2451 · quem pula o passo do funil não fica com o agente mudo", () =>
                  where agent_stage_hint in ('new','contacted','qualifying',
                                             'qualified','negotiating')
                )::text
-          from public.crm_stages where pipeline_id = '${pipeline}'::uuid;
+          from public.crm_stages where pipeline_id = '${pipeline}'::uuid and not is_entry;
       `),
     );
     expect(cobertura).toBe("1");
@@ -144,7 +147,7 @@ describe("2451 · quem pula o passo do funil não fica com o agente mudo", () =>
     expect(
       lastLine(
         sql(`select count(*)::text from public.crm_stages
-              where pipeline_id = '${pipeline}'::uuid;`),
+              where pipeline_id = '${pipeline}'::uuid and not is_entry;`),
       ),
     ).toBe("8");
   });
@@ -158,7 +161,7 @@ describe("2451 · o pulo não reescreve o que alguém já mapeou", () => {
     pularOPassoDoFunil(org);
     expect(
       lastLine(sql(`select string_agg(slug || '/' || coalesce(agent_stage_hint,'-'), ',' order by position)
-                     from public.crm_stages where pipeline_id = '${pipeline}'::uuid;`)),
+                     from public.crm_stages where pipeline_id = '${pipeline}'::uuid and not is_entry;`)),
     ).toBe("carrinho_abandonado/-,aguardando_pagamento/qualified,pago/won,em_separacao/-,enviado/-,entregue/-,pos_venda/-,cancelado/lost");
   });
 
@@ -172,7 +175,7 @@ describe("2451 · o pulo não reescreve o que alguém já mapeou", () => {
     ).toBe("true");
     expect(
       lastLine(sql(`select string_agg(slug || '/' || coalesce(agent_stage_hint,'-'), ',' order by position)
-                     from public.crm_stages where pipeline_id = '${pipeline}'::uuid;`)),
+                     from public.crm_stages where pipeline_id = '${pipeline}'::uuid and not is_entry;`)),
     ).toBe("carrinho_abandonado/-,aguardando_pagamento/-,pago/won,em_separacao/-,enviado/negotiating,entregue/-,pos_venda/-,cancelado/lost");
   });
 

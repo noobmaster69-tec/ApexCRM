@@ -10,7 +10,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 
 /**
  * /api/v1/disparos — a configuração da tela Disparos (fork jhoow, item 12,
- * migration 9011). GET lê; PUT grava TUDO de uma vez (o "Salvar alterações"
+ * migration 9911). GET lê; PUT grava TUDO de uma vez (o "Salvar alterações"
  * do topo): os globais (uma linha por organização) e a lista de
  * palavras-chave na ordem da tela — a que saiu da lista é apagada. Manager+.
  */

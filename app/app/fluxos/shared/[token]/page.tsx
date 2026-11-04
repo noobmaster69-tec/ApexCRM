@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 /**
  * /app/fluxos/shared/[token] — o fluxo compartilhado, somente leitura (fork
  * jhoow, item 2). Quem abre pode ser de outra organização: a leitura passa por
- * `fn_fluxo_compartilhado` (migration 9010), que devolve só nome e grafo. Exige
+ * `fn_fluxo_compartilhado` (migration 9910), que devolve só nome e grafo. Exige
  * login — o link não é público na internet.
  */
 export default async function FluxoCompartilhadoPage({ params }: { params: Promise<{ token: string }> }) {

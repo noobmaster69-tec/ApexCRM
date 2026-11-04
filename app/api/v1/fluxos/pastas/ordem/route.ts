@@ -10,7 +10,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 /**
  * POST /api/v1/fluxos/pastas/ordem — grava a ordem das pastas irmãs depois do
  * arrasto na barra lateral (fork jhoow, item 3): `posicao` = índice na lista.
- * Manager+. A coluna `posicao` já existia (migration 9002) — sem migration.
+ * Manager+. A coluna `posicao` já existia (migration 9902) — sem migration.
  */
 export async function POST(req: NextRequest): Promise<Response> {
   const denied = await requireSupportWrite();

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * FUNIL PRINCIPAL E ETAPA DE ENTRADA (migration 9007) — o que só o Postgres
+ * FUNIL PRINCIPAL E ETAPA DE ENTRADA (migration 9907) — o que só o Postgres
  * pode responder.
  *
  * 1. O baseline aplicado TEM as colunas, os CHECKs, os índices e a tabela de
@@ -75,7 +75,7 @@ function primeira(saida: string): string {
 
 /** O bloco da 9007 no apêndice do baseline, como o `update.sh` o reaplica. */
 function blocoDaMigration(): string {
-  return blocoDoBaseline("-- ---- funil principal e etapa de entrada (migration 9007) ----");
+  return blocoDoBaseline("-- ---- funil principal e etapa de entrada (migration 9907) ----");
 }
 
 /** Um bloco rotulado do apêndice do baseline. */
@@ -346,7 +346,7 @@ describe("backfill e reaplicação (update.sh)", () => {
     expect(foto()).toBe(antes);
     // O update.sh aplica o baseline inteiro, em ordem: a 9009 redefine a guarda
     // do principal e os gatilhos de nascimento que a 9007 acabou de recriar.
-    sql(blocoDoBaseline("-- ---- um lead aberto por CRM e arquivar CRM com o funil principal (migration 9009) ----"));
+    sql(blocoDoBaseline("-- ---- um lead aberto por CRM e arquivar CRM com o funil principal (migration 9909) ----"));
   });
 });
 
@@ -456,7 +456,7 @@ describe("vínculo número ↔ CRM", () => {
   });
 });
 
-describe("cor do funil (migration 9008)", () => {
+describe("cor do funil (migration 9908)", () => {
   it("a coluna existe, é opcional e nasce vazia", () => {
     expect(
       sql(`select is_nullable || ':' || coalesce(column_default, '-') from information_schema.columns

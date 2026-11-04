@@ -1,5 +1,5 @@
 /**
- * ESCOPOS DAS CONEXÕES MCP (migration 9023) — lista fechada, `recurso:ação`.
+ * ESCOPOS DAS CONEXÕES MCP (migration 9923) — lista fechada, `recurso:ação`.
  *
  * O banco fecha a mesma lista no CHECK `mcp_connections_escopos_validos`; aqui
  * mora o que o banco não sabe: o papel mínimo de cada escopo (a MESMA régua da

@@ -18,7 +18,7 @@ export const metadata: Metadata = { title: "CRMs" };
  *
  * As métricas vêm de `fn_crms_com_metricas` (security invoker: a RLS de
  * crm_leads vale para quem olha), numa consulta só, SEM cache. Medido antes de
- * decidir (migration 9006, pg15 com o baseline): ~3,5 ms com 10 mil negócios e
+ * decidir (migration 9906, pg15 com o baseline): ~3,5 ms com 10 mil negócios e
  * 34–41 ms com 100 mil. Um cache invalidado por evento exigiria tocar cada
  * caminho que escreve negócio — e o esquecido vira número errado na tela.
  *

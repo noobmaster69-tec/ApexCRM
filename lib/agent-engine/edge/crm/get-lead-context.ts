@@ -339,19 +339,6 @@ export async function getLeadContext(
     return { conversationId, history, previousOutcomes };
   };
 
-  // O idioma da conversa gravado no CONTEXTO DA CONVERSA (a campanha o inicia;
-  // ver `lib/campanhas/idioma.ts`). Sem conversa ou sem idioma, cai na ficha.
-  let idiomaDaConversaGravado: string | null = null;
-  if (conversationId !== null) {
-    const { rows } = await db
-      .query<{ idioma: string | null }>(
-        `select metadata->>'idioma_conversa' as idioma from conversations where organization_id = $1 and id = $2`,
-        [input.tenantId, conversationId],
-      )
-      .catch(() => ({ rows: [] as Array<{ idioma: string | null }> }));
-    idiomaDaConversaGravado = rows[0]?.idioma ?? null;
-  }
-
   // A decisão vem do BARRAMENTO (crm_lead_activities), não de coluna nova: a
   // timeline já é a memória compartilhada entre humano e agente, e foi para isso
   // que a Wave 3 a construiu. Outra fonte seria o segundo funil que este épico
@@ -402,6 +389,19 @@ export async function getLeadContext(
 
   const [{ conversationId, history, previousOutcomes }, lastHumanDecision, last_proposal] =
     await Promise.all([conversaHistoricoEDesfechos(), ultimaDecisao(), ultimaProposta()]);
+
+  // O idioma da conversa gravado no CONTEXTO DA CONVERSA (a campanha o inicia;
+  // ver `lib/campanhas/idioma.ts`). Sem conversa ou sem idioma, cai na ficha.
+  let idiomaDaConversaGravado: string | null = null;
+  if (conversationId !== null) {
+    const { rows } = await db
+      .query<{ idioma: string | null }>(
+        `select metadata->>'idioma_conversa' as idioma from conversations where organization_id = $1 and id = $2`,
+        [input.tenantId, conversationId],
+      )
+      .catch(() => ({ rows: [] as Array<{ idioma: string | null }> }));
+    idiomaDaConversaGravado = rows[0]?.idioma ?? null;
+  }
 
   // LGPD: base legal derivada DIRETO do contato (fonte da verdade, mesmo banco).
   // isProspecting=false: o MVP é inbound + follow-up — ambos respondem a lead que

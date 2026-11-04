@@ -5,5 +5,13 @@
  * que conta envios responde e ignora este pedido, senão "saiu exatamente uma"
  * vira "saíram duas" (ou passa por sorte de corrida).
  */
-export const ehVistoAzul = (url: string | undefined): boolean =>
-  (url ?? "").split("?")[0] === "/api/sendSeen";
+export const ehVistoAzul = (url: string | undefined): boolean => {
+  const caminho = (url ?? "").split("?")[0] ?? "";
+  // Fork jhoow: o "digitando…" antes do envio (`/api/<sessão>/presence`) e a
+  // pergunta "este número tem WhatsApp?" também não são mensagem.
+  return (
+    caminho === "/api/sendSeen" ||
+    /^\/api\/[^/]+\/presence$/.test(caminho) ||
+    caminho === "/api/contacts/check-exists"
+  );
+};

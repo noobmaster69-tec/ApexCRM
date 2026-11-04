@@ -130,6 +130,12 @@ beforeAll(async () => {
   );
   funilConfigurado = funis[0]!.id;
   funilVizinho = funis[1]!.id;
+  // Fork jhoow: os funis nascem com a Etapa de entrada (9907), que viria antes
+  // de "Conversas iniciadas" e esconderia a pergunta deste bloco (a declarada
+  // contra a PRIMEIRA aberta). Tirá-la deixa o cenário que o caso descreve.
+  await pool.query("delete from crm_stages where organization_id = $1 and is_entry", [
+    ORG_ENTRADA_CONFIGURADA,
+  ]);
 
   const { rows: etapas } = await pool.query<{ id: string; slug: string }>(
     `insert into crm_stages (organization_id, pipeline_id, name, slug, position, is_won, is_lost) values

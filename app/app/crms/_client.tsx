@@ -61,7 +61,7 @@ export interface CrmDoCard {
  * O menu "⋯" do card (manager+), na ordem do pedido do Jhoow: Editar CRM ·
  * Duplicar · Ver funis e números · Definir como padrão · Arquivar · Excluir.
  * Editar/Arquivar usam o MESMO modal da página do CRM (`EditarCrmDialog`).
- * Excluir é DE VEZ e só passa em CRM sem negócio nenhum (migration 9012) —
+ * Excluir é DE VEZ e só passa em CRM sem negócio nenhum (migration 9912) —
  * quem tem história arquiva.
  */
 function MenuDoCrm({ crm }: { crm: CrmDoCard }) {

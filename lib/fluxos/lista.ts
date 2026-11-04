@@ -17,7 +17,7 @@ export function contarBlocos(grafo: unknown): number {
 }
 
 /**
- * Arquivado (item 2, migration 9010) só aparece em "Arquivados" — e some de
+ * Arquivado (item 2, migration 9910) só aparece em "Arquivados" — e some de
  * todos os outros filtros, inclusive "Todos": arquivar é tirar da frente.
  */
 export function passaNoFiltro(status: StatusDoFluxo, filtro: FiltroDeStatus, arquivado = false): boolean {

@@ -1,6 +1,6 @@
 /**
  * O menu lateral PESSOAL (fork jhoow, P6): telas e grupos que a própria pessoa
- * escondeu, por organização (`user_organizations.menu_oculto`, migration 9001).
+ * escondeu, por organização (`user_organizations.menu_oculto`, migration 9901).
  *
  * É a ÚLTIMA camada do menu e só ESCONDE. Papel, módulos, capacidades, a
  * escolha da empresa e a do admin para o vínculo já decidiram o que a pessoa
