@@ -133,7 +133,7 @@ describe("a fiação", () => {
   });
 
   it("a migration e o apêndice do baseline são o mesmo texto", () => {
-    const mig = readFileSync("supabase/migrations/20261002190000_9901_menu_lateral_pessoal.sql", "utf8");
+    const mig = readFileSync("supabase/migrations/20261002190500_9901_menu_lateral_pessoal.sql", "utf8");
     expect(readFileSync("supabase/baseline.sql", "utf8")).toContain(mig);
   });
 });

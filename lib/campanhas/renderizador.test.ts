@@ -101,6 +101,9 @@ describe("renderizador + variáveis da organização (Campanhas › item 2)", ()
     expect(renderizar("{dia_semana}", { nome: null }, { agora: new Date("2026-10-05T15:00:00Z"), fuso: "America/Sao_Paulo" }).texto).toBe(
       "segunda-feira",
     );
+  });
+});
+
 describe("campos personalizados na campanha", () => {
   it("resolve {{lead.gancho}} e {{contato.link_previa}} sem tocar no resto do texto", () => {
     const r = renderizar(

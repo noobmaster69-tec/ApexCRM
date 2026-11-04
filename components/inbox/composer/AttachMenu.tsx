@@ -42,7 +42,7 @@ export function AttachMenu({ disabled, onPick, onPickContact }: Props) {
         <PopoverContent align="start" side="top" className="w-52 p-1">
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted"
+            className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted lg:min-h-0"
             onClick={() => mediaRef.current?.click()}
           >
             <ImageSquare size={18} weight="duotone" className="text-primary" aria-hidden />
@@ -50,7 +50,7 @@ export function AttachMenu({ disabled, onPick, onPickContact }: Props) {
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted"
+            className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted lg:min-h-0"
             onClick={() => docRef.current?.click()}
           >
             <FileText size={18} weight="duotone" className="text-primary" aria-hidden />
@@ -60,32 +60,14 @@ export function AttachMenu({ disabled, onPick, onPickContact }: Props) {
             <button
               type="button"
               className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted lg:min-h-0"
-              onClick={() => mediaRef.current?.click()}
+              onClick={onPickContact}
             >
-              <ImageSquare size={18} weight="duotone" className="text-primary" aria-hidden />
-              {t("Fotos e vídeos")}
+              <UserCircle size={18} weight="duotone" className="text-primary" aria-hidden />
+              {t("Contato")}
             </button>
-            <button
-              type="button"
-              className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted lg:min-h-0"
-              onClick={() => docRef.current?.click()}
-            >
-              <FileText size={18} weight="duotone" className="text-primary" aria-hidden />
-              {t("Documento")}
-            </button>
-            {onPickContact && (
-              <button
-                type="button"
-                className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted lg:min-h-0"
-                onClick={onPickContact}
-              >
-                <UserCircle size={18} weight="duotone" className="text-primary" aria-hidden />
-                {t("Contato")}
-              </button>
-            )}
-          </PopoverContent>
-        </Popover>
-      </TooltipProvider>
+          )}
+        </PopoverContent>
+      </Popover>
       {/* Os inputs vivem FORA do PopoverContent: o Radix desmonta o conteúdo do
           popover ao fechar, e um input desmontado no meio do clique perde o
           file picker ("nada acontece"). Aqui os refs seguem válidos após o

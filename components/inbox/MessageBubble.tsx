@@ -74,6 +74,7 @@ interface Props {
    * formam um bloco: o canto de cima do lado de quem fala fica em 4px.
    */
   agrupadaComAnterior?: boolean;
+  /**
    * Enviar de novo uma mensagem que falhou ou ficou parada. Só quem tem a
    * conversa na mão passa (o `ChatThread`); a leitura do super-admin não
    * passa, e a bolha não desenha o botão. Quem decide SE a mensagem pode ser

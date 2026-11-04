@@ -1441,6 +1441,10 @@ describe('validateFlowForPublish — avisos de bloco desconectado (Fluxos)', () 
     const r = validateFlowForPublish(g, FLUXO);
     const ids = blocosDesconectados(r.ok ? [] : r.errors, g).map((b) => b.node.id);
     expect(ids).toEqual(['m1', 'solto', 'f']);
+  });
+});
+
+/**
  * #2065 — os nós de ação no publish, com o contexto montado como a rota monta:
  * o banco só devolve as etapas que `idsDeEtapaCitados` pediu. Antes do conserto
  * essa função só olhava nós de condição, e todo `move_lead` lia como "etapa que

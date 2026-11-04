@@ -163,6 +163,7 @@ export interface LeadContext {
     campos?: Record<string, string>;
     /** O idioma em que a conversa acontece (contexto da conversa → ficha → perfil). */
     idioma_conversa?: string | null;
+    /**
      * Spec 21: `contacts.is_personal` lido NESTE turno, ao lado do bloqueio.
      *
      * OPCIONAL no tipo pelo mesmo motivo de `contact_id`: exigir obrigaria a

@@ -229,6 +229,8 @@ function renderizar(tipo: (typeof NODE_TYPES)[number], surface: "followup" | "fl
     </QueryClientProvider>,
   );
 }
+
+/**
  * #2630 — A ENTRADA POR ETAPA DO FUNIL, na tela.
  *
  * O campo tem de viver no `settings` do grafo (e não em `trigger_config`: na

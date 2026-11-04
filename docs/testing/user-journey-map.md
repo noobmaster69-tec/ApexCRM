@@ -3807,7 +3807,7 @@ vale o horário, no segundo. Uma inbound sem texto acorda o nó, não é
 classificada, e a carência recomeça desse despertar (comportamento anterior do
 motor, não mexido aqui).
 
-## J39 — Editor de fluxos, rodada 1: o que sai, a imagem e publicar com bloco solto `[P1]` (2026-11-01)
+## J58 — Editor de fluxos, rodada 1: o que sai, a imagem e publicar com bloco solto `[P1]` (2026-11-01)
 
 Fork jhoow, `app/app/fluxos/` (o editor de FLUXOS; o de follow-up não muda).
 Spec de tela: `tests/e2e/fluxos-editor-rodada-1.spec.ts` (parte 5), evidência em
@@ -3815,17 +3815,17 @@ Spec de tela: `tests/e2e/fluxos-editor-rodada-1.spec.ts` (parte 5), evidência e
 
 | # | Caso | Esperado | Estado |
 |---|---|---|---|
-| J39.1 | Cartão da Mensagem com 3 textos, 1 pausa e 2 imagens enviadas | todas as mensagens, na ordem, texto inteiro com quebra de linha; nenhuma pausa, "digitando", "+ itens" ou "ver mais"; cartão sem teto de altura | **PASS (unit)** — `previas.test.tsx`; tela: spec escrita, **NÃO MEDIDA** (sem Supabase/Docker na máquina da sessão) |
-| J39.2 | Miniatura da imagem no cartão | 56px, `object-cover`, nome do arquivo ao lado, legenda embaixo; arquivo enviado pelo link assinado do Storage; imagem que falha volta ao ícone | **PASS (unit)** — `previas.test.tsx`; tela **NÃO MEDIDA** |
-| J39.3 | A mesma imagem dentro do bloco | 112px ao lado de "Trocar arquivo" e do nome | **PASS (unit)** — `MensagemForm.miniatura.test.tsx`; tela **NÃO MEDIDA** |
-| J39.4 | Cartão que cresceu ao abrir um fluxo antigo | não cobre o vizinho: quem ficou coberto desce | **PASS (unit)** — `sem-sobreposicao.test.ts`; tela **NÃO MEDIDA** |
-| J39.5 | Modal de qualquer bloco | sem campo "Rótulo"; o cartão se chama pelo tipo | **PASS (unit)** — `NodeConfigPanel.test.tsx`; tela **NÃO MEDIDA** |
-| J39.6 | Topbar do editor de fluxos | sem o botão "Organizar" | tela **NÃO MEDIDA** (spec: `auto-fit-flow` com contagem 0) |
-| J39.7 | Publicar com um bloco solto | modal "Alguns blocos estão desconectados" com o bloco (nome + tipo + motivo); "Publicar mesmo assim" publica; "Voltar e conectar" fecha; bloco destacado no canvas | **PASS (rota + unit)** — `tests/api/followup-flows.test.ts`, `AvisosDoPublish.test.tsx`; tela **NÃO MEDIDA** |
-| J39.8 | Publicar com erro que bloqueia (sem Início, ciclo sem espera) | recusa como antes, mesmo com `aceitar_avisos` | **PASS (rota + unit)** — `followup-flows.test.ts`, `validate-publish.test.ts` |
-| J39.9 | Contato que chega a bloco solto / caminho sem seta, depois de publicado assim | bloco solto nunca roda; o caminho sem seta encerra a inscrição como concluída (`sem_saida`), sem agendar nem repetir | **PASS (unit, motor)** — `lib/fluxos/motor.test.ts` |
+| J58.1 | Cartão da Mensagem com 3 textos, 1 pausa e 2 imagens enviadas | todas as mensagens, na ordem, texto inteiro com quebra de linha; nenhuma pausa, "digitando", "+ itens" ou "ver mais"; cartão sem teto de altura | **PASS (unit)** — `previas.test.tsx`; tela: spec escrita, **NÃO MEDIDA** (sem Supabase/Docker na máquina da sessão) |
+| J58.2 | Miniatura da imagem no cartão | 56px, `object-cover`, nome do arquivo ao lado, legenda embaixo; arquivo enviado pelo link assinado do Storage; imagem que falha volta ao ícone | **PASS (unit)** — `previas.test.tsx`; tela **NÃO MEDIDA** |
+| J58.3 | A mesma imagem dentro do bloco | 112px ao lado de "Trocar arquivo" e do nome | **PASS (unit)** — `MensagemForm.miniatura.test.tsx`; tela **NÃO MEDIDA** |
+| J58.4 | Cartão que cresceu ao abrir um fluxo antigo | não cobre o vizinho: quem ficou coberto desce | **PASS (unit)** — `sem-sobreposicao.test.ts`; tela **NÃO MEDIDA** |
+| J58.5 | Modal de qualquer bloco | sem campo "Rótulo"; o cartão se chama pelo tipo | **PASS (unit)** — `NodeConfigPanel.test.tsx`; tela **NÃO MEDIDA** |
+| J58.6 | Topbar do editor de fluxos | sem o botão "Organizar" | tela **NÃO MEDIDA** (spec: `auto-fit-flow` com contagem 0) |
+| J58.7 | Publicar com um bloco solto | modal "Alguns blocos estão desconectados" com o bloco (nome + tipo + motivo); "Publicar mesmo assim" publica; "Voltar e conectar" fecha; bloco destacado no canvas | **PASS (rota + unit)** — `tests/api/followup-flows.test.ts`, `AvisosDoPublish.test.tsx`; tela **NÃO MEDIDA** |
+| J58.8 | Publicar com erro que bloqueia (sem Início, ciclo sem espera) | recusa como antes, mesmo com `aceitar_avisos` | **PASS (rota + unit)** — `followup-flows.test.ts`, `validate-publish.test.ts` |
+| J58.9 | Contato que chega a bloco solto / caminho sem seta, depois de publicado assim | bloco solto nunca roda; o caminho sem seta encerra a inscrição como concluída (`sem_saida`), sem agendar nem repetir | **PASS (unit, motor)** — `lib/fluxos/motor.test.ts` |
 
-## J40 — Apex: etiquetas, Início único, campanhas e a casca sem barra no topo `[P1]` (2026-11-03)
+## J59 — Apex: etiquetas, Início único, campanhas e a casca sem barra no topo `[P1]` (2026-11-03)
 
 Fork jhoow, branch `feat/apex-shell-e-fluxos`. Evidência de tela a gravar em
 `evidence/shell-e-fluxos/` (pendente: a sessão não tinha Supabase/Docker na
@@ -3833,15 +3833,15 @@ máquina — nada foi instalado localmente por pedido do dono).
 
 | # | Caso | Esperado | Estado |
 |---|---|---|---|
-| J40.1 | Bloco Etiquetas: lista, filtro sem acento/caixa, criar, excluir pelo × | lista as da conta; "+ Criar" só sem igual exato e nunca em Remover; × pede confirmação com a contagem de contatos (manager+) | **PASS (unit)** — `busca-de-etiqueta.test.ts`; tela **NÃO MEDIDA** |
-| J40.2 | Blocos 12% mais estreitos | cartão de 232px | **PASS (unit)** — `DockDeBlocos.test.tsx`, `sem-sobreposicao.test.ts`; tela **NÃO MEDIDA** |
-| J40.3 | Aviso de publicação com cor, pista e "Ir até o bloco" | cartão com a cor/ícone do bloco; clicar centraliza e pisca o bloco | **PASS (unit)** — `AvisosDoPublish.test.tsx`; tela **NÃO MEDIDA** |
-| J40.4 | Campanha: janela obrigatória e modo cota × ritmo | só o modo escolhido é validado e enviado | **PASS (unit)** — `cota.test.ts`, `programacao.test.ts`; tela **NÃO MEDIDA** |
-| J40.5 | Um único Início | fora da paleta; abrir legado tira o duplicado sem seta (toast) e marca o com seta; PATCH recusa 0 ou um a mais | **PASS (unit)** — `inicio-unico.test.ts`, `validate-publish.test.ts`, `importar-leona.test.ts`; tela **NÃO MEDIDA** |
-| J40.6 | Canvas no tema claro | fundo `#f7f8fb`, pontos azuis; troca ao vivo | tela **NÃO MEDIDA** |
-| J40.7 | Casca: lateral 248/68px, rodapé com 4 ícones e cartão de perfil, gaveta < 1024px, sem ⌘K | badge 99+, Configurações ativo nas sub-rotas, menu do perfil troca de organização e sai | **PASS (unit)** — `rodape-da-lateral.test.tsx`, `sidebar-grupos.test.tsx`; tela **NÃO MEDIDA** |
+| J59.1 | Bloco Etiquetas: lista, filtro sem acento/caixa, criar, excluir pelo × | lista as da conta; "+ Criar" só sem igual exato e nunca em Remover; × pede confirmação com a contagem de contatos (manager+) | **PASS (unit)** — `busca-de-etiqueta.test.ts`; tela **NÃO MEDIDA** |
+| J59.2 | Blocos 12% mais estreitos | cartão de 232px | **PASS (unit)** — `DockDeBlocos.test.tsx`, `sem-sobreposicao.test.ts`; tela **NÃO MEDIDA** |
+| J59.3 | Aviso de publicação com cor, pista e "Ir até o bloco" | cartão com a cor/ícone do bloco; clicar centraliza e pisca o bloco | **PASS (unit)** — `AvisosDoPublish.test.tsx`; tela **NÃO MEDIDA** |
+| J59.4 | Campanha: janela obrigatória e modo cota × ritmo | só o modo escolhido é validado e enviado | **PASS (unit)** — `cota.test.ts`, `programacao.test.ts`; tela **NÃO MEDIDA** |
+| J59.5 | Um único Início | fora da paleta; abrir legado tira o duplicado sem seta (toast) e marca o com seta; PATCH recusa 0 ou um a mais | **PASS (unit)** — `inicio-unico.test.ts`, `validate-publish.test.ts`, `importar-leona.test.ts`; tela **NÃO MEDIDA** |
+| J59.6 | Canvas no tema claro | fundo `#f7f8fb`, pontos azuis; troca ao vivo | tela **NÃO MEDIDA** |
+| J59.7 | Casca: lateral 248/68px, rodapé com 4 ícones e cartão de perfil, gaveta < 1024px, sem ⌘K | badge 99+, Configurações ativo nas sub-rotas, menu do perfil troca de organização e sai | **PASS (unit)** — `rodape-da-lateral.test.tsx`, `sidebar-grupos.test.tsx`; tela **NÃO MEDIDA** |
 
-## J41 — Conexões MCP seguras: criar, conectar, recusar e revogar `[P1]` (2026-11-03)
+## J60 — Conexões MCP seguras: criar, conectar, recusar e revogar `[P1]` (2026-11-03)
 
 Fork jhoow, branch `feat/apex-lateral-e-mcp`, migration 9023. Evidência de tela a
 gravar em `evidence/mcp-seguro/` (pendente: sem Supabase/Docker na máquina — nada é
@@ -3849,15 +3849,15 @@ instalado localmente por pedido do dono; a prova pela tela fica para o staging).
 
 | # | Caso | Esperado | Estado |
 |---|---|---|---|
-| J41.1 | Interruptor desligado | toda chamada de conexão → 403 `mcp_disabled`, inclusive as que já existiam | **PASS (unit)** — `mcp-v1-rota.test.ts`; tela **NÃO MEDIDA** |
-| J41.2 | Assistente de 3 passos | nome+ferramenta → perfil com "pode/não pode", validade, IPs, dados pessoais → token uma vez + instrução da ferramenta | tela **NÃO MEDIDA** |
-| J41.3 | `tools/list` pelo escopo, uma leitura e uma recusa | só as ferramentas do escopo; leitura `ok` registrada; recusa `negado` (motivo `scope`) | **PASS (unit, cliente oficial do SDK)** — `mcp-v1-rota.test.ts` |
-| J41.4 | Revogada / expirada / dono removido / IP fora / queda de papel | 401 / 401 / 403 / 403 / perde as ferramentas acima do papel | **PASS (unit)** — `mcp-v1-rota.test.ts` |
-| J41.5 | Isolamento | a conexão da organização B não lê o negócio da A, nem pelo id | **PASS (unit)** — `mcp-v1-rota.test.ts`; RLS em `tests/invariants/mcp-conexoes-rls.test.ts` |
-| J41.6 | 61ª chamada no minuto | recusada com `Retry-After` | **PASS (unit)** — `mcp-v1-regras.test.ts` |
-| J41.7 | 20 recusas em 10 min | conexão suspensa + aviso na Central; reativar pela tela | **PASS (unit)** — `mcp-v1-rota.test.ts`; tela **NÃO MEDIDA** |
-| J41.8 | OAuth (Claude Desktop) | registro dinâmico → aprovação na tela → código PKCE → par; refresh gira; reuso revoga | **PASS (unit)** — `mcp-v1-oauth.test.ts`; tela **NÃO MEDIDA** |
-| J41.9 | Lista de bloqueio | nenhuma ferramenta apaga, publica, dispara, envia, importa/exporta ou lê tabela proibida | **PASS (unit)** — `mcp-v1-regras.test.ts` |
+| J60.1 | Interruptor desligado | toda chamada de conexão → 403 `mcp_disabled`, inclusive as que já existiam | **PASS (unit)** — `mcp-v1-rota.test.ts`; tela **NÃO MEDIDA** |
+| J60.2 | Assistente de 3 passos | nome+ferramenta → perfil com "pode/não pode", validade, IPs, dados pessoais → token uma vez + instrução da ferramenta | tela **NÃO MEDIDA** |
+| J60.3 | `tools/list` pelo escopo, uma leitura e uma recusa | só as ferramentas do escopo; leitura `ok` registrada; recusa `negado` (motivo `scope`) | **PASS (unit, cliente oficial do SDK)** — `mcp-v1-rota.test.ts` |
+| J60.4 | Revogada / expirada / dono removido / IP fora / queda de papel | 401 / 401 / 403 / 403 / perde as ferramentas acima do papel | **PASS (unit)** — `mcp-v1-rota.test.ts` |
+| J60.5 | Isolamento | a conexão da organização B não lê o negócio da A, nem pelo id | **PASS (unit)** — `mcp-v1-rota.test.ts`; RLS em `tests/invariants/mcp-conexoes-rls.test.ts` |
+| J60.6 | 61ª chamada no minuto | recusada com `Retry-After` | **PASS (unit)** — `mcp-v1-regras.test.ts` |
+| J60.7 | 20 recusas em 10 min | conexão suspensa + aviso na Central; reativar pela tela | **PASS (unit)** — `mcp-v1-rota.test.ts`; tela **NÃO MEDIDA** |
+| J60.8 | OAuth (Claude Desktop) | registro dinâmico → aprovação na tela → código PKCE → par; refresh gira; reuso revoga | **PASS (unit)** — `mcp-v1-oauth.test.ts`; tela **NÃO MEDIDA** |
+| J60.9 | Lista de bloqueio | nenhuma ferramenta apaga, publica, dispara, envia, importa/exporta ou lê tabela proibida | **PASS (unit)** — `mcp-v1-regras.test.ts` |
 ## J39 — O fluxo de silêncio espera antes de recomeçar para quem já passou por ele `[P1]` (2026-09-27)
 
 Contexto do código: num fluxo de silêncio com `cancel_on_reply`, cada resposta do

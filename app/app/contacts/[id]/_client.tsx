@@ -652,6 +652,7 @@ export function ContactDetailClient({ contactId, paineisDeModulo = [] }: Props) 
                 }
               />
             </Card>
+          )}
           {/* CARTEIRA DO CLIENTE (#2591): de quem é este cliente. Fica na Visão
               geral, junto dos dados que dizem "quem é esta pessoa" — quem atende
               responde a pergunta antes de prometer o negócio, e o gerente muda o
