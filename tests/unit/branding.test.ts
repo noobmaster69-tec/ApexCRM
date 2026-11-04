@@ -1429,6 +1429,10 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // protocolo manda. Entrou aqui porque a régua nova do #914 passou a
       // enxergá-lo, e não porque o produto ganhou host novo.
       "s.whatsapp.net",
+      // Decisão escrita (fork jhoow): namespace XML do .xlsx no modelo de
+      // planilha da importação de audiência — nome que o Excel reconhece no
+      // arquivo, nunca chamado.
+      "schemas.openxmlformats.org",
       // Decisão escrita (spec 24, auditoria de site): assinatura de construtor
       // (Google Sites) — nunca chamada, nunca exibida.
       "sites.google.com",

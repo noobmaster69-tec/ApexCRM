@@ -25,6 +25,19 @@ vi.mock("@/lib/notifications/notify_open", () => ({ useNotifyOpenFromServiceWork
 import { AppShell } from "@/app/app/_components/AppShell";
 import { ProvedorDaOcupacaoDoRodape } from "@/lib/ui/rodape-ocupado";
 
+// A lateral (fork jhoow) lê `matchMedia` para recolher na faixa estreita; o
+// jsdom não o implementa.
+window.matchMedia ??= ((query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  addListener: () => {},
+  removeListener: () => {},
+  dispatchEvent: () => false,
+})) as typeof window.matchMedia;
+
 describe("service worker em todo /app", () => {
   it("registra ao montar a casca, sem esperar a permissão de avisos", () => {
     expect(typeof Notification === "undefined" || Notification.permission !== "granted").toBe(true);
