@@ -145,6 +145,7 @@ function montar() {
         pipelineId="p-1"
         initialName="Vendas"
         role="admin"
+        crm={null}
         funis={[{ id: "p-1", name: "Vendas", color: null, is_primary: true }]}
         funilInicial={FUNIL_LEVE}
         etapasIniciais={ETAPAS}

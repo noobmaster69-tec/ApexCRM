@@ -27,7 +27,11 @@ export function ReplyReviewPanel({ sugestao, disabled }: { sugestao: SugestaoDoA
   const barrada = draft?.status === "pending" && draft.original_body?.trim() ? motivo : null;
   if (!draft && !avisoVisivel) return null;
   return (
-    <div className="space-y-2 rounded-md border bg-muted/30 p-3" data-testid="sugestao-do-agente-area">
+    <section
+      aria-label={t("Assistência do agente")}
+      className="space-y-2 rounded-md border bg-muted/30 p-3"
+      data-testid="sugestao-do-agente-area"
+    >
       {draft && (
         <div className="space-y-2" data-testid="sugestao-do-agente">
           <p className="text-sm font-medium">{t(statuses[draft.status] ?? "Sugestão do agente")}</p>
@@ -113,10 +117,10 @@ export function ReplyReviewPanel({ sugestao, disabled }: { sugestao: SugestaoDoA
         sai junto, e o aviso inline sairia com ele.
       */}
       {avisoVisivel && notice && (
-          <p role="status" className="text-xs">
-            {notice.message}
-          </p>
-        )}
-        </div>
+        <p role="status" className="text-xs">
+          {notice.message}
+        </p>
+      )}
+    </section>
   );
 }

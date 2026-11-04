@@ -59,6 +59,11 @@ vi.mock("@/hooks/campanhas/useDestinoDaCampanha", () => ({
   useCrms: () => ({ data: [], isLoading: false }),
   useVariaveisDaOrganizacao: () => ({ data: [], isLoading: false }),
 }));
+// A prévia por contato (fork jhoow) busca contatos com `useQuery`; o arquivo
+// não monta QueryClientProvider.
+vi.mock("@/hooks/contacts/useContactList", () => ({
+  useContactList: () => ({ data: { pages: [] }, isLoading: false }),
+}));
 
 const AVISO = /bateu o teto de 20\.000 negócios desta prévia/;
 

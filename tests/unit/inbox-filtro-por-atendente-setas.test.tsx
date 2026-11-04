@@ -43,6 +43,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   delete (HTMLElement.prototype as { scrollWidth?: number }).scrollWidth;
+  delete (HTMLElement.prototype as { scrollLeft?: number }).scrollLeft;
 });
 
 const COM_ATENDENTE: InboxFiltersValue = { tab: "unassigned", search: "", onlyUnread: false, assigned_to: ATENDENTE };
@@ -51,6 +52,8 @@ describe("filtro por atendente — as setas de aba", () => {
   // No fork (jhoow) Minhas é a PRIMEIRA aba, antes da Fila: chega-se a ela pela
   // seta de trás.
   it("'Aba anterior' para Minhas limpa o atendente escolhido", () => {
+    // A seta de trás só aparece com a faixa rolada para a direita.
+    Object.defineProperty(HTMLElement.prototype, "scrollLeft", { configurable: true, get: () => 10, set: () => {} });
     const onChange = vi.fn();
     render(<InboxFilters value={COM_ATENDENTE} onChange={onChange} />);
     fireEvent.click(screen.getByRole("button", { name: "Aba anterior" }));

@@ -62,10 +62,11 @@ function listaDoFonte(fonte: string, nome: string): string[] {
 const VARIAVEIS_DO_INBOX = listaDoFonte(readFileSync(INBOX, "utf8"), "const VARIAVEIS_DE_NOME");
 
 /** O da campanha: as chaves fechadas + as duas raízes de campo, que são caminho. */
-const VARIAVEIS_DA_CAMPANHA_DO_FONTE = listaDoFonte(
-  readFileSync(CAMPANHA, "utf8"),
-  "VARIAVEIS_DA_CAMPANHA",
-);
+// No fork (jhoow) a lista da campanha é DERIVADA de `VARIAVEIS_DO_SISTEMA`
+// (`.map((v) => v.chave)`), não um literal: o que vale é o valor exportado.
+const VARIAVEIS_DA_CAMPANHA_DO_FONTE = /VARIAVEIS_DA_CAMPANHA\s*=\s*\[/.test(readFileSync(CAMPANHA, "utf8"))
+  ? listaDoFonte(readFileSync(CAMPANHA, "utf8"), "VARIAVEIS_DA_CAMPANHA")
+  : [...VARIAVEIS_DA_CAMPANHA];
 
 const VARIAVEIS_DA_CAMPANHA_NO_CATALOGO = [
   ...VARIAVEIS_DA_CAMPANHA_DO_FONTE,

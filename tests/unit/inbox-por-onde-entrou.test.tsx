@@ -46,11 +46,12 @@ const pintar = (conv: ConversationWithContact, mostrarCanal: boolean) =>
   );
 
 describe("mostra o número da empresa quando há mais de um canal", () => {
-  it("pinta o número por onde a conversa entrou", () => {
-    // Desde o redesenho do Inbox o número mora na dica do selo do canal (a
-    // linha ficou só com quem e o quê) — o dado é o mesmo, o lugar mudou.
+  it("pinta o NOME do canal — o número cru só entra quando não há nome", () => {
+    // Desde o redesenho do Inbox o canal mora na dica do selo (a linha ficou só
+    // com quem e o quê). Da 1.99: o nome amigável vem na frente, o mesmo que a
+    // tela de Conexões mostra.
     pintar(comCanal({ phone_number: "+19392301037", display_name: "MP wp" }), true);
-    expect(screen.getByTitle("Entrou por +19392301037")).toBeInTheDocument();
+    expect(screen.getByTitle("Entrou por MP wp")).toBeInTheDocument();
   });
 
   it("cai no NOME do canal quando ainda não há número", () => {

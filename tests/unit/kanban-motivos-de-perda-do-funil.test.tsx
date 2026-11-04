@@ -34,9 +34,10 @@ import { NAV_DESTINATIONS } from "@/lib/navigation/registry";
 
 // O caminho é o do menu, não um nome solto: "Configurações › Funis" mandava
 // para um lugar que o menu não tem. Lido do catálogo para não envelhecer.
-const crm = NAV_GROUPS.find((g) => g.id === "crm")!;
+// No fork (jhoow) os grupos não têm hub: o caminho é grupo › tela.
 const etapas = NAV_DESTINATIONS.find((d) => d.href === "/app/settings/tenant/pipelines")!;
-const ONDE_CADASTRAR = `cadastre em ${crm.label} › ${crm.hub!.label} › ${etapas.label}.`;
+const grupo = NAV_GROUPS.find((g) => g.id === etapas.group)!;
+const ONDE_CADASTRAR = `cadastre em ${[grupo.label, grupo.hub?.label, etapas.label].filter(Boolean).join(" › ")}.`;
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LoseLeadDialog } from "@/components/kanban/LoseLeadDialog";

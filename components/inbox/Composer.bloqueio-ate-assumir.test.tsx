@@ -37,6 +37,23 @@ const DICIONARIO: Record<string, { es: string }> = {
 let idioma: "pt_BR" | "es" = "pt_BR";
 
 // Tradução do fork (jhoow): o arquivo não monta QueryClientProvider.
+// Fork jhoow: a sugestão do agente mora no compositor e lê com `useQuery`;
+// sem QueryClientProvider aqui, o hook entra inerte (sem rascunho).
+vi.mock("@/components/inbox/composer/useSugestaoDoAgente", () => ({
+  useSugestaoDoAgente: () => ({
+    draft: null,
+    body: "",
+    busy: false,
+    generate: () => {},
+    decide: () => {},
+    edits: {},
+    setEdits: () => {},
+    feedback: "",
+    setFeedback: () => {},
+    notice: null,
+    statuses: [],
+  }),
+}));
 vi.mock("@/hooks/inbox/useIdiomasDaConversa", () => ({
   useIdiomasDaConversa: () => ({ data: undefined }),
   useMudarIdiomasDaConversa: () => ({ mutate: vi.fn(), isPending: false }),

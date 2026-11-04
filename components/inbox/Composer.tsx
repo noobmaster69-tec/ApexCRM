@@ -329,7 +329,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
   // mexer no que já está escrito.
   const [menuForcado, setMenuForcado] = useState(false);
   const menuOpen = mode === "reply" && ((slash.open && !menuDismissed) || menuForcado);
-  const sugestao = useSugestaoDoAgente(conversationId);
+  // Só consulta onde há o que sugerir: em nota, ou com o compositor bloqueado
+  // (o suporte somente leitura recebe 403 no GET), a leitura não sai.
+  const sugestao = useSugestaoDoAgente(conversationId, {
+    enabled: mode === "reply" && !disabled && !blockedReason,
+  });
   // Fork jhoow: abrir a conversa e começar a responder deixam as mensagens do contato lidas.
   const marcarLidas = useMarcarComoLidas(conversationId);
   // O Esc/escolha vale só para o `/` em curso: saiu do `/` por QUALQUER caminho,
@@ -1127,7 +1131,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
         {/* AÇÕES RÁPIDAS: chips acima do campo. "Respostas rápidas" foi para
             dentro do campo (o "/" da barra de baixo). O cartão de revisão da
             sugestão só aparece quando há sugestão. */}
-        <section aria-label={t("Assistência do agente")} className="mb-2 space-y-2">
+        <div className="mb-2 space-y-2">
           {mode === "reply" && <ReplyReviewPanel sugestao={sugestao} disabled={isDisabled} />}
           <div className="flex flex-nowrap items-center gap-1.5 overflow-hidden" data-testid="acoes-rapidas">
             {mode === "reply" && (
@@ -1157,7 +1161,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer(
               </button>
             )}
           </div>
-        </section>
+        </div>
         {/*
           A FAIXA DA CITAÇÃO — o que o atendente escolheu responder.
 

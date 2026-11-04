@@ -555,6 +555,20 @@ describe("a etapa de entrada declarada no funil (#3011, fatia 1)", () => {
     );
   }
 
+  /**
+   * Fork jhoow: o funil principal SEMPRE tem a Etapa de entrada (9907) — o
+   * gatilho a recria em qualquer UPDATE do funil (o desta bateria grava
+   * `settings`). Sem etapa declarada válida, é nela que o card nasce: é a
+   * "primeira" do fork.
+   */
+  async function entradaDoFunil(): Promise<string> {
+    const { rows } = await pool.query<{ id: string }>(
+      "select id from crm_stages where pipeline_id = $1 and is_entry",
+      [funilConfigurado],
+    );
+    return rows[0]!.id;
+  }
+
   async function ondeNasceu(
     leadId: string,
   ): Promise<{ stage_id: string; pipeline_id: string; stage_name: string; padrao: boolean }> {
@@ -597,12 +611,12 @@ describe("a etapa de entrada declarada no funil (#3011, fatia 1)", () => {
     );
     expect(destino.padrao).toBe(true);
     expect(destino.stage_name, "sem configuração, a primeira etapa aberta").toBe(
-      "Conversas iniciadas",
+      "Etapa de entrada",
     );
-    expect(destino.stage_id).toBe(etapaIniciada);
+    expect(destino.stage_id).toBe(await entradaDoFunil());
     // E o retorno da função concorda com o banco — quem chamou não pode receber
     // uma etapa e o card ter nascido noutra.
-    expect(r.stageId).toBe(etapaIniciada);
+    expect(r.stageId).toBe(await entradaDoFunil());
     expect(r.pipelineId).toBe(funilConfigurado);
   });
 
@@ -661,7 +675,7 @@ describe("a etapa de entrada declarada no funil (#3011, fatia 1)", () => {
     if (!r.criado) return;
     const destino = await ondeNasceu(r.leadId);
     expect(destino.pipeline_id, "o card não vai para o funil do vizinho").toBe(funilConfigurado);
-    expect(destino.stage_id).toBe(etapaIniciada);
+    expect(destino.stage_id).toBe(await entradaDoFunil());
   });
 
   it("etapa declarada de OUTRA organização não é obedecida — o tenant vale também na configuração", async () => {
@@ -686,7 +700,7 @@ describe("a etapa de entrada declarada no funil (#3011, fatia 1)", () => {
     expect(r.criado).toBe(true);
     if (!r.criado) return;
     const destino = await ondeNasceu(r.leadId);
-    expect(destino.stage_id, "nada nasce em etapa de outra empresa").toBe(etapaIniciada);
+    expect(destino.stage_id, "nada nasce em etapa de outra empresa").toBe(await entradaDoFunil());
   });
 
   it("etapa declarada ARQUIVADA não é obedecida — arquivar é tirar do caminho", async () => {
@@ -706,7 +720,7 @@ describe("a etapa de entrada declarada no funil (#3011, fatia 1)", () => {
     expect(r.criado).toBe(true);
     if (!r.criado) return;
     const destino = await ondeNasceu(r.leadId);
-    expect(destino.stage_id).toBe(etapaIniciada);
+    expect(destino.stage_id).toBe(await entradaDoFunil());
   });
 
   it("chave DESLIGADA volta para a primeira etapa, mesmo com a etapa declarada ainda gravada", async () => {
@@ -723,8 +737,8 @@ describe("a etapa de entrada declarada no funil (#3011, fatia 1)", () => {
     expect(r.criado).toBe(true);
     if (!r.criado) return;
     const destino = await ondeNasceu(r.leadId);
-    expect(destino.stage_name).toBe("Conversas iniciadas");
-    expect(destino.stage_id).toBe(etapaIniciada);
+    expect(destino.stage_name).toBe("Etapa de entrada");
+    expect(destino.stage_id).toBe(await entradaDoFunil());
     // E o bloco continua lá: desligar não apaga a escolha.
     const { rows } = await pool.query<{ settings: { entrada_do_inbox?: unknown } }>(
       "select settings from crm_pipelines where id = $1",

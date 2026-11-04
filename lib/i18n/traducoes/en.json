@@ -5441,7 +5441,7 @@
   "Nada aconteceu com este negócio ainda.": "Nothing has happened with this deal yet.",
   "Informe o motivo. Essa informação ajuda a melhorar o funil.": "Enter the reason. This information helps improve the pipeline.",
   "Detalhe (opcional)": "Detail (optional)",
-  "Para usar um motivo que não está aqui, cadastre em CRM › Ver tudo em CRM › Etapas do funil.": "To use a reason that isn't here, add it in CRM › See all in CRM › Pipeline stages.",
+  "Para usar um motivo que não está aqui, cadastre em": "To use a reason that isn't here, add it in",
   "Ex: Cliente desistiu por X motivo": "E.g.: Client backed out due to X reason",
   "Confirmar": "Confirm",
   "Lead criado": "Lead created",

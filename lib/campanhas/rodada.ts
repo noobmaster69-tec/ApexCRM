@@ -558,7 +558,13 @@ async function rodarUmaCampanha(
     fusoDaCampanha,
   );
   // Item 7: o próximo envio SORTEADO entre min e max — espera não é falha.
-  if (campanha.next_send_at && new Date(campanha.next_send_at).getTime() > agora.getTime()) {
+  // A rajada (velocidade rápida, só com modelo) manda a rodada inteira de uma
+  // vez: o intervalo sorteado é do modo gradual e não a segura.
+  if (
+    !emRajada(campanha) &&
+    campanha.next_send_at &&
+    new Date(campanha.next_send_at).getTime() > agora.getTime()
+  ) {
     await admin
       .from("campaign_recipients")
       .update({ next_attempt_at: campanha.next_send_at })

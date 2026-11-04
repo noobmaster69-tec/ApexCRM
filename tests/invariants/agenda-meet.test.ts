@@ -1248,13 +1248,16 @@ async function controlledDelivery(
         return typeof value === "function" ? value.bind(target) : value;
       },
     }) : pool;
+    // DEPURAÇÃO TEMPORÁRIA (fork jhoow, mescla 1.99) — sai no próximo commit.
+    const dbg = (n: string) => (...a: unknown[]) => console.log("DEBUG-MEET", n, JSON.stringify(a).slice(0, 600));
     const run = createMeetDeliveryHandler({
       crmCfg: { supabase: db.client },
-      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      log: { info: dbg("info"), warn: dbg("warn"), error: dbg("error") },
       sleep: async () => {},
     })(setup.job, executionPool);
     if (crashBeforeSettle) await expect(run).rejects.toThrow("test_crash_before_settle");
     else await run;
+    console.log("DEBUG-MEET fim", JSON.stringify({ mutation, bodies: bodies.length, errors: db.errors }).slice(0, 1500));
     expect(receiverError).toBeUndefined();
     return { bodies, mutation, errors: db.errors };
   } finally {

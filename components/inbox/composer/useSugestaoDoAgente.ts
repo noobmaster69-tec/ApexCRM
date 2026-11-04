@@ -20,7 +20,7 @@ type Draft = {
  * "Sugerir resposta" agora mora na linha de ações rápidas, e o cartão de
  * revisão só aparece quando há sugestão — os dois leem o MESMO estado.
  */
-export function useSugestaoDoAgente(conversationId: string) {
+export function useSugestaoDoAgente(conversationId: string, opcoes: { enabled?: boolean } = {}) {
   const t = useT(),
     qc = useQueryClient(),
     key = ["reply-drafts", conversationId];
@@ -30,6 +30,7 @@ export function useSugestaoDoAgente(conversationId: string) {
       apiClient.get<{ data: { drafts: Draft[] } }>(
         `/api/v1/conversations/${conversationId}/draft-reply`,
       ),
+    enabled: opcoes.enabled ?? true,
     refetchInterval: 4000,
     retry: false,
   });

@@ -1,6 +1,8 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useT } from "@/hooks/i18n/useT";
+import { NAV_GROUPS } from "@/lib/navigation/catalogo";
+import { NAV_DESTINATIONS } from "@/lib/navigation/registry";
 import {
   Dialog,
   DialogContent,
@@ -47,6 +49,14 @@ interface LoseLeadDialogProps {
 }
 
 const MAX_LEN = 500;
+
+/**
+ * Onde se cadastram os motivos: o caminho LIDO do catálogo da navegação. No
+ * fork (jhoow) os grupos não têm hub, e o texto fixo do 1.99 ("CRM › Ver tudo
+ * em CRM › …") mandava para um menu que não existe aqui.
+ */
+const ETAPAS_DO_FUNIL = NAV_DESTINATIONS.find((d) => d.href === "/app/settings/tenant/pipelines");
+const GRUPO_DAS_ETAPAS = NAV_GROUPS.find((g) => g.id === ETAPAS_DO_FUNIL?.group);
 
 export function LoseLeadDialog({
   open,
@@ -209,7 +219,15 @@ export function LoseLeadDialog({
               */}
               {(funilConfigurado || outroRecusado) && (
                 <p className="text-xs text-muted-foreground">
-                  {t("Para usar um motivo que não está aqui, cadastre em CRM › Ver tudo em CRM › Etapas do funil.")}
+                  {t("Para usar um motivo que não está aqui, cadastre em")}{" "}
+                  {[
+                    GRUPO_DAS_ETAPAS && t(GRUPO_DAS_ETAPAS.label),
+                    GRUPO_DAS_ETAPAS?.hub && t(GRUPO_DAS_ETAPAS.hub.label),
+                    ETAPAS_DO_FUNIL && t(ETAPAS_DO_FUNIL.label),
+                  ]
+                    .filter(Boolean)
+                    .join(" › ")}
+                  .
                 </p>
               )}
             </div>

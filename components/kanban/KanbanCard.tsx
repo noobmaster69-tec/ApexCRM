@@ -13,6 +13,7 @@ import { rotuloDaRecorrencia } from "@/lib/leads/valor-recorrente";
 import type { Lead } from "@/lib/types/leads";
 import type { Stage } from "@/lib/kanban/types";
 import { resolveCardState, type CardInput } from "@/lib/kanban/card-state";
+import { ArquivosNoCard } from "./ArquivosNoCard";
 import { KanbanCardActions } from "./KanbanCardActions";
 import { NextActionSlot } from "./NextActionSlot";
 import { ReactivationSlot } from "./ReactivationSlot";
@@ -392,6 +393,10 @@ export function KanbanCard({
               </p>
             </div>
           </div>
+
+          {/* Os campos `file` do funil (#2829): contagem + o documento clicável.
+              Some por inteiro quando o funil não declara campo de arquivo. */}
+          <ArquivosNoCard lead={lead} />
 
           {/* A proposta do agente é a ÚNICA linha que sobrevive à compactação:
               é onde a decisão do humano entra (aprovar/recusar). Só aparece
