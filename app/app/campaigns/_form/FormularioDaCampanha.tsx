@@ -17,7 +17,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { usePreviaDaAudiencia } from "@/hooks/campanhas/useCampanhas";
+import { useModelosDaCampanha, usePreviaDaAudiencia } from "@/hooks/campanhas/useCampanhas";
 import { channelLabel, useChannelSessions } from "@/hooks/channels/useChannelSessions";
 import { useT } from "@/hooks/i18n/useT";
 import { useAgentesPublicados, useEtapas, useFunis } from "@/hooks/campanhas/useDestinoDaCampanha";
@@ -27,6 +27,8 @@ import { CamposDeRitmo } from "@/components/campanhas/CamposDeRitmo";
 import { FonteDoPublico } from "@/components/campanhas/FonteDoPublico";
 import { useListaRemota } from "@/app/app/fluxos/_blocos/useListaRemota";
 
+import { ModeloDaCampanha, variaveisIncompletas } from "../_components/ModeloDaCampanha";
+import { VelocidadeDaCampanha } from "../_components/VelocidadeDaCampanha";
 import {
   corpoDaCampanha,
   filtroDoFormulario,
@@ -57,7 +59,8 @@ export function FormularioDaCampanha({ titulo, subtitulo, inicial, salvando, rot
     extras, funil, etapa, agente,
   } = v;
   const setNome = (x: string) => mudar("nome", x);
-  const setCanal = (x: string) => mudar("canal", x);
+  // Cada número tem os próprios modelos: o escolhido no outro não vale aqui.
+  const setCanal = (x: string) => setV((atual) => ({ ...atual, canal: x, modelo: null }));
   const setBaseLegal = (x: ValoresDaCampanha["baseLegal"]) => mudar("baseLegal", x);
   const setLiaRef = (x: string) => mudar("liaRef", x);
   const setLimite = (x: string) => mudar("limite", x);
@@ -75,12 +78,29 @@ export function FormularioDaCampanha({ titulo, subtitulo, inicial, salvando, rot
     "/api/v1/ai/followup-flows?surface=fluxo",
   );
 
+  // O que o número escolhido aceita: texto livre (QR) ou modelo aprovado
+  // (oficial). Quem decide é o servidor, pela capability do canal.
+  const doCanal = useModelosDaCampanha(canal);
+  const ehOficial = doCanal.data?.modo === "template";
+  const comModelo = ehOficial && v.modo === "text";
+  const rapida = comModelo && v.velocidade === "rapida";
+  const providerDoCanal = (canais.data ?? []).find((c) => c.id === canal)?.provider ?? null;
+  const modeloEscolhido =
+    v.modelo && doCanal.data
+      ? (doCanal.data.modelos.find((m) => m.name === v.modelo!.name && m.language === v.modelo!.language) ?? null)
+      : null;
+  const modeloPronto =
+    v.modelo !== null &&
+    modeloEscolhido !== null &&
+    variaveisIncompletas(modeloEscolhido, v.modelo.variables).length === 0;
+  const contextoDoCanal = { ehOficial: comModelo, modeloPronto };
+
   const filtro = filtroDoFormulario(v);
   const temCriterio = valoresComCriterio(v);
-  const podeSalvar = valoresSalvaveis(v);
+  const podeSalvar = valoresSalvaveis(v, contextoDoCanal);
 
   function salvar() {
-    onSalvar(corpoDaCampanha(v));
+    onSalvar(corpoDaCampanha(v, contextoDoCanal));
   }
 
   return (
@@ -123,7 +143,14 @@ export function FormularioDaCampanha({ titulo, subtitulo, inicial, salvando, rot
           )}
         </div>
 
-        {(canais.data ?? []).length > 1 && (
+        {comModelo && (canais.data ?? []).length > 1 && (
+          <p className="text-sm text-muted-foreground">
+            {t(
+              "Campanha com modelo aprovado sai por um número só: cada número tem os próprios modelos na plataforma.",
+            )}
+          </p>
+        )}
+        {!comModelo && (canais.data ?? []).length > 1 && (
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">{t("Falar também por estes números")}</legend>
             <p className="text-sm text-muted-foreground">
@@ -231,8 +258,18 @@ export function FormularioDaCampanha({ titulo, subtitulo, inicial, salvando, rot
             onClick={() =>
               previa.mutate({
                 audience_filter: filtro,
-                message_body: v.modo === "flow" ? "" : texto,
+                message_body: v.modo === "flow" || comModelo ? "" : texto,
                 base_legal: baseLegal,
+                ...(comModelo && v.modelo
+                  ? {
+                      modelo: {
+                        channel_session_id: canal,
+                        name: v.modelo.name,
+                        language: v.modelo.language,
+                        variables: v.modelo.variables,
+                      },
+                    }
+                  : {}),
               })
             }
           >
@@ -256,6 +293,13 @@ export function FormularioDaCampanha({ titulo, subtitulo, inicial, salvando, rot
             ))}
           </ul>
         )}
+        {previa.data?.truncado && (
+          <p className="text-sm text-warning-fg">
+            {t(
+              "O recorte bateu o teto de 20.000 negócios desta prévia — a lista pode estar incompleta. Refine o filtro para ver o todo.",
+            )}
+          </p>
+        )}
       </Card>
 
       <Card className="space-y-4 p-4">
@@ -264,7 +308,7 @@ export function FormularioDaCampanha({ titulo, subtitulo, inicial, salvando, rot
           <legend className="sr-only">{t("O que enviar")}</legend>
           <label className="flex items-center gap-2 text-sm">
             <input type="radio" name="modo" checked={v.modo === "text"} onChange={() => mudar("modo", "text")} />
-            {t("Texto simples")}
+            {comModelo ? t("Modelo aprovado") : t("Texto simples")}
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input type="radio" name="modo" checked={v.modo === "flow"} onChange={() => mudar("modo", "flow")} />
@@ -296,6 +340,13 @@ export function FormularioDaCampanha({ titulo, subtitulo, inicial, salvando, rot
               )}
             </p>
           </div>
+        ) : comModelo ? (
+          <ModeloDaCampanha
+            channelSessionId={canal}
+            provider={providerDoCanal}
+            valor={v.modelo}
+            onChange={(m) => mudar("modelo", m)}
+          />
         ) : (
           <>
             <Textarea
@@ -306,6 +357,9 @@ export function FormularioDaCampanha({ titulo, subtitulo, inicial, salvando, rot
               aria-label={t("Texto da mensagem")}
             />
             <ListaDeVariaveis onInserir={(token) => setTexto((atual) => `${atual}${token}`)} />
+            <p className="text-sm text-muted-foreground">
+              {t('Para não depender do dado, ponha um texto de reserva: {{primeiro_nome|"aluno"}}.')}
+            </p>
             {texto.trim() !== "" && <PreviaPorContato texto={texto} idioma={v.idioma || null} fuso={v.fuso || null} />}
           </>
         )}
@@ -370,6 +424,18 @@ export function FormularioDaCampanha({ titulo, subtitulo, inicial, salvando, rot
             "Em branco, vale o ritmo do número (Conexões › Proteção de envio). O que você puser aqui só pode deixar mais devagar.",
           )}
         </p>
+        {canal && v.modo === "text" && (
+          <VelocidadeDaCampanha
+            valor={v.velocidade}
+            onChange={(x) => mudar("velocidade", x)}
+            ehOficial={comModelo}
+          />
+        )}
+        {rapida ? (
+          <p className="text-sm text-muted-foreground">
+            {t("No envio rápido o intervalo da campanha não vale: a rajada tem o próprio espaçamento.")}
+          </p>
+        ) : null}
         <CamposDeRitmo
           v={v}
           onChange={(campo, valor) => setV((a) => ({ ...a, [campo]: valor }) as ValoresDaCampanha)}

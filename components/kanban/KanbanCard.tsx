@@ -9,8 +9,11 @@ import { estiloDasIniciais, initials, relativeTime } from "@/lib/contacts/aprese
 import { phoneForDisplay, samePhone } from "@/lib/channels/phone-variants";
 import { cn } from "@/lib/utils";
 import { formatValorDoNegocio, MOEDA_PADRAO } from "@/lib/money";
+import { rotuloDaRecorrencia } from "@/lib/leads/valor-recorrente";
 import type { Lead } from "@/lib/types/leads";
+import type { Stage } from "@/lib/kanban/types";
 import { resolveCardState, type CardInput } from "@/lib/kanban/card-state";
+import { ArquivosNoCard } from "./ArquivosNoCard";
 import { KanbanCardActions } from "./KanbanCardActions";
 import { NextActionSlot } from "./NextActionSlot";
 import { ReactivationSlot } from "./ReactivationSlot";
@@ -46,6 +49,26 @@ interface KanbanCardProps {
   onSelect?: (leadId: string, gesto: GestoDeSelecao) => void;
   /** Abrir o dossiê. Separado de `onSelect`: são gestos e intenções diferentes. */
   onOpen?: (leadId: string) => void;
+  /** Repassados ao menu de ações ("Mover para…"). */
+  etapas?: Stage[];
+  onMoverPara?: (lead: Lead, stageId: string) => void;
+  /**
+   * Densidade COMPACTA (issue #3461, item 2): cabe mais contato na mesma tela.
+   *
+   * O que muda é o ORÇAMENTO de altura, não o conteúdo: o título passa de duas
+   * linhas para uma (com o texto inteiro no `title` e no dossiê), os respiros
+   * encolhem e a última mensagem e o bloco de contato saem do card — os dois
+   * continuam inteiros no dossiê (`ConversaNoDossie` e `ContatoDoNegocio`, que
+   * abrem com o mesmo clique). Valor, dono, selo de tarefas, tempo na etapa e a
+   * faixa do agente continuam aqui: são o que se lê de relance para decidir.
+   */
+  denso?: boolean;
+  /**
+   * Quadro de funil arquivado (#1298): o card é só leitura. Sem arraste, sem
+   * menu de ações, sem caixa de seleção e sem abrir o dossiê (que tem ações
+   * de escrita próprias).
+   */
+  somenteLeitura?: boolean;
 }
 
 /** "Maria Silva" e " maria silva " são o mesmo nome — não se repete na linha. */
@@ -83,9 +106,27 @@ export function KanbanCard({
   pulseCount = 0,
   onSelect,
   onOpen,
+  etapas,
+  onMoverPara,
+  denso = false,
+  somenteLeitura = false,
 }: KanbanCardProps) {
   const t = useT();
   const value = formatValor(card.valueCents, card.currency);
+  /**
+   * A MENSALIDADE, ao lado do valor único (fatia 1 da #3602): o card escreve
+   * "R$ 3.000 + R$ 500/mês". Os dois números aparecem — nunca a soma, que é
+   * exatamente o que a issue pediu para não fazer — e o negócio de valor único
+   * fica com a linha de sempre (o segundo trecho só existe quando há
+   * recorrência). `semCentavos` acompanha o valor único: o card nunca mostrou
+   * centavos, e a linha tem altura fixa.
+   */
+  const recorrente = rotuloDaRecorrencia(
+    card.recurringValueCents,
+    card.recurringPeriod,
+    card.currency ?? MOEDA_PADRAO,
+    { semCentavos: true, sufixo: t("/mês") },
+  );
   const state = resolveCardState(card, t);
   const localeDaData = useLocaleDeData();
   const chats = useChatsFlutuantes();
@@ -160,7 +201,7 @@ export function KanbanCard({
   const handleClick = (e: MouseEvent<HTMLDivElement>) => decidirClique(e);
 
   return (
-    <Draggable draggableId={card.id} index={index}>
+    <Draggable draggableId={card.id} index={index} isDragDisabled={somenteLeitura}>
       {(provided, snapshot) => (
         <div
           ref={provided.innerRef}
@@ -171,10 +212,13 @@ export function KanbanCard({
           // teclado do dnd (tabIndex e handlers continuam vindo do spread) sem
           // aninhar dois controles — nada de aria-hidden nem de suprimir regra.
           role="group"
-          aria-label={`${t("Lead")}: ${card.title}`}
+          aria-label={`${t("Negócio")}: ${card.title}`}
           onClick={handleClick}
           // Tags saem do card (Lei A): ficam a um hover, sem ocupar altura.
           title={card.tags.length > 0 ? `Tags: ${card.tags.join(", ")}` : undefined}
+          // `data-densidade` é o observável da densidade: o teste de tela mede
+          // o card, não o estado do React.
+          data-densidade={denso ? "compacta" : "confortavel"}
           className={cn(
             "group relative overflow-hidden rounded-md border border-border bg-surface",
             "py-2 pl-2.5 pr-1.5 shadow-xs transition-colors",
@@ -213,25 +257,29 @@ export function KanbanCard({
               empurra nada quando aparece — o quadro não treme com o mouse.
               Some por opacidade, nunca por `hidden`; `focus:opacity-100`
               porque caixa invisível e tabulável seria armadilha de teclado. */}
-          <input
-            type="checkbox"
-            checked={Boolean(isSelected)}
-            aria-label={`${t("Selecionar")}: ${card.title}`}
-            onClick={(e) => {
-              // O card inteiro tem onClick: sem parar a propagação, marcar a
-              // caixa abriria o chat (ou o dossiê) por cima.
-              e.stopPropagation();
-              onSelect?.(card.id, e.shiftKey ? "intervalo" : "alterna");
-            }}
-            onChange={() => {
-              /* estado vem de `isSelected`; quem decide é o onClick acima */
-            }}
-            className={cn(
-              "absolute left-1 top-1 z-10 h-4 w-4 cursor-pointer accent-accent transition-opacity",
-              "focus:opacity-100 focus-visible:outline-2 focus-visible:outline-accent",
-              isSelected || isSelecting ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-            )}
-          />
+          {/* No funil arquivado a caixa some de vez: seleção só existe para a
+              ação em lote, e escrever ali é o que o arquivo proíbe (#1298). */}
+          {!somenteLeitura && (
+            <input
+              type="checkbox"
+              checked={Boolean(isSelected)}
+              aria-label={`${t("Selecionar")}: ${card.title}`}
+              onClick={(e) => {
+                // O card inteiro tem onClick: sem parar a propagação, marcar a
+                // caixa abriria o chat (ou o dossiê) por cima.
+                e.stopPropagation();
+                onSelect?.(card.id, e.shiftKey ? "intervalo" : "alterna");
+              }}
+              onChange={() => {
+                /* estado vem de `isSelected`; quem decide é o onClick acima */
+              }}
+              className={cn(
+                "absolute left-1 top-1 z-10 h-4 w-4 cursor-pointer accent-accent transition-opacity",
+                "focus:opacity-100 focus-visible:outline-2 focus-visible:outline-accent",
+                isSelected || isSelecting ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+              )}
+            />
+          )}
 
           {/* Estilo Leona: avatar à esquerda; à direita, nome + hora, telefone
               + não lidas, e a última mensagem. Altura reservada (a prévia
@@ -301,16 +349,28 @@ export function KanbanCard({
                     {hora}
                   </span>
                 )}
-                <KanbanCardActions
-                  lead={lead}
-                  pipelineId={pipelineId}
-                  onVerNegocio={onOpen ? () => onOpen(card.id) : undefined}
-                />
+                {!somenteLeitura && (
+                  <KanbanCardActions
+                    lead={lead}
+                    pipelineId={pipelineId}
+                    onVerNegocio={onOpen ? () => onOpen(card.id) : undefined}
+                    etapas={etapas}
+                    onMoverPara={onMoverPara}
+                  />
+                )}
               </div>
 
               <div className="flex h-4 items-center gap-2 text-[11px] leading-4 text-text-muted">
                 <span className="min-w-0 flex-1 truncate tabular-nums">{telefoneEmbaixo ?? ""}</span>
-                {value && <span className="shrink-0 font-medium tabular-nums text-text">{value}</span>}
+                {(value || recorrente) && (
+                  <span
+                    data-testid="card-valor"
+                    className="shrink-0 font-medium tabular-nums text-text"
+                    title={recorrente ? `${value ?? ""} + ${recorrente}`.trim() : undefined}
+                  >
+                    {[value, recorrente].filter(Boolean).join(" + ")}
+                  </span>
+                )}
                 {naoLidas > 0 && (
                   // O número, não um ponto: "3 sem ler" e "12 sem ler" pedem
                   // urgências diferentes, e um ponto colapsa as duas.
@@ -333,6 +393,10 @@ export function KanbanCard({
               </p>
             </div>
           </div>
+
+          {/* Os campos `file` do funil (#2829): contagem + o documento clicável.
+              Some por inteiro quando o funil não declara campo de arquivo. */}
+          <ArquivosNoCard lead={lead} />
 
           {/* A proposta do agente é a ÚNICA linha que sobrevive à compactação:
               é onde a decisão do humano entra (aprovar/recusar). Só aparece

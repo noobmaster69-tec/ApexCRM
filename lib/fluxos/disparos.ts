@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 /**
- * DISPAROS (fork jhoow, item 12 — a tela /app/disparos, migration 9011): o que
+ * DISPAROS (fork jhoow, item 12 — a tela /app/disparos, migration 9911): o que
  * faz um fluxo começar, num lugar só, como no Leona.
  *
  *  - Palavras-chave: condições sobre o texto da mensagem que chegou, ligadas

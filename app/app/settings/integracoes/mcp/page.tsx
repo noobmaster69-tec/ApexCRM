@@ -8,7 +8,7 @@ import { ConexoesMcpClient } from "./_components/ConexoesMcpClient";
 export const dynamic = "force-dynamic";
 
 /**
- * Configurações › Integrações › MCP (migration 9023): conectar o Claude, o
+ * Configurações › Integrações › MCP (migration 9923): conectar o Claude, o
  * Cursor ou outra ferramenta de IA ao CRM com permissões limitadas. Só admin.
  */
 export default async function ConexoesMcpPage() {

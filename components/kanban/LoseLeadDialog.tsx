@@ -1,6 +1,8 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useT } from "@/hooks/i18n/useT";
+import { NAV_GROUPS } from "@/lib/navigation/catalogo";
+import { NAV_DESTINATIONS } from "@/lib/navigation/registry";
 import {
   Dialog,
   DialogContent,
@@ -20,26 +22,64 @@ import { OUTRO, motivoDePerdaAceito, opcoesDeMotivoDePerda } from "@/lib/leads/m
 interface LoseLeadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  leadId: string;
   pipelineId: string;
+  /**
+   * Modo CARD: perde UM negócio pela rota individual (`/leads/{id}/lose`).
+   * Ausente no modo lote.
+   */
+  leadId?: string;
+  /**
+   * Modo LOTE (#2484 F2): recebe o motivo escolhido e quem chamou decide a
+   * escrita — a `leads/bulk` que já sabe decidir o motivo da perda (#917). O
+   * diálogo é o MESMO do card: uma segunda janela de motivo seria a mesma
+   * pergunta com duas respostas possíveis, e o funil passaria a ter duas listas.
+   */
+  onConfirm?: (lostReason: string) => void | Promise<void>;
+  /**
+   * Modo LOTE: quem chamou informa se a escrita em lote está em voo. Este
+   * diálogo não conhece a mutação de lote (`useBulkAction`) — então não pode
+   * perguntar `isPending` a ela; sem este sinal o botão "Confirmar" ficaria
+   * clicável durante a escrita e um segundo clique dobraria o lote.
+   */
+  submitting?: boolean;
+  /** Depois de a perda gravar — para quem mora fora do quadro (ex.: painel da conversa) recarregar o que mostra. */
+  onPerdido?: () => void;
+  /** Motivos do funil quando o quadro não está em cache (painel da conversa); sem isto, lê do cache do quadro. */
+  motivos?: string[];
 }
 
 const MAX_LEN = 500;
+
+/**
+ * Onde se cadastram os motivos: o caminho LIDO do catálogo da navegação. No
+ * fork (jhoow) os grupos não têm hub, e o texto fixo do 1.99 ("CRM › Ver tudo
+ * em CRM › …") mandava para um menu que não existe aqui.
+ */
+const ETAPAS_DO_FUNIL = NAV_DESTINATIONS.find((d) => d.href === "/app/settings/tenant/pipelines");
+const GRUPO_DAS_ETAPAS = NAV_GROUPS.find((g) => g.id === ETAPAS_DO_FUNIL?.group);
 
 export function LoseLeadDialog({
   open,
   onOpenChange,
   leadId,
   pipelineId,
+  onConfirm,
+  submitting = false,
+  onPerdido,
+  motivos,
 }: LoseLeadDialogProps) {
   const t = useT();
   const [reasonCode, setReasonCode] = useState<string>("");
   const [otherText, setOtherText] = useState("");
   const mutation = useLoseLead(pipelineId);
+  // O diálogo vale para os DOIS modos: a escrita individual (card) ou a do
+  // chamador (lote). "em voo" é a mutação individual OU o sinal externo.
+  const emVoo = mutation.isPending || submitting;
 
   // O funil deste card manda na lista: o que ele tem cadastrado substitui o
   // padrão do produto — ver lib/leads/motivos-de-perda-do-funil.ts.
-  const cadastrados = useMotivosDePerdaDoFunil(pipelineId);
+  const doQuadro = useMotivosDePerdaDoFunil(pipelineId);
+  const cadastrados = motivos ?? doQuadro;
   const opcoes = useMemo(() => opcoesDeMotivoDePerda(cadastrados), [cadastrados]);
   const funilConfigurado = cadastrados.length > 0;
 
@@ -83,15 +123,26 @@ export function LoseLeadDialog({
     finalReason.length === 0 ||
     finalReason.length > MAX_LEN ||
     outroRecusado ||
-    mutation.isPending;
+    emVoo;
 
   const handleSubmit = async () => {
     if (disabled) return;
     try {
-      await mutation.mutateAsync({ leadId, lostReason: finalReason });
+      // Modo LOTE (#2484 F2): o motivo vai para quem chamou, que escreve pela
+      // `leads/bulk`. Modo CARD: a rota individual. Sem `leadId` NEM `onConfirm`
+      // não há escrita nenhuma a fazer — o `disabled` já cobre o caso de uso,
+      // e este guarda evita um clique pendurado em arranjo inválido.
+      if (onConfirm) {
+        await onConfirm(finalReason);
+      } else if (leadId) {
+        await mutation.mutateAsync({ leadId, lostReason: finalReason });
+      } else {
+        return;
+      }
       setReasonCode("");
       setOtherText("");
       onOpenChange(false);
+      onPerdido?.();
     } catch {
       // error already toasted
     }
@@ -168,7 +219,15 @@ export function LoseLeadDialog({
               */}
               {(funilConfigurado || outroRecusado) && (
                 <p className="text-xs text-muted-foreground">
-                  {t("Para usar um motivo que não está aqui, cadastre em Configurações › Funis.")}
+                  {t("Para usar um motivo que não está aqui, cadastre em")}{" "}
+                  {[
+                    GRUPO_DAS_ETAPAS && t(GRUPO_DAS_ETAPAS.label),
+                    GRUPO_DAS_ETAPAS?.hub && t(GRUPO_DAS_ETAPAS.hub.label),
+                    ETAPAS_DO_FUNIL && t(ETAPAS_DO_FUNIL.label),
+                  ]
+                    .filter(Boolean)
+                    .join(" › ")}
+                  .
                 </p>
               )}
             </div>
@@ -179,12 +238,12 @@ export function LoseLeadDialog({
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={mutation.isPending}
+            disabled={emVoo}
           >
             {t("Cancelar")}
           </Button>
           <Button onClick={handleSubmit} disabled={disabled}>
-            {mutation.isPending ? t("Salvando...") : t("Confirmar")}
+            {emVoo ? t("Salvando...") : t("Confirmar")}
           </Button>
         </DialogFooter>
       </DialogContent>

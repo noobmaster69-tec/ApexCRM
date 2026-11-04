@@ -12,6 +12,7 @@ import {
   ClipboardText,
   ClockCountdown,
   ClockCounterClockwise,
+  DeviceMobile,
   FileText,
   Flag,
   FlowArrow,
@@ -51,6 +52,7 @@ import {
   type NavMetadata,
   type NavGroup,
   type NavGroupId,
+  sobeAoMenuLateral,
 } from "./catalogo";
 import type { ModuloOpcional } from "@/lib/instalacao/modulos";
 import type { CapacidadeDaOrganizacao } from "@/lib/organizacao/capacidades";
@@ -69,6 +71,7 @@ const ICONS = {
   ClipboardText,
   ClockCountdown,
   ClockCounterClockwise,
+  DeviceMobile,
   FileText,
   Flag,
   FlowArrow,

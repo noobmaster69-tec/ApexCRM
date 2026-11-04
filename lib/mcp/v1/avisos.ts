@@ -1,5 +1,5 @@
 /**
- * Os avisos das conexões MCP na Central (migration 9023): todos os admins da
+ * Os avisos das conexões MCP na Central (migration 9923): todos os admins da
  * organização veem. O aviso não aponta para uma linha (`ref_kind` nulo) — o
  * contexto geral leva à tela de MCP, que é só do admin (`lib/ai/inbox-destino.ts`).
  *

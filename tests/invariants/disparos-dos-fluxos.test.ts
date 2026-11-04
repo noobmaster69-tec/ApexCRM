@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * DISPAROS DOS FLUXOS (migration 9011, fork jhoow — item 12).
+ * DISPAROS DOS FLUXOS (migration 9911, fork jhoow — item 12).
  *
  * 1. As duas tabelas existem no baseline com os CHECKs (lógica and/or,
  *    condições em array, horas 1..720).
@@ -163,7 +163,7 @@ describe("o fluxo apontado", () => {
 
 describe("reaplicar e apagar a organização", () => {
   it("o bloco do baseline roda de novo sem mudar dado", () => {
-    const bloco = blocoDoBaseline("-- ---- disparos dos fluxos (migration 9011) ----");
+    const bloco = blocoDoBaseline("-- ---- disparos dos fluxos (migration 9911) ----");
     sql(bloco);
     sql(bloco);
     expect(sql(`select count(*) from public.crm_fluxo_triggers where organization_id = '${ORG_A}'`)).toBe("1");

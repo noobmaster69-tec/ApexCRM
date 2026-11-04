@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Pastas da lista de Fluxos (fork jhoow, migration 9002). Formato dos corpos e
+ * Pastas da lista de Fluxos (fork jhoow, migration 9902). Formato dos corpos e
  * a árvore que a tela desenha — sem banco aqui, para a regra ser testável.
  */
 export const criarPastaSchema = z.strictObject({

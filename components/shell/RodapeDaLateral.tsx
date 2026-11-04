@@ -11,6 +11,7 @@ import {
   Check,
   ChevronsRight,
   ChevronsUpDown,
+  CircleHelp,
   LogOut,
   Moon,
   Plus,
@@ -78,12 +79,15 @@ export function nomeParaMostrar(user: { full_name: string | null; email: string 
 export function RodapeDaLateral({
   recolhida,
   configuracoes,
+  ajuda = null,
   onNavigate,
   onExpandir,
 }: {
   recolhida: boolean;
   /** O hub de Configurações do registro, quando o papel o vê. */
   configuracoes: { href: string; label: string } | null;
+  /** A tela de Ajuda do registro, quando o papel e os módulos a mostram. */
+  ajuda?: { href: string; label: string } | null;
   onNavigate?: () => void;
   /** Recolhida, o botão de expandir mora aqui, acima da coluna de ícones. */
   onExpandir?: () => void;
@@ -113,6 +117,7 @@ export function RodapeDaLateral({
         <BotaoDeIdioma />
         <BotaoDeTema />
         {configuracoes && <BotaoDeConfiguracoes {...configuracoes} onNavigate={onNavigate} />}
+        {ajuda && <BotaoDeConfiguracoes {...ajuda} icone={CircleHelp} onNavigate={onNavigate} />}
       </div>
       <CartaoDePerfil recolhida={recolhida} onNavigate={onNavigate} />
     </div>
@@ -274,7 +279,17 @@ function BotaoDeTema() {
 // ── 4. Configurações ─────────────────────────────────────────────────────────
 
 /** `label` chega já traduzido: quem o lê do registro é a lateral. */
-function BotaoDeConfiguracoes({ href, label, onNavigate }: { href: string; label: string; onNavigate?: () => void }) {
+function BotaoDeConfiguracoes({
+  href,
+  label,
+  icone: Icone = Settings,
+  onNavigate,
+}: {
+  href: string;
+  label: string;
+  icone?: typeof Settings;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
   const ativa = pathname === href || pathname.startsWith(href + "/");
   return (
@@ -287,7 +302,7 @@ function BotaoDeConfiguracoes({ href, label, onNavigate }: { href: string; label
         data-ativo={ativa ? "true" : undefined}
         onClick={onNavigate}
       >
-        <Settings size={16} aria-hidden />
+        <Icone size={16} aria-hidden />
       </Link>
     </Dica>
   );

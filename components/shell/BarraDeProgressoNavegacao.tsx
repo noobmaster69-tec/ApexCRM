@@ -84,8 +84,7 @@ export function BarraDeProgressoNavegacao() {
       if (urlDestino.origin !== window.location.origin) return;
 
       const mesmoDestino =
-        urlDestino.pathname === rotaAtual.current &&
-        urlDestino.search === window.location.search;
+        urlDestino.pathname === rotaAtual.current && urlDestino.search === window.location.search;
 
       if (!mesmoDestino) {
         setVisivel(true);
@@ -111,7 +110,14 @@ export function BarraDeProgressoNavegacao() {
       className="pointer-events-none absolute inset-x-0 top-0 z-[9999] h-[2px] bg-transparent"
     >
       <div
-        className="h-full bg-primary shadow-[0_0_8px_var(--color-primary)] transition-all duration-200 ease-out"
+        /*
+          `transition-[width,opacity]` em vez de `transition-all`: as duas
+          propriedades que o estilo inline abaixo mexe são exatamente estas.
+          `all` é anti-pattern declarado em
+          `docs/design-system/07-motion-language.md`. E `duration-base` em vez
+          do `duration-200` literal — mesmo número, vindo de `--duration-base`.
+        */
+        className="h-full bg-primary shadow-[0_0_8px_var(--color-primary)] transition-[width,opacity] duration-base ease-out"
         style={{
           width: `${progresso}%`,
           opacity: progresso === 100 ? 0 : 1,

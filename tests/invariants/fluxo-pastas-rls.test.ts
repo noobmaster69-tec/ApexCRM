@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * AS PASTAS DE FLUXO NÃO VAZAM ENTRE ORGANIZAÇÕES (migration 9002, fork jhoow).
+ * AS PASTAS DE FLUXO NÃO VAZAM ENTRE ORGANIZAÇÕES (migration 9902, fork jhoow).
  *
  * `fluxo_pastas` nasceu com RLS (`tenant_isolation_fluxo_pastas_all`: lê quem é
  * da org, escreve manager+) mas sem nenhuma prova comportamental — a varredura

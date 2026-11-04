@@ -67,8 +67,16 @@ interface Pg {
 /** O mesmo, por `pg` (o agent-engine). */
 export async function interpolarParaContatoPg(
   db: Pg,
-  e: { organizationId: string; contactId: string; texto: string; fusoPadrao?: string },
+  e: {
+    organizationId: string;
+    contactId: string;
+    texto: string;
+    fusoPadrao?: string;
+    /** `false`: o que não resolve fica como está (texto que já chegou renderizado). */
+    vazioQuandoFalta?: boolean;
+  },
 ): Promise<string> {
+  const vazioQuandoFalta = e.vazioQuandoFalta ?? true;
   if (variaveisDoTexto(e.texto).length === 0) return e.texto;
   const [{ rows }, padroes] = await Promise.all([
     db.query<LinhaDoContato>(`select ${COLUNAS} from contacts where organization_id = $1 and id = $2`, [e.organizationId, e.contactId]),
@@ -81,6 +89,6 @@ export async function interpolarParaContatoPg(
       .catch(() => ({}) as Record<string, string>),
   ]);
   const l = rows[0];
-  if (!l) return interpolarVariaveis(e.texto, { nome: null, telefone: null, campos: {} }, { vazioQuandoFalta: true }).texto;
-  return interpolarVariaveis(e.texto, paraContexto(l, padroes, e.fusoPadrao ?? "America/Sao_Paulo"), { vazioQuandoFalta: true }).texto;
+  if (!l) return interpolarVariaveis(e.texto, { nome: null, telefone: null, campos: {} }, { vazioQuandoFalta }).texto;
+  return interpolarVariaveis(e.texto, paraContexto(l, padroes, e.fusoPadrao ?? "America/Sao_Paulo"), { vazioQuandoFalta }).texto;
 }

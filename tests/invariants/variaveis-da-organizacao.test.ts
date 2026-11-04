@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * VARIÁVEIS DA ORGANIZAÇÃO (migration 9013, fork jhoow — Campanhas › item 2).
+ * VARIÁVEIS DA ORGANIZAÇÃO (migration 9913, fork jhoow — Campanhas › item 2).
  * A tabela de definições: formato da chave, unicidade por org, RLS (a org lê,
  * manager escreve, vizinho não vê), anon sem acesso, reaplicação.
  */
@@ -105,7 +105,7 @@ describe("contact_custom_fields", () => {
 
   it("anon sem acesso; reaplicar não muda nada", () => {
     expect(sql(`select has_table_privilege('anon', 'public.contact_custom_fields', 'select')`)).toBe("f");
-    const bloco = blocoDoBaseline("-- ---- variáveis da organização (migration 9013) ----");
+    const bloco = blocoDoBaseline("-- ---- variáveis da organização (migration 9913) ----");
     sql(bloco);
     sql(bloco);
     expect(sql(`select count(*) from public.contact_custom_fields where organization_id = '${ORG_A}'`)).toBe("1");

@@ -31,6 +31,7 @@ import { useMarcaDaInstalacao } from "@/lib/branding/contexto";
 import { GRUPO_NO_RODAPE, sidebarGroups, type NavDestination } from "@/lib/navigation/registry";
 import { aplicarMenuOculto, chaveDoMenuOculto, lerMenuOculto } from "@/lib/navigation/menu-pessoal";
 import "./shell.css";
+import { usePrefetchPorIntencao } from "@/hooks/navigation/prefetchPorIntencao";
 
 /**
  * A ordem e os ícones da lateral (Etapa 7). Quem decide QUAIS telas aparecem
@@ -129,7 +130,11 @@ export function SidebarContent({
     ocultoDoServidor ?? ocultoDoNavegador ?? [],
   );
   // Configurações sai da área que rola e vira o 4º botão do rodapé.
-  const rodape = todos.find((g) => g.group.id === GRUPO_NO_RODAPE)?.group.hub ?? null;
+  const grupoDoRodape = todos.find((g) => g.group.id === GRUPO_NO_RODAPE);
+  const rodape = grupoDoRodape?.group.hub ?? null;
+  // "Ajuda" (1.99, #3567) chega pelo registro, com o mesmo filtro de papel e de
+  // módulo do resto do menu — nunca como link escrito à mão aqui.
+  const ajuda = grupoDoRodape?.items.find((d) => d.href === "/app/ajuda") ?? null;
 
   const brand = useMarcaDaInstalacao();
   /**
@@ -263,6 +268,7 @@ export function SidebarContent({
       <RodapeDaLateral
         recolhida={collapsed}
         configuracoes={rodape && { href: rodape.href, label: t(rodape.label) }}
+        ajuda={ajuda && { href: ajuda.href, label: t(ajuda.label) }}
         onNavigate={onNavigate}
         onExpandir={podeRecolher ? onToggle : undefined}
       />
@@ -282,11 +288,19 @@ function ItemDaLateral({
   onNavigate?: () => void;
 }) {
   const t = useT();
+  /**
+   * O menu não prefetcha sozinho (#3170): um render RSC por link do menu (19
+   * destinos × as duas instâncias, lateral e móvel), e eles disputam o servidor
+   * com o render que o clique pediu. O prefetch passa a ser
+   * por intenção (ponteiro/foco) — ver `hooks/navigation/prefetchPorIntencao.ts`.
+   */
+  const intencao = usePrefetchPorIntencao();
   const IconeLucide = ICONE_DA_LATERAL[item.href];
   const IconeDoRegistro = item.icon;
   const link = (
     <Link
       href={item.href}
+      {...intencao(item.href)}
       aria-current={ativo ? "page" : undefined}
       onClick={onNavigate}
       className="sh-item"
@@ -327,9 +341,11 @@ export function Sidebar({
       // ⚠️ `sticky top-0`, e NUNCA `fixed`: com `fixed` a barra sai do fluxo e
       // alguém precisa afastar o conteúdo com uma segunda medida — no dia em que
       // as duas discordaram, a barra passou por cima da lista de conversas. Na
-      // casca de altura fixa (`.sh-app`, 100vh) ela não rola de qualquer jeito;
-      // o `sticky` fica como garantia caso a casca volte a rolar.
-      className="sh-side sh-side--fixa sticky top-0 h-screen shrink-0"
+      // casca de altura fixa (`.sh-app`, 100dvh) ela não rola de qualquer jeito;
+      // o `sticky` fica como garantia caso a casca volte a rolar. `h-full`, e não
+      // `h-screen`: 100vh passa da casca no celular (a barra de endereço) e o pé
+      // da barra lateral ficava cortado.
+      className="sh-side sh-side--fixa sticky top-0 h-full shrink-0"
       data-recolhida={collapsed ? "true" : undefined}
       data-automatica={automatica ? "true" : undefined}
       data-pronta={pronta ? "true" : undefined}

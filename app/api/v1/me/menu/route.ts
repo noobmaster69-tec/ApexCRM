@@ -10,7 +10,7 @@ import { ok, fail } from "@/lib/api/wrappers";
 
 /**
  * Grava o menu lateral PESSOAL de quem está logado, na organização ativa
- * (fork jhoow, P6 — migration 9001).
+ * (fork jhoow, P6 — migration 9901).
  *
  * Quem e onde vêm da SESSÃO (`requireRole` resolve usuário e organização ativa
  * de fonte confiável), nunca do corpo. A escrita passa por

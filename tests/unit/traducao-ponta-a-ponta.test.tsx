@@ -22,7 +22,10 @@ vi.mock("@/lib/api/client", () => ({
 vi.mock("@/hooks/inbox/useSendMessage", () => ({ useSendMessage: () => ({ mutate: enviar, isPending: false }) }));
 vi.mock("@/hooks/inbox/useCreateNote", () => ({ useCreateNote: () => ({ mutate: vi.fn(), isPending: false }) }));
 vi.mock("@/hooks/inbox/useUploadMedia", () => ({ useUploadMedia: () => ({ mutateAsync: vi.fn(), isPending: false }) }));
-vi.mock("@/hooks/inbox/useMessageTemplates", () => ({ useMessageTemplates: () => ({ data: [], isLoading: false }) }));
+vi.mock("@/hooks/inbox/useMessageTemplates", () => ({
+  useMessageTemplates: () => ({ data: [], isLoading: false }),
+  useGruposDeRespostas: () => ({ data: [], isLoading: false }),
+}));
 
 import { Composer } from "@/components/inbox/Composer";
 import { MessageBubble } from "@/components/inbox/MessageBubble";

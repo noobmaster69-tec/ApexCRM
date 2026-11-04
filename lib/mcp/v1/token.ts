@@ -1,5 +1,5 @@
 /**
- * Os segredos das conexões MCP (migration 9023).
+ * Os segredos das conexões MCP (migration 9923).
  *
  * Três tipos, cada um com prefixo reconhecível — quem acha um destes num log ou
  * num repositório sabe na hora o que é e onde revogar:

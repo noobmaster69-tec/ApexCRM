@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { useT } from "@/hooks/i18n/useT";
+import { motivoDoVeto } from "@/lib/agent-engine/agent/sugestao-de-resposta";
 import type { SugestaoDoAgente } from "./useSugestaoDoAgente";
 
 /**
@@ -20,9 +21,17 @@ export function ReplyReviewPanel({ sugestao, disabled }: { sugestao: SugestaoDoA
     (!draft ||
       (notice.draftId === draft.id &&
         (notice.kind === "error" || ["approved", "sending", "sent", "dismissed"].includes(draft.status))));
+  // A causa do veto, em linguagem de quem opera (1.99, #2975), e o aviso de que
+  // uma versão anterior foi barrada pela prévia (doc de decisão 234).
+  const motivo = draft ? motivoDoVeto(draft.error_code) : null;
+  const barrada = draft?.status === "pending" && draft.original_body?.trim() ? motivo : null;
   if (!draft && !avisoVisivel) return null;
   return (
-    <div className="space-y-2 rounded-md border bg-muted/30 p-3" data-testid="sugestao-do-agente-area">
+    <section
+      aria-label={t("Assistência do agente")}
+      className="space-y-2 rounded-md border bg-muted/30 p-3"
+      data-testid="sugestao-do-agente-area"
+    >
       {draft && (
         <div className="space-y-2" data-testid="sugestao-do-agente">
           <p className="text-sm font-medium">{t(statuses[draft.status] ?? "Sugestão do agente")}</p>
@@ -31,6 +40,14 @@ export function ReplyReviewPanel({ sugestao, disabled }: { sugestao: SugestaoDoA
               "Aprovar envia somente este texto. Não altera dados, agenda ou a autonomia do agente.",
             )}
           </p>
+          {barrada?.causa && (
+            <p className="text-xs text-muted-foreground">
+              {t("Uma versão anterior desta sugestão foi barrada: {causa}. Confira antes de enviar.").replace(
+                "{causa}",
+                t(barrada.causa),
+              )}
+            </p>
+          )}
           {body && (
             <Textarea
               aria-label={t("Resposta sugerida")}
@@ -83,23 +100,27 @@ export function ReplyReviewPanel({ sugestao, disabled }: { sugestao: SugestaoDoA
           )}
           {draft.status === "failed" && (
             <p className="text-xs">
-              {t("Confira a configuração do agente e tente gerar novamente.")}
+              {motivo
+                ? t(motivo.texto)
+                : t("Confira a configuração do agente e tente gerar novamente.")}
             </p>
           )}
         </div>
       )}
       {/*
-        A confirmação da rejeição ("o feedback será usado na próxima sugestão")
-        estava amarrada a `draft` existir. Agora a rejeitada some da tela — que é
-        o conserto —, e sem esta mudança a confirmação sumiria junto com ela: a
-        pessoa clicaria em Rejeitar e a tela apenas esvaziaria, sem dizer nada.
-        Quando ainda há sugestão, o aviso continua amarrado a ela.
+        O aviso de ERRO continua inline, amarrado ao rascunho que ele explica:
+        "sua edição foi preservada" só faz sentido ao lado do texto preservado —
+        como toast, ele chegaria depois, sem o bloco à vista para conferir.
+
+        A confirmação de sucesso NÃO passa por aqui: ela é toast (ver `decide`),
+        porque quando a sugestão sai da tela (enviada ou descartada) este bloco
+        sai junto, e o aviso inline sairia com ele.
       */}
       {avisoVisivel && notice && (
-          <p role="status" className="text-xs">
-            {notice.message}
-          </p>
-        )}
-        </div>
+        <p role="status" className="text-xs">
+          {notice.message}
+        </p>
+      )}
+    </section>
   );
 }

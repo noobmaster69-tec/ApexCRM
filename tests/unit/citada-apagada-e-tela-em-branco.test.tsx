@@ -101,10 +101,16 @@ describe("a citação de uma mensagem APAGADA não devolve o texto", () => {
  * decidiam por dados diferentes — a lista pelo id, a conversa pelo objeto já
  * carregado. Este bloco cobre os dois estados possíveis, não um caso feliz.
  */
-/** O que o navegador aplica abaixo do `md`: as variantes com prefixo não valem. */
+/**
+ * O que o navegador aplica abaixo do `md`: as classes sem prefixo e as com
+ * `max-md:` (sem o prefixo); as demais variantes não valem. `invisible` conta
+ * como escondida — é como a lista sai da frente sem perder a rolagem.
+ */
 function visivelNoCelular(classes: string): boolean {
-  const semPrefixo = classes.split(/\s+/).filter((c) => !c.includes(":"));
-  return semPrefixo.includes("flex") && !semPrefixo.includes("hidden");
+  const abaixoDoMd = classes
+    .split(/\s+/)
+    .flatMap((c) => (c.startsWith("max-md:") ? [c.slice("max-md:".length)] : c.includes(":") ? [] : [c]));
+  return abaixoDoMd.includes("flex") && !abaixoDoMd.includes("hidden") && !abaixoDoMd.includes("invisible");
 }
 
 describe("no celular sempre há exatamente UMA coluna na tela", () => {
@@ -133,4 +139,7 @@ describe("no celular sempre há exatamente UMA coluna na tela", () => {
       }
     }
   });
+
+  // (fork jhoow) A camada de tela cheia do 1.99 existe para ficar ACIMA da barra
+  // de abas do celular (BarraInferior), que o fork não tem — o caso saiu.
 });

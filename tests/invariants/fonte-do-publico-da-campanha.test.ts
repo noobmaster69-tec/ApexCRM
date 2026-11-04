@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * FONTE DO PÚBLICO DA CAMPANHA (migration 9017, fork jhoow — Campanhas › item 1).
+ * FONTE DO PÚBLICO DA CAMPANHA (migration 9917, fork jhoow — Campanhas › item 1).
  * A lista importada: RLS (a org lê, manager escreve e apaga, vizinho não vê),
  * FK da campanha em cascata, bucket privado, anon sem acesso, reaplicação.
  */
@@ -119,7 +119,7 @@ describe("campaign_audience_sources", () => {
 
   it("anon sem acesso; reaplicar não muda nada", () => {
     expect(sql(`select has_table_privilege('anon', 'public.campaign_audience_sources', 'select')`)).toBe("f");
-    const bloco = blocoDoBaseline("-- ---- fonte do público da campanha (migration 9017) ----");
+    const bloco = blocoDoBaseline("-- ---- fonte do público da campanha (migration 9917) ----");
     sql(bloco);
     sql(bloco);
     expect(sql(`select count(*) from public.campaign_audience_sources where organization_id = '${ORG_A}'`)).toBe("1");
@@ -130,7 +130,7 @@ describe("9021 — listas nomeadas", () => {
   it("nome opcional, 1–120 caracteres; reaplicar não muda nada", () => {
     sql(`update public.campaign_audience_sources set name = 'Advogados Lisboa' where id = '${LISTA}'`);
     expect(sqlstate(`update public.campaign_audience_sources set name = '   ' where id = '${LISTA}'`)).toBe("23514");
-    const r = "-- ---- listas nomeadas (migration 9021) ----";
+    const r = "-- ---- listas nomeadas (migration 9921) ----";
     sql(blocoDoBaseline(r));
     sql(blocoDoBaseline(r));
     expect(sql(`select name from public.campaign_audience_sources where id = '${LISTA}'`)).toBe("Advogados Lisboa");

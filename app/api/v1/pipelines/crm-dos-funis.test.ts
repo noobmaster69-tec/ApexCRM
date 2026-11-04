@@ -1,5 +1,5 @@
 /**
- * O `crm_id` nas rotas de funil (migration 9004): filtrar a lista, criar dentro
+ * O `crm_id` nas rotas de funil (migration 9904): filtrar a lista, criar dentro
  * de um CRM e mover de um CRM para outro.
  *
  * O caso que importa é o de fronteira: `crm_id` de OUTRA organização. A chave

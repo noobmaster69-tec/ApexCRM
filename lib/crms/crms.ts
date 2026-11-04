@@ -1,5 +1,5 @@
 /**
- * Regras puras dos CRMs — o nível acima dos funis (migration 9004).
+ * Regras puras dos CRMs — o nível acima dos funis (migration 9904).
  *
  * Organização → CRMs → Funis → Etapas → Cards. Um CRM agrupa funis que
  * compartilham público ou marca. Este arquivo não fala com o banco: as rotas
@@ -134,7 +134,7 @@ export interface FunilDoCrmArquivado {
  * Recusa arquivar o CRM que deixaria uma entrada de lead sem destino.
  *
  * ⚠️ ARQUIVAR O CRM ARQUIVA OS FUNIS DELE JUNTO, o principal inclusive (Funis no
- * modelo Kommo, Fase D — `fn_crm_arquivar`, migration 9009). A regra antiga
+ * modelo Kommo, Fase D — `fn_crm_arquivar`, migration 9909). A regra antiga
  * exigia "zero funil vivo", e com o funil principal fixo (9007) isso tornou todo
  * CRM inarquivável. Os negócios ficam como histórico, como no arquivar de funil.
  * O que continua barrando é o que barra arquivar um funil: ser o padrão, ou ter

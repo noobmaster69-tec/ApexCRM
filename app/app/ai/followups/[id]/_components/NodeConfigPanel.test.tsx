@@ -18,6 +18,8 @@ vi.mock("@/hooks/auth/AuthProvider", () => ({
   usePermission: () => false,
   // O bloco Etiquetas lê a conta para listar, criar e excluir (Etapa 1).
   useAuth: () => ({ user: { is_platform_admin: false, support: null }, activeOrg: null }),
+  // O bloco de contato do Fluxo (fork jhoow) mostra o telefone de exemplo do país.
+  usePaisDaOrgAtiva: () => "BR",
 }));
 // A lista de atribuição vem de uma rota; aqui o formulário só precisa de um
 // nome para mostrar — e jsdom não tem servidor.
@@ -26,6 +28,30 @@ vi.mock("@/hooks/inbox/useAssignableMembers", () => ({
     data: [{ user_id: "99999999-0000-4000-8000-000000000009", role: "agent", full_name: "Ana Souza" }],
   }),
 }));
+
+// #2630 — as etapas do funil vêm de uma rota por funil (jsdom não tem servidor);
+// aqui o que se mede é o CONTROLE, e não a leitura das etapas.
+const ETAPA_DO_FUNIL = "11111111-1111-4111-8111-111111111111";
+vi.mock("@/hooks/followup/useEtapasDeGatilho", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/hooks/followup/useEtapasDeGatilho")>();
+  return {
+    ...real,
+    useEtapasDeGatilho: () => ({
+      etapas: [
+        {
+          stageId: ETAPA_DO_FUNIL,
+          stageName: "Proposta enviada",
+          pipelineId: "funil-1",
+          pipelineName: "Funil Comercial",
+          isPerda: false,
+          settingsDoFunil: null,
+        },
+      ],
+      carregando: false,
+      falhou: false,
+    }),
+  };
+});
 
 function noDe(type: (typeof NODE_TYPES)[number]): RFNode {
   const visual = NODE_VISUALS[type];
@@ -205,3 +231,44 @@ function renderizar(tipo: (typeof NODE_TYPES)[number], surface: "followup" | "fl
     </QueryClientProvider>,
   );
 }
+
+/**
+ * #2630 — A ENTRADA POR ETAPA DO FUNIL, na tela.
+ *
+ * O campo tem de viver no `settings` do grafo (e não em `trigger_config`: na
+ * superfície de atendimento o gatilho é obrigado a `manual`, e o publicador
+ * responde 422 a qualquer outro kind). A etapa é oferecida PELO NOME — o funil
+ * junto, para distinguir as homônimas —, e o grafo guarda o id da etapa.
+ */
+describe("NodeConfigPanel — começar quando o card entrar na etapa (#2630)", () => {
+  it("⭐ marca a etapa do funil e grava `etapas_do_funil` no grafo, pelo id", async () => {
+    const onSettingsChange = vi.fn();
+    montarCom("trigger", { surface: "atendimento", onSettingsChange });
+
+    const caixa = screen.getByRole("checkbox", { name: "Proposta enviada · Funil Comercial" });
+    expect(caixa).not.toBeChecked();
+
+    await userEvent.setup({ delay: null }).click(caixa);
+
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ etapas_do_funil: [ETAPA_DO_FUNIL], max_tentativas_pergunta: 3 }),
+    );
+  });
+
+  it("desmarcar a última etapa tira a chave do grafo, sem perder as outras configurações", async () => {
+    const onSettingsChange = vi.fn();
+    montarCom("trigger", {
+      surface: "atendimento",
+      settings: { max_tentativas_pergunta: 4, etapas_do_funil: [ETAPA_DO_FUNIL] },
+      onSettingsChange,
+    });
+
+    const caixa = screen.getByRole("checkbox", { name: "Proposta enviada · Funil Comercial" });
+    expect(caixa).toBeChecked();
+
+    await userEvent.setup({ delay: null }).click(caixa);
+
+    const gravado = onSettingsChange.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(gravado).toEqual({ max_tentativas_pergunta: 4 });
+  });
+});

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LanguageModel } from "ai";
 import { loadCredential } from "@/lib/ai/credentials";
 import { instanciar } from "@/lib/ai/gateway-binding";
+import { IDS_DE_PROVEDOR } from "@/lib/ai/pontos/provedores";
 
 /**
  * Tarefas pequenas de texto que a TELA pede (fork jhoow): traduzir um fluxo,
@@ -18,7 +19,8 @@ const MODELO_LEVE: Record<string, string> = {
   openrouter: "openai/gpt-4o-mini",
   requesty: "openai/gpt-4o-mini",
 };
-const PREFERENCIA = ["anthropic", "openai", "google", "openrouter", "deepseek", "requesty", "custom"];
+/** A ordem da preferência é a da lista de provedores (Anthropic > OpenAI > Google > …). */
+const PREFERENCIA: readonly string[] = IDS_DE_PROVEDOR;
 
 /**
  * O modelo LEVE da empresa (traduzir fluxo, resumir conversa): a credencial ativa e validada mais

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * A PORTA "Funis" (/app/kanban) VIRA "CRMs" (/app/crms) NOS DADOS (migration 9005).
+ * A PORTA "Funis" (/app/kanban) VIRA "CRMs" (/app/crms) NOS DADOS (migration 9905).
  *
  * No catálogo de navegação o `href` é o identificador do item, e três colunas o
  * guardam. O leitor descarta id desconhecido EM SILÊNCIO, então o defeito que a
@@ -32,7 +32,7 @@ function sql(script: string): string {
 
 function blocoDaMigration(): string {
   const baseline = readFileSync(join(__dirname, "..", "..", "supabase", "baseline.sql"), "utf8");
-  const rotulo = '-- ---- menu: a porta "Funis" (/app/kanban) vira "CRMs" (/app/crms) (migration 9005) ----';
+  const rotulo = '-- ---- menu: a porta "Funis" (/app/kanban) vira "CRMs" (/app/crms) (migration 9905) ----';
   const inicio = baseline.lastIndexOf(rotulo);
   if (inicio < 0) throw new Error("bloco da 9005 ausente do baseline");
   const proximo = baseline.indexOf("\n-- ---- ", inicio + rotulo.length);

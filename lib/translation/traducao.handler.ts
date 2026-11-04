@@ -16,6 +16,8 @@ export const TRADUCAO_HANDLER_KEY = "traducao-automatica.v1";
 export const traducaoHandler: EventHandler = {
   key: TRADUCAO_HANDLER_KEY,
   events: ["message.received", "contact.locale_changed"],
+  // Traduzir chama o modelo (custa dinheiro): org parada não traduz.
+  naOrgParada: "pula",
   async handle(row): Promise<HandlerResult> {
     try {
       const admin = createAdminClient();

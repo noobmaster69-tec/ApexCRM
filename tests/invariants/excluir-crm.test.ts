@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * EXCLUIR CRM DE VEZ (migration 9012, fork jhoow — card de CRM).
+ * EXCLUIR CRM DE VEZ (migration 9912, fork jhoow — card de CRM).
  *
  * `fn_crm_excluir` recusa o CRM padrão, o CRM com negócio e o CRM com captura
  * (CASCADE escondido); apaga funis, etapas e o CRM numa transação; respeita a
@@ -118,7 +118,7 @@ describe("fn_crm_excluir", () => {
 
   it("anon não executa; reaplicar o bloco não muda nada", () => {
     expect(sql(`select has_function_privilege('anon', 'public.fn_crm_excluir(uuid)', 'execute')`)).toBe("f");
-    const bloco = blocoDoBaseline("-- ---- excluir CRM de vez (migration 9012) ----");
+    const bloco = blocoDoBaseline("-- ---- excluir CRM de vez (migration 9912) ----");
     sql(bloco);
     sql(bloco);
   });

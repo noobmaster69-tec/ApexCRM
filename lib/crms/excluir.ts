@@ -1,5 +1,5 @@
 /**
- * EXCLUIR um CRM de vez (fork jhoow, menu "⋯" do card; migration 9012). Arquivar
+ * EXCLUIR um CRM de vez (fork jhoow, menu "⋯" do card; migration 9912). Arquivar
  * é para quem tem história; excluir só passa num CRM que nunca recebeu negócio
  * e que nada do resto do sistema aponta. A régua é a do excluir FUNIL
  * (`lerDependencias`), aplicada a todo funil do CRM, vivo ou arquivado.

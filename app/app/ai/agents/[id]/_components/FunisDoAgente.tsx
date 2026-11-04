@@ -18,12 +18,23 @@
  *  3. **Não usa jargão.** Nada de "escopo" nem de nome de coluna: o dono do
  *     negócio lê "mexer em negócio", que é o que de fato acontece.
  */
+import Link from "next/link";
 import * as React from "react";
 
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useT } from "@/hooks/i18n/useT";
 import type { FunilDaResposta } from "@/hooks/pipelines/usePipelines";
+import { NAV_DESTINATIONS, NAV_GROUPS } from "@/lib/navigation/registry";
+
+/**
+ * O caminho da tela das etapas, LIDO do catálogo da navegação: grupo, o hub
+ * quando o grupo tem um, e a tela. No fork (jhoow) os grupos não têm hub, e o
+ * texto fixo do 1.99 ("CRM › Ver tudo em CRM › …") mandava para um menu que não
+ * existe aqui.
+ */
+const ETAPAS_DO_FUNIL = NAV_DESTINATIONS.find((d) => d.href === "/app/settings/tenant/pipelines");
+const GRUPO_DAS_ETAPAS = NAV_GROUPS.find((g) => g.id === ETAPAS_DO_FUNIL?.group);
 
 /** Quanto de cada funil o assistente sabe percorrer (spec 17 passo 4). */
 export interface CoberturaPorFunil {
@@ -135,7 +146,24 @@ export function FunisDoAgente({ funis, value, onChange, cobertura, disabled = fa
           {mudosMarcados.length === 1
             ? `${t("Você marcou")} ${mudosMarcados[0]}${t(", mas ninguém disse ao assistente o que cada etapa desse funil significa — ele vai atender e deixar os negócios parados onde estão.")}`
             : `${t("Você marcou")} ${mudosMarcados.length} ${t("funis em que ninguém disse ao assistente o que cada etapa significa — ele vai atender e deixar os negócios parados onde estão.")}`}{" "}
-          {t(" Isso se configura em Configurações › Funis.")}
+          {/* O caminho é o do menu (`lib/navigation/catalogo.ts`): a tela das
+              etapas mora no CRM desde a reorganização da navegação, e o texto
+              antigo ("Configurações › Funis") mandava para um lugar que não existe. */}
+          {t("Isso se configura em")}{" "}
+          <Link
+            href="/app/settings/tenant/pipelines"
+            className="underline underline-offset-2"
+            data-testid="agente-funis-mudos-caminho"
+          >
+            {[
+              GRUPO_DAS_ETAPAS && t(GRUPO_DAS_ETAPAS.label),
+              GRUPO_DAS_ETAPAS?.hub && t(GRUPO_DAS_ETAPAS.hub.label),
+              ETAPAS_DO_FUNIL && t(ETAPAS_DO_FUNIL.label),
+            ]
+              .filter(Boolean)
+              .join(" › ")}
+          </Link>
+          .
         </p>
       ) : null}
 

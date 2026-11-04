@@ -17,7 +17,7 @@ export const metadata: Metadata = { title: "CRM" };
 
 /**
  * Um CRM aberto: os FUNIS dele — a lista que era `/app/kanban`, recortada por
- * `crm_id` (migration 9004). Dentro do funil nada muda: o quadro continua em
+ * `crm_id` (migration 9904). Dentro do funil nada muda: o quadro continua em
  * `/app/pipelines/[id]`.
  *
  * O endereço é o SLUG, não o uuid: é o que a pessoa lê no card ("/pedidos") e o

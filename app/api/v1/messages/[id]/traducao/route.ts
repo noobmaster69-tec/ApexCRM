@@ -50,6 +50,7 @@ export async function POST(_req: NextRequest, ctx: Ctx): Promise<Response> {
     .from("messages")
     .select("id, content_translated, content_locale, translated_to, translated_at, translation_status")
     .eq("id", id)
+    .eq("organization_id", authz.org.orgId)
     .maybeSingle();
   if (desfecho === "falhou") {
     return fail("traducao_indisponivel", t("Tradução indisponível. Tente de novo em instantes."), 502, { requestId });

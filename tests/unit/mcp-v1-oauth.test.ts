@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BancoEmMemoria } from "../helpers/banco-em-memoria";
 
 /**
- * O OAuth 2.1 das conexões MCP (migration 9023), com o banco em memória:
+ * O OAuth 2.1 das conexões MCP (migration 9923), com o banco em memória:
  * registro dinâmico → consentimento (vira uma conexão como as outras) →
  * código com PKCE S256 → par access/refresh → rotação → reuso revoga.
  */

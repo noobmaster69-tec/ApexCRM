@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { classificarAudiencia, consentiuMarketing, motivoParaExcluir, type CandidatoDaAudiencia } from "./elegibilidade";
 import { TEXTO_DA_EXCLUSAO } from "./tipos";
 
-const base = { contactId: "c1", telefone: "+5511999999999", bloqueado: false, anonimizado: false, recusouMarketing: false };
+const base = { contactId: "c1", telefone: "+5511999999999", bloqueado: false, pessoal: false, anonimizado: false, recusouMarketing: false };
 
 describe("base legal CONSENTIMENTO (item 6)", () => {
   it("antes deste item: consentimento só barrava quem RECUSOU — agora barra quem não consentiu", () => {

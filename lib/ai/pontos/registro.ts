@@ -151,11 +151,27 @@ export interface PontoDeIa {
    */
   /**
    * Ponto que o produto resolve sozinho — a escolha do painel não se aplica.
-   * `usa` diz o que ele de fato chama: sem isso a tela caía na cadeia de
-   * resolução dos pontos de conversa e anunciava um modelo de chat num ponto
-   * que fala com a API de transcrição.
+   *
+   * `usa` diz o que ele de fato chama, em par fechado: serve para o que NÃO
+   * tem degrau. `escada` é o caso contrário — o ponto não tem resposta própria,
+   * e o resolvedor devolve o degrau que quem chamou decidiu
+   * (`entrada.transcricao`). Marcar `escada` é o que impede a tela de voltar a
+   * anunciar um `whisper-1` fixo para quem transcreve pelo modelo de conversa
+   * da organização (#2190).
+   *
+   * `opcoes`, quando presente, é o menu FECHADO de serviços entre os quais o
+   * painel deixa escolher — fechado porque o ponto não fala a API de chat. Com
+   * `escada`, o menu só escolhe o degrau 0 dela (ver `escada-de-transcricao.ts`);
+   * a escolha grava em `ai_purpose_bindings` como qualquer outra. A PRIMEIRA
+   * opção é a padrão: é nela que o painel abre quando o efetivo não casa com
+   * nenhuma (`CartaoDoPonto`).
    */
-  fixo?: { razao: string; usa?: { provider: string; modelId: string } };
+  fixo?: {
+    razao: string;
+    usa?: { provider: string; modelId: string };
+    escada?: "transcricao";
+    opcoes?: readonly { provider: string; modelId: string; rotulo: string }[];
+  };
   registraEm: DestinoDeTelemetria;
   /**
    * O ponto sabe ser decidido pelo Jev (`lib/ai/decisao/`), que devolve decisão
@@ -169,6 +185,16 @@ export interface PontoDeIa {
     oQueOJevFaz: string;
   };
 }
+
+/**
+ * Ids dos dois pontos que gravam em `llm_calls` FORA do seam, por insert direto
+ * do worker de mídia — constante, para o `purpose` gravado e o id daqui não
+ * divergirem (a tela de Execuções rotula a linha pelo id). As entradas abaixo
+ * seguem com o id LITERAL, porque testes ancoram o recorte do ponto nele;
+ * `midia-grava-custo-em-llm-calls` confere que cada constante casa com uma entrada.
+ */
+export const PONTO_TRANSCRICAO_DE_AUDIO = "transcricao_de_audio";
+export const PONTO_VISAO_DE_IMAGEM = "visao_de_imagem";
 
 export const PONTOS_DE_IA: readonly PontoDeIa[] = [
   {
@@ -400,6 +426,18 @@ export const PONTOS_DE_IA: readonly PontoDeIa[] = [
       "Dado errado entra no cadastro do cliente (ex.: o modelo grava a resposta na pergunta errada) ou o cliente fica sem a pergunta seguinte.",
     registraEm: "llm_calls",
   },
+  {
+    id: "conversion_value_from_conversation",
+    rotulo: "Ler o valor da venda na conversa",
+    oQueFaz:
+      "Quando um negócio vindo de anúncio da Meta é ganho sem valor preenchido, lê a conversa e acha o valor e o produto vendidos, para a compra ser reportada à Meta. Só aceita valor que aparece escrito na conversa.",
+    papel: "entender",
+    exige: { tools: true },
+    emissor: "lib/conversoes/valor-da-conversa.ts",
+    sintomaDeFalha:
+      "A venda vinda de anúncio fica como pendência 'sem valor' em Configurações › Conversões, e a Meta não recebe a compra até alguém preencher o valor do negócio.",
+    registraEm: "llm_calls",
+  },
 
   // ────────────────────────── Proteger a operação ──────────────────────────
   {
@@ -430,6 +468,27 @@ export const PONTOS_DE_IA: readonly PontoDeIa[] = [
     sintomaDeFalha:
       "O agente promete ao cliente coisas que a operação não entrega, e a cobrança chega depois.",
     registraEm: "llm_calls",
+  },
+
+  {
+    // A conferência de fato (#2231): o ponto é dela (o Jev responde por aqui, e
+    // a credencial é a que resolve), não uma IA de sempre reservada — quem
+    // decide é só o Jev, e sem resposta a frase segue como está (fail-open).
+    id: "afirmacao_de_fato",
+    rotulo: "Conferir afirmações de fato na resposta",
+    oQueFaz:
+      "Lê a resposta que o assistente vai enviar e confere, nas evidências consultadas neste turno, se o que ele afirma sobre o negócio está escrito ali — ou se o material diz o contrário.",
+    papel: "proteger",
+    exige: {},
+    emissor: "lib/ai/decisao/afirmacao-de-fato.ts",
+    sintomaDeFalha:
+      "O agente diz ao cliente um horário, um preço ou um endereço que não está em nenhum material, e a pessoa vai até a loja ou à recepção por algo que não é verdade.",
+    registraEm: "llm_calls",
+    decisaoRapida: {
+      primitiva: "noul",
+      oQueOJevFaz:
+        "Lê a resposta que o assistente vai enviar e confere, nas evidências consultadas neste turno, se o que ele afirma sobre o negócio está escrito ali — ou se o material diz o contrário.",
+    },
   },
 
   // ─────────────────────────── Lembrar e buscar ────────────────────────────
@@ -516,25 +575,41 @@ export const PONTOS_DE_IA: readonly PontoDeIa[] = [
     emissor: "lib/messaging/media/transcription.ts",
     fixo: {
       razao:
-        "Usa o padrão de transcrição da OpenAI, que é o formato que os serviços do mercado implementam. Aceita apontar para outro serviço compatível — inclusive um rodando na sua própria máquina — mas exige uma chave desse serviço, separada da chave do modelo de conversa.",
-      // ⚠️ O QUE ELE USA DE VERDADE, e por que precisa estar escrito aqui.
+        "Este ponto não tem modelo escolhido no painel: quem ouve o áudio é a escada de transcrição, e ela decide a cada nota de voz. Primeiro o serviço desta instalação (TRANSCRIPTION_API_KEY); na falta dele, a chave OpenAI com o modelo de transcrição de sempre (whisper-1, ou o que TRANSCRIPTION_MODEL trouxer); se a conversa da organização for OpenRouter, a própria OpenRouter transcreve com a mesma chave; e quando não há chave OpenAI nenhuma, o modelo de conversa da organização — desde que ele declare a capacidade de áudio, que é como uma organização só com Gemini transcreve. Sem nenhum dos quatro, o áudio não vira texto, e o motivo aparece aqui. Por isso fixar um provedor aqui apagaria os degraus seguintes. A única escolha é usar o ElevenLabs (Scribe) antes de todos eles, com a chave do ElevenLabs da organização; sem essa chave, vale a ordem acima.",
+      // ⚠️ POR QUE NÃO HÁ MAIS um par fixo (provider "openai" + "whisper-1")
+      // neste ponto (#2190): o objeto `fixo` vive sem o campo que declarava
+      // esse par.
       //
-      // A tela mostrava `claude-sonnet-5` neste ponto, com "usando o padrão da
-      // organização" — porque um ponto `fixo` percorria a mesma cadeia de
-      // resolução dos pontos de conversa e caía no último degrau. O texto ao
-      // lado dizia "usa o padrão de transcrição da OpenAI", então a mesma tela
-      // afirmava duas coisas incompatíveis sobre o mesmo ponto.
+      // Depois da #2189 quem ouve o áudio é a ESCADA
+      // (`lib/messaging/media/escada-de-transcricao.ts`), e a organização SEM
+      // chave OpenAI transcreve pelo próprio modelo de conversa. O par fixo
+      // continuava anunciando `whisper-1` — e o texto ao lado dizendo "exige
+      // uma chave desse serviço" —, ou seja, a tela apontava um caminho que
+      // ninguém vai usar para uma organização que já está ouvindo o áudio. Dois
+      // caminhos anunciados para o mesmo áudio.
       //
-      // Um modelo de conversa NÃO transcreve áudio. Anunciar um ali é dizer a
-      // quem opera que o áudio está sendo ouvido pelo modelo errado — e mandá-lo
-      // caçar um problema que não existe, ou trocar um modelo que não é o que
-      // faz o trabalho. `lib/messaging/media/transcription.ts` manda para
-      // `/v1/audio/transcriptions` com `whisper-1`.
-      usa: { provider: "openai", modelId: "whisper-1" },
+      // O anúncio certo não cabe num literal: depende de quem chamou. Por isso
+      // o ponto declara `escada: "transcricao"` e o resolvedor devolve o que a
+      // escada decidiu (`entrada.transcricao`); quem roda a escada é a rota do
+      // painel, com a MESMA `decidirTranscricao` do worker. A régua em
+      // `tests/unit/a-tela-e-o-motor-concordam-sobre-imagem.test.ts` compara os
+      // dois lados e reprova a volta de um provider fixo.
+      escada: "transcricao",
+      // O menu é a única escolha que a escada aceita de fora: o ElevenLabs
+      // (Scribe) é o degrau 0 dela, e só vale quando escolhido aqui — ter a
+      // chave do ElevenLabs para a VOZ do agente não é escolher transcrever com
+      // ele. "Automático" é a escada sem o degrau 0; o par openai/whisper-1 é só
+      // a etiqueta gravada dessa escolha, porque não há como apagar um binding
+      // pela tela. Nenhum dos dois é OpenAI-compatível com o outro: o Scribe
+      // mora em `transcription-elevenlabs.ts` (`/v1/speech-to-text`, `xi-api-key`).
+      opcoes: [
+        { provider: "openai", modelId: "whisper-1", rotulo: "Automático" },
+        { provider: "elevenlabs", modelId: "scribe_v1", rotulo: "ElevenLabs (Scribe)" },
+      ],
     },
     sintomaDeFalha:
       "O cliente manda áudio e o agente responde como se não tivesse recebido nada.",
-    registraEm: "nenhum",
+    registraEm: "llm_calls",
   },
   {
     id: "visao_de_imagem",
@@ -546,7 +621,24 @@ export const PONTOS_DE_IA: readonly PontoDeIa[] = [
     emissor: "workers/media-derive-worker.ts",
     sintomaDeFalha:
       "O cliente manda uma foto do produto ou um comprovante e o agente age como se a imagem não existisse.",
-    registraEm: "nenhum",
+    registraEm: "llm_calls",
+  },
+  {
+    id: "sintese_de_voz",
+    rotulo: "Responder o cliente falando",
+    oQueFaz:
+      "Transforma a resposta do agente em nota de voz, nas organizações e versões que ligaram essa opção.",
+    papel: "atender",
+    exige: {},
+    emissor: "lib/agent-engine/edge/crm/send-message.ts",
+    fixo: {
+      razao:
+        "Usa o ElevenLabs — não é um modelo de conversa, e hoje não há um segundo serviço de síntese para escolher entre.",
+      usa: { provider: "elevenlabs", modelId: "eleven_multilingual_v2" },
+    },
+    sintomaDeFalha:
+      "A organização ligou a resposta em voz e o agente continua respondendo só em texto.",
+    registraEm: "llm_calls",
   },
 
   // ────────────────────────── Melhorar e testar ────────────────────────────

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { IDS_COM_CHAVE } from "@/lib/ai/pontos/provedores";
+import { IDS_DE_PROVEDOR } from "@/lib/ai/pontos/provedores";
 
 /**
  * Os 11 blocos do construtor de FLUXOS (fork jhoow, Etapa 2 do master plan) —
@@ -279,10 +279,11 @@ export const intervaloConfigSchema = z.discriminatedUnion("modo", [
 
 // ── #10 Bloco de IA ─────────────────────────────────────────────────────────
 /**
- * Os provedores do bloco são os de IA › Credenciais — a lista única
- * (`lib/ai/pontos/provedores.ts`); `instanciar` sabe chamar todos eles.
+ * Os provedores do bloco são os que ESCREVEM texto — `PROVEDORES`, a lista única
+ * (`lib/ai/pontos/provedores.ts`). Não a união com os de decisão (o Jev): ele
+ * só classifica, e `instanciar` não o executa como modelo de conversa.
  */
-export const PROVEDORES_DO_BLOCO_DE_IA = IDS_COM_CHAVE;
+export const PROVEDORES_DO_BLOCO_DE_IA = IDS_DE_PROVEDOR;
 /** Ids que as saídas da IA não podem usar: são as saídas fixas do bloco. */
 const IDS_RESERVADOS_DA_IA = ["falha", "else"];
 

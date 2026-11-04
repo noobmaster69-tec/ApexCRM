@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * As regras PURAS das conexões MCP v1 (migration 9023): escopos, perfis,
+ * As regras PURAS das conexões MCP v1 (migration 9923): escopos, perfis,
  * permissão efetiva, mascaramento, tokens, lista de bloqueio, limites de uso e
  * as conferências do OAuth. O caminho pela rota, com o cliente oficial do SDK,
  * está em `mcp-v1-rota.test.ts`.

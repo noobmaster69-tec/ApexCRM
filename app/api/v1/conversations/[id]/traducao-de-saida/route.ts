@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
+import { requireSupportWrite } from "@/lib/impersonate/support";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -20,6 +21,9 @@ export const dynamic = "force-dynamic";
 const corpo = z.object({ texto: z.string().min(1).max(4096), para: z.enum(IDIOMAS_OFERECIDOS).optional() });
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("agent", { requestId, resource: "messages" });
   if (!authz.ok) return authz.response;

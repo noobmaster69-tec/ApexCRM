@@ -5,7 +5,7 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  * POST /api/v1/crms — cria um CRM vazio. Os funis entram por
  *                     `POST /api/v1/pipelines` com `crm_id`.
  *
- * CRM é o nível acima do funil (migration 9004): Organização → CRMs → Funis.
+ * CRM é o nível acima do funil (migration 9904): Organização → CRMs → Funis.
  *
  * Auth: sessão por cookie. Ler é de qualquer papel (é a porta dos quadros);
  * criar é manager+, como criar funil. `organization_id` sai da sessão — nunca
