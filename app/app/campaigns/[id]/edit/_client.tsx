@@ -1,6 +1,6 @@
 "use client";
 /**
- * Editar campanha — o MESMO formulário do criar (`_form/FormularioDaCampanha`).
+ * Editar campanha — o MESMO assistente do criar (`_form/FormularioDaCampanha`).
  * Antes este arquivo tinha um formulário próprio que não carregava nem salvava
  * o funil/etapa do público, o ritmo e os números do rodízio: salvar um rascunho
  * editado apagava esses filtros.
@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useCampanha, useEditarCampanha } from "@/hooks/campanhas/useCampanhas";
+import { useCampanha } from "@/hooks/campanhas/useCampanhas";
 import { useT } from "@/hooks/i18n/useT";
 
 import { FormularioDaCampanha } from "../../_form/FormularioDaCampanha";
@@ -20,7 +20,6 @@ export function EditarCampanha({ id }: { id: string }) {
   const t = useT();
   const router = useRouter();
   const campanha = useCampanha(id);
-  const salvar = useEditarCampanha(id);
 
   if (campanha.isLoading) {
     return (
@@ -65,19 +64,11 @@ export function EditarCampanha({ id }: { id: string }) {
 
   return (
     <FormularioDaCampanha
-      // Uma carga só: o `key` remonta o formulário se a campanha trocar, e o
+      // Uma carga só: o `key` remonta o assistente se a campanha trocar, e o
       // refetch do detalhe não apaga a edição em andamento.
       key={c.id}
-      titulo={t("Editar campanha")}
-      subtitulo={t("Enquanto é rascunho, tudo muda. Depois de preparada, só o ritmo.")}
+      campanhaId={c.id}
       inicial={valoresDaCampanha(c)}
-      salvando={salvar.isPending}
-      rotuloDoSalvar={t("Salvar alterações")}
-      onSalvar={async (corpo) => {
-        await salvar.mutateAsync(corpo);
-        router.push(`/app/campaigns/${id}`);
-      }}
-      onCancelar={() => router.push(`/app/campaigns/${id}`)}
     />
   );
 }

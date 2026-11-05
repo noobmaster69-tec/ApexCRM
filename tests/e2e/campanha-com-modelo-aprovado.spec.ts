@@ -89,6 +89,24 @@ async function login(page: Page, email: string, senha: string): Promise<void> {
   await page.waitForURL(/\/app/, { timeout: 60_000 });
 }
 
+/** Assistente de 5 passos: o número sai de cartões (até 4) ou do seletor (mais de 4). */
+async function escolherCanal(page: Page, id: string): Promise<void> {
+  const cartao = page.getByTestId(`canal-${id}`);
+  const seletor = page.locator("select#canal");
+  await expect(cartao.or(seletor)).toBeVisible({ timeout: 30_000 });
+  if (await seletor.count()) await seletor.selectOption(id);
+  else await cartao.click();
+}
+
+/** Passo 2: público "Por etiqueta", escolhendo a etiqueta no painel. */
+async function escolherEtiqueta(page: Page, etiqueta: string): Promise<void> {
+  await page.getByTestId("fonte-etiqueta").click();
+  await page.locator("#com-tags").click();
+  await page.getByLabel("Buscar etiqueta...").fill(etiqueta);
+  await page.getByRole("button", { name: etiqueta, exact: true }).click();
+  await page.keyboard.press("Escape");
+}
+
 test.describe("Campanhas — número oficial manda modelo aprovado", () => {
   test.describe.configure({ mode: "serial", timeout: 240_000 });
 
@@ -219,7 +237,8 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     await page.goto("/app/campaigns/new");
 
     await page.locator("#nome").fill(NOME_DA_CAMPANHA);
-    await page.locator("#canal").selectOption(sessaoId);
+    await escolherCanal(page, sessaoId);
+    await page.getByTestId("passo-3").click();
 
     // Número oficial: o campo de texto livre dá lugar ao seletor de modelos.
     const bloco = page.getByTestId("modelo-da-campanha");
@@ -248,13 +267,15 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     await page.screenshot({ path: path.join(EVIDENCIA, "01-modelo-escolhido-com-previa.png"), fullPage: true });
 
     // Público pela etiqueta: quem tem nome que é só telefone fica de fora, com o motivo.
-    await page.getByLabel("Com alguma destas etiquetas").fill(ETIQUETA);
-    await page.getByRole("button", { name: "Ver quantas pessoas" }).click();
-    await expect(page.getByText(/1\s*podem receber/)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Falta um dado que a mensagem usa/)).toBeVisible();
+    await page.getByTestId("passo-2").click();
+    await escolherEtiqueta(page, ETIQUETA);
+    const receber = page.getByTestId("quem-vai-receber");
+    await expect(receber.getByTestId("quem-vai-receber-numero")).toHaveText("1", { timeout: 30_000 });
+    await expect(receber.getByText("Sem um dado da mensagem")).toBeVisible();
     await page.screenshot({ path: path.join(EVIDENCIA, "02-publico-com-quem-fica-de-fora.png"), fullPage: true });
 
-    await page.getByRole("button", { name: "Salvar rascunho" }).click();
+    await page.getByTestId("passo-5").click();
+    await page.getByTestId("salvar-campanha").click();
     await page.waitForURL(/\/app\/campaigns\/[0-9a-f-]{36}$/, { timeout: 60_000 });
     campanhaId = page.url().split("/").pop()!;
 
@@ -370,15 +391,18 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     await page.goto("/app/campaigns/new");
 
     await page.locator("#nome").fill(`Rápida E2E ${SUFIXO}`);
-    await page.locator("#canal").selectOption(sessaoId);
+    await escolherCanal(page, sessaoId);
+    await page.getByTestId("passo-3").click();
     await expect(page.getByTestId("modelo-da-campanha")).toBeVisible({ timeout: 30_000 });
     await page.locator("#modelo").selectOption(`${MODELO}|pt_BR`);
     await page.getByLabel("Origem: {{1}}", { exact: true }).selectOption("contact_first_name");
     await page.getByLabel("Origem: {{2}}", { exact: true }).selectOption("fixed");
     await page.getByLabel("Texto fixo: {{2}}", { exact: true }).fill("Cafeteira Elétrica");
-    await page.getByLabel("Com alguma destas etiquetas").fill(ETIQUETA_RAPIDA);
+    await page.getByTestId("passo-2").click();
+    await escolherEtiqueta(page, ETIQUETA_RAPIDA);
+    await page.getByTestId("passo-5").click();
     await page.getByTestId("velocidade-da-campanha").getByRole("radio", { name: "Rápido" }).check();
-    await page.getByRole("button", { name: "Salvar rascunho" }).click();
+    await page.getByTestId("salvar-campanha").click();
     await page.waitForURL(/\/app\/campaigns\/[0-9a-f-]{36}$/, { timeout: 60_000 });
     campanhaRapidaId = page.url().split("/").pop()!;
 
@@ -456,13 +480,15 @@ test("campanha de texto prepara a reserva e o dado preenchido pelo mesmo fluxo d
     // público e snapshot abaixo conferem a empresa real da sessão.
     await page.goto("/app/campaigns/new");
     await page.locator("#nome").fill(nome);
-    await page.locator("#canal").selectOption(canal);
-    await expect(page.getByText('Para não depender do dado, ponha um texto de reserva: {{primeiro_nome|"aluno"}}.')).toBeVisible();
+    await escolherCanal(page, canal);
+    await page.getByTestId("passo-3").click();
+    await expect(page.getByText("Quem não tiver o dado que a mensagem usa fica de fora. Para um texto de reserva, use a barra:")).toBeVisible();
     await page.getByRole("textbox", { name: "Texto da mensagem" }).fill('Oi {{primeiro_nome|"aluno"}}!');
-    await page.getByLabel("Com alguma destas etiquetas").fill(etiqueta);
-    await page.getByRole("button", { name: "Ver quantas pessoas" }).click();
-    await expect(page.getByText(/2\s*podem receber/)).toBeVisible();
-    await page.getByRole("button", { name: "Salvar rascunho" }).click();
+    await page.getByTestId("passo-2").click();
+    await escolherEtiqueta(page, etiqueta);
+    await expect(page.getByTestId("quem-vai-receber-numero")).toHaveText("2", { timeout: 30_000 });
+    await page.getByTestId("passo-5").click();
+    await page.getByTestId("salvar-campanha").click();
     await page.waitForURL(/\/app\/campaigns\/[0-9a-f-]{36}$/);
     campanha = page.url().split("/").pop()!;
     await page.getByRole("button", { name: "Preparar lista" }).click();

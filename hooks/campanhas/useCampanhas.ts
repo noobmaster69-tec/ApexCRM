@@ -11,6 +11,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import { apiClient } from "@/lib/api/client";
 import type { ContagemDaCampanha, TaxasDaCampanha } from "@/lib/campanhas/metricas";
+import type { ContagemDaLinha, TotaisDoPeriodo } from "@/lib/campanhas/resumo";
 import type { FonteDaCampanha } from "@/lib/campanhas/modelo";
 import type { StatusDaCampanha } from "@/lib/campanhas/tipos";
 
@@ -154,6 +155,78 @@ export function useCampanhas(filtros: { status?: string; limit?: number }) {
   });
 }
 
+/** Uma linha da tabela de Campanhas — `GET /api/v1/campaigns/resumo`. */
+export interface CampanhaDoResumo {
+  id: string;
+  nome: string;
+  status: StatusDaCampanha;
+  tipo: "fluxo" | "mensagem";
+  conteudo_origem: "fluxo" | "modelo" | "texto";
+  conteudo: string | null;
+  lista: {
+    tipo: "lista" | "funil" | "etiquetas" | "crm";
+    id: string | null;
+    nome: string | null;
+    /** Contatos elegíveis da lista montada (0 enquanto não preparada). */
+    total: number;
+    preparada: boolean;
+  };
+  criada_em: string;
+  iniciada_em: string | null;
+  concluida_em: string | null;
+  cancelada_em: string | null;
+  agendada_em: string | null;
+  proximo_envio_em: string | null;
+  ritmo: {
+    cadencia_segundos: number | null;
+    janela_inicio_minuto: number | null;
+    janela_fim_minuto: number | null;
+    fuso: string | null;
+    cota_quantidade: number | null;
+    cota_periodo: string | null;
+    teto_diario: number | null;
+  };
+  contagem: ContagemDaLinha;
+  leitura_disponivel: boolean;
+}
+
+export interface ResumoDasCampanhas {
+  periodo: { de: string; ate: string };
+  resumo: TotaisDoPeriodo;
+  campanhas: CampanhaDoResumo[];
+  total_na_conta: number;
+  parcial: boolean;
+}
+
+/**
+ * O resumo do período. Reconsulta a cada 30 s enquanto houver campanha enviando
+ * (o destaque ao vivo tem a própria consulta, de 5 s); o react-query para de
+ * reconsultar sozinho com a aba escondida.
+ */
+export function useResumoDasCampanhas(periodo: { de: string; ate: string } | null) {
+  return useQuery({
+    queryKey: ["campanhas-resumo", periodo?.de ?? null, periodo?.ate ?? null],
+    enabled: periodo !== null,
+    queryFn: async () => {
+      const qs = new URLSearchParams({ de: periodo!.de, ate: periodo!.ate });
+      return (await apiClient.get<{ data: ResumoDasCampanhas }>(`/api/v1/campaigns/resumo?${qs.toString()}`)).data;
+    },
+    placeholderData: (anterior) => anterior,
+    refetchInterval: (q) => (q.state.data?.campanhas.some((c) => c.status === "running") ? 30_000 : false),
+  });
+}
+
+/** As métricas da campanha que está no destaque "Enviando agora": a cada 5 s, só com a aba visível. */
+export function useMetricasAoVivo(id: string | null) {
+  return useQuery({
+    queryKey: ["campanha-metricas", id],
+    enabled: id !== null,
+    queryFn: async () => (await apiClient.get<{ data: Metricas }>(`/api/v1/campaigns/${id}/metrics`)).data,
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
 export function useCampanha(id: string) {
   return useQuery({
     queryKey: ["campanha", id],
@@ -212,6 +285,26 @@ export function useAcaoDeCampanha(id: string) {
       void qc.invalidateQueries({ queryKey: ["campanha-metricas", id] });
       void qc.invalidateQueries({ queryKey: ["campanha-destinatarios", id] });
       void qc.invalidateQueries({ queryKey: ["campanhas"] });
+      void qc.invalidateQueries({ queryKey: ["campanhas-resumo"] });
+    },
+    onError: (err) => showApiError(err),
+  });
+}
+
+/** A mesma ação, para a lista: o id vai junto com o pedido (menu de cada linha). */
+export function useAcaoNaLista() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (entrada: { id: string; acao: AcaoDeCampanha; corpo?: Record<string, unknown> }) =>
+      await apiClient.post<{ data: Record<string, unknown> }>(
+        `/api/v1/campaigns/${entrada.id}/${entrada.acao}`,
+        entrada.corpo ?? {},
+      ),
+    onSuccess: (_r, entrada) => {
+      void qc.invalidateQueries({ queryKey: ["campanha", entrada.id] });
+      void qc.invalidateQueries({ queryKey: ["campanha-metricas", entrada.id] });
+      void qc.invalidateQueries({ queryKey: ["campanhas"] });
+      void qc.invalidateQueries({ queryKey: ["campanhas-resumo"] });
     },
     onError: (err) => showApiError(err),
   });

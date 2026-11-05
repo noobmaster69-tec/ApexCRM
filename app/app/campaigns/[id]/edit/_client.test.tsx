@@ -2,18 +2,17 @@
 /**
  * O AVISO DO TETO NA PRÉVIA DA EDIÇÃO (#2402, #2404).
  *
- * A mesma ponta da tela de criação, com a carga real por trás: o `truncado`
- * de `buscarCandidatos` só protege o operador se a edição — que é onde uma
- * campanha grande é conferida de novo — também mostrar o recibo.
+ * O `truncado` de `buscarCandidatos` só protege o operador se a edição — que é
+ * onde uma campanha grande é conferida de novo — também mostrar o recibo. No
+ * assistente ele aparece no card "Quem vai receber" do passo Público.
  */
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EditarCampanha } from "./_client";
 
 const previa = vi.hoisted(() => ({
-  isPending: false,
-  mutate: vi.fn(),
   data: {
     total: 20_001,
     elegiveis: 500,
@@ -24,6 +23,7 @@ const previa = vi.hoisted(() => ({
     legenda: {} as Record<string, string>,
   },
 }));
+const estado = vi.hoisted(() => ({ status: "draft", busca: new URLSearchParams("passo=2") }));
 
 const CAMPANHA = {
   id: "c1",
@@ -39,14 +39,16 @@ const CAMPANHA = {
   agent_id: null,
 };
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
-vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (chave: string) => chave }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => estado.busca,
+}));
+vi.mock("@/lib/api/client", () => ({
+  apiClient: { get: vi.fn(), patch: vi.fn(), post: vi.fn(async () => ({ data: previa.data })) },
+}));
 vi.mock("@/hooks/campanhas/useCampanhas", () => ({
-  useCampanha: () => ({ data: CAMPANHA, isLoading: false }),
-  useEditarCampanha: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  usePreviaDaAudiencia: () => previa,
-  // Número por QR: o formulário mostra o campo de texto, que é o caso deste teste.
-  useModelosDaCampanha: () => ({ data: { modo: "text", modelos: [] }, isLoading: false }),
+  useCampanha: () => ({ data: { ...CAMPANHA, status: estado.status }, isLoading: false }),
+  useModelosDaCampanha: () => ({ data: { modo: "text", modelos: [] }, isSuccess: true, isError: false }),
 }));
 vi.mock("@/hooks/channels/useChannelSessions", () => ({
   useChannelSessions: () => ({ data: [], isLoading: false }),
@@ -59,29 +61,48 @@ vi.mock("@/hooks/campanhas/useDestinoDaCampanha", () => ({
   useCrms: () => ({ data: [], isLoading: false }),
   useVariaveisDaOrganizacao: () => ({ data: [], isLoading: false }),
 }));
-// A prévia por contato (fork jhoow) busca contatos com `useQuery`; o arquivo
-// não monta QueryClientProvider.
+vi.mock("@/hooks/fluxos/useEtiquetasDaConta", () => ({
+  useEtiquetasDaConta: () => ({ data: [{ nome: "vip", cor: null }], isLoading: false }),
+}));
+vi.mock("@/app/app/fluxos/_blocos/useListaRemota", () => ({ useListaRemota: () => ({ itens: [], carregando: false }) }));
 vi.mock("@/hooks/contacts/useContactList", () => ({
   useContactList: () => ({ data: { pages: [] }, isLoading: false }),
 }));
 
 const AVISO = /bateu o teto de 20\.000 negócios desta prévia/;
 
-describe("prévia da edição de campanha: o aviso do teto de 20.000", () => {
+function montar() {
+  return render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <EditarCampanha id="c1" />
+    </QueryClientProvider>,
+  );
+}
+
+describe("edição de campanha", () => {
   beforeEach(() => {
     previa.data.truncado = false;
-    previa.isPending = false;
+    estado.status = "draft";
+    estado.busca = new URLSearchParams("passo=2");
   });
 
   it("recorte truncado: a edição mostra o aviso", async () => {
     previa.data.truncado = true;
-    render(<EditarCampanha id="c1" />);
-    expect(await screen.findByText(AVISO)).toBeInTheDocument();
+    montar();
+    expect(await screen.findByText(AVISO, undefined, { timeout: 2000 })).toBeInTheDocument();
   });
 
-  it("recorte inteiro: nenhum aviso", async () => {
-    render(<EditarCampanha id="c1" />);
+  it("recorte inteiro: nenhum aviso, e o nome carregado no título", async () => {
+    montar();
     expect(await screen.findByDisplayValue("Reativação de clientes parados")).toBeInTheDocument();
+    expect(await screen.findByTestId("quem-vai-receber-numero")).toBeInTheDocument();
     expect(screen.queryByText(AVISO)).not.toBeInTheDocument();
+  });
+
+  it("campanha já preparada não abre o assistente", () => {
+    estado.status = "ready";
+    montar();
+    expect(screen.queryByTestId("assistente-de-campanha")).not.toBeInTheDocument();
+    expect(screen.getByText("Voltar para a campanha")).toBeInTheDocument();
   });
 });

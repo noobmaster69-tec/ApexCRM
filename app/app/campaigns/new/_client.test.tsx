@@ -1,38 +1,23 @@
 // app/app/campaigns/new/_client.test.tsx
 /**
- * O AVISO DO TETO NA PRÉVIA (#2402, #2404).
- *
- * `buscarCandidatos` devolve `truncado` quando o recorte bate o teto de 20.000
- * linhas de negócio; a tela é o ÚNICO lugar onde esse recibo vira informação
- * para o operador. Sem este teste o campo viaja do banco até aqui sem ninguém
- * conferir a última ponta — e a prévia volta a cortar calada.
+ * CRIAR CAMPANHA abre o assistente no passo 1, sem nada salvo: o rascunho só
+ * nasce quando há nome e número (o salvamento automático cria a campanha).
  */
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { NovaCampanha } from "./_client";
 
-const previa = vi.hoisted(() => ({
-  isPending: false,
-  mutate: vi.fn(),
-  data: {
-    total: 20_001,
-    elegiveis: 500,
-    excluidos: 0,
-    motivos: {} as Record<string, number>,
-    truncado: false,
-    amostra: [] as Array<{ nome: string | null; motivo: string | null }>,
-    legenda: {} as Record<string, string>,
-  },
-}));
+const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
-vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (chave: string) => chave }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock("@/lib/api/client", () => ({ apiClient: api }));
 vi.mock("@/hooks/campanhas/useCampanhas", () => ({
-  useCriarCampanha: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  usePreviaDaAudiencia: () => previa,
-  // Número por QR: o formulário mostra o campo de texto, que é o caso deste teste.
-  useModelosDaCampanha: () => ({ data: { modo: "text", modelos: [] }, isLoading: false }),
+  useModelosDaCampanha: () => ({ data: undefined, isSuccess: false, isError: false }),
 }));
 vi.mock("@/hooks/channels/useChannelSessions", () => ({
   useChannelSessions: () => ({ data: [], isLoading: false }),
@@ -45,23 +30,28 @@ vi.mock("@/hooks/campanhas/useDestinoDaCampanha", () => ({
   useCrms: () => ({ data: [], isLoading: false }),
   useVariaveisDaOrganizacao: () => ({ data: [], isLoading: false }),
 }));
+vi.mock("@/app/app/fluxos/_blocos/useListaRemota", () => ({ useListaRemota: () => ({ itens: [], carregando: false }) }));
 
-const AVISO = /bateu o teto de 20\.000 negócios desta prévia/;
-
-describe("prévia da nova campanha: o aviso do teto de 20.000", () => {
-  beforeEach(() => {
-    previa.data.truncado = false;
-    previa.isPending = false;
+describe("nova campanha", () => {
+  it("abre no passo 1, com o aviso de que nada é enviado antes de iniciar", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <NovaCampanha />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Passo 1 de 5")).toBeInTheDocument();
+    expect(screen.getByText("Isto cria um rascunho. Nada é enviado antes de você preparar a lista e iniciar.")).toBeInTheDocument();
+    expect(screen.getByTestId("titulo-da-campanha")).toHaveAttribute("placeholder", "Nova campanha");
+    // Sem nome nem número, nada é gravado.
+    expect(api.post).not.toHaveBeenCalled();
   });
 
-  it("recorte truncado: o operador VÊ o aviso na prévia", () => {
-    previa.data.truncado = true;
-    render(<NovaCampanha />);
-    expect(screen.getByText(AVISO)).toBeInTheDocument();
-  });
-
-  it("recorte inteiro: nenhum aviso — o campo não vira ruído", () => {
-    render(<NovaCampanha />);
-    expect(screen.queryByText(AVISO)).not.toBeInTheDocument();
+  it("sem número conectado, avisa onde conectar", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <NovaCampanha />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Nenhum número conectado. Conecte um em Conexões antes de criar a campanha.")).toBeInTheDocument();
   });
 });
