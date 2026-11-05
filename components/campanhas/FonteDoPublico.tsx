@@ -15,7 +15,7 @@ import { ImportarLista } from "./ImportarLista";
 import { useListas } from "@/hooks/campanhas/useListas";
 
 /** Importar lista: subir uma planilha nova OU usar uma das Listas salvas (Operações › Listas). */
-function ListaSalvaOuNova({
+export function ListaSalvaOuNova({
   v,
   setV,
 }: {

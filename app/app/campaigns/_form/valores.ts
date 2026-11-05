@@ -90,6 +90,11 @@ export interface ValoresDaCampanha {
   modelo: EscolhaDoModelo | null;
   /** 1.99 (0711): `rapida` = rajada, só com modelo no número oficial. */
   velocidade: Velocidade;
+  /**
+   * Só da tela (passo Funil): "Mover no funil". Desligado, o salvar zera o
+   * funil/etapa de quem recebe e de quem responde. Ausente = ligado.
+   */
+  moverNoFunil?: boolean;
 }
 
 /** O que o número escolhido aceita e se o modelo está completo — vem da tela. */
@@ -255,6 +260,7 @@ export function corpoDaCampanha(v: ValoresDaCampanha, canal: ContextoDoCanal = S
   const comModelo = canal.ehOficial && v.modo !== "flow" && v.modelo !== null;
   // Rápida só no número oficial: trocar para um número por QR volta a gradual.
   const rapida = comModelo && v.velocidade === "rapida";
+  const mover = v.moverNoFunil !== false;
   return {
     name: v.nome.trim(),
     channel_session_id: v.canal,
@@ -284,10 +290,10 @@ export function corpoDaCampanha(v: ValoresDaCampanha, canal: ContextoDoCanal = S
     language: v.idioma.trim() || null,
     // Modelo aprovado sai por um número só: cada número tem os próprios modelos.
     channel_session_ids: comModelo ? [] : v.extras.filter((id) => id !== v.canal),
-    pipeline_id: v.funil || null,
-    stage_id: v.etapa || null,
+    pipeline_id: mover ? v.funil || null : null,
+    stage_id: mover && v.funil ? v.etapa || null : null,
     agent_id: v.agente || null,
-    recipients_pipeline_id: v.funilDeQuemRecebe || null,
-    recipients_stage_id: v.funilDeQuemRecebe ? v.etapaDeQuemRecebe || null : null,
+    recipients_pipeline_id: mover ? v.funilDeQuemRecebe || null : null,
+    recipients_stage_id: mover && v.funilDeQuemRecebe ? v.etapaDeQuemRecebe || null : null,
   };
 }
