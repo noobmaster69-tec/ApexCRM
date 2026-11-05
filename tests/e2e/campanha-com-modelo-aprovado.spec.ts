@@ -104,6 +104,14 @@ async function escolherCanal(page: Page, id: string): Promise<void> {
   else await cartao.click();
 }
 
+/** Passo 5: "Quantos contatos chamar" é obrigatório no modo cota; depois, salvar. */
+async function salvarRascunho(page: Page): Promise<void> {
+  await page.getByTestId("passo-5").click();
+  const preset = page.getByRole("button", { name: "50/dia", exact: true });
+  if (await preset.isVisible()) await preset.click();
+  await page.getByTestId("salvar-campanha").click();
+}
+
 /** Passo 2: público "Por etiqueta", escolhendo a etiqueta no painel. */
 async function escolherEtiqueta(page: Page, etiqueta: string): Promise<void> {
   await page.getByTestId("fonte-etiqueta").click();
@@ -283,8 +291,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     await expect(receber.getByText("Sem um dado da mensagem")).toBeVisible();
     await page.screenshot({ path: path.join(EVIDENCIA, "02-publico-com-quem-fica-de-fora.png"), fullPage: true });
 
-    await page.getByTestId("passo-5").click();
-    await page.getByTestId("salvar-campanha").click();
+    await salvarRascunho(page);
     await page.waitForURL(/\/app\/campaigns\/[0-9a-f-]{36}$/, { timeout: 60_000 });
     campanhaId = page.url().split("/").pop()!;
 
@@ -411,7 +418,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
     await escolherEtiqueta(page, ETIQUETA_RAPIDA);
     await page.getByTestId("passo-5").click();
     await page.getByTestId("velocidade-da-campanha").getByRole("radio", { name: "Rápido" }).check();
-    await page.getByTestId("salvar-campanha").click();
+    await salvarRascunho(page);
     await page.waitForURL(/\/app\/campaigns\/[0-9a-f-]{36}$/, { timeout: 60_000 });
     campanhaRapidaId = page.url().split("/").pop()!;
 
@@ -496,8 +503,7 @@ test("campanha de texto prepara a reserva e o dado preenchido pelo mesmo fluxo d
     await page.getByTestId("passo-2").click();
     await escolherEtiqueta(page, etiqueta);
     await expect(page.getByTestId("quem-vai-receber-numero")).toHaveText("2", { timeout: 30_000 });
-    await page.getByTestId("passo-5").click();
-    await page.getByTestId("salvar-campanha").click();
+    await salvarRascunho(page);
     await page.waitForURL(/\/app\/campaigns\/[0-9a-f-]{36}$/);
     campanha = page.url().split("/").pop()!;
     await page.getByRole("button", { name: "Preparar lista" }).click();
