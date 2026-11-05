@@ -1,7 +1,9 @@
 "use client";
 import { useT } from "@/hooks/i18n/useT";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CaretLeft, CaretRight, MagnifyingGlass } from "@/lib/ui/icons";
+import { CaretLeft, CaretRight } from "@/lib/ui/icons";
+import Link from "next/link";
+import { Check, Search, SlidersHorizontal, SquarePen } from "./icones";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -34,13 +36,27 @@ import { useAuth } from "@/hooks/auth/AuthProvider";
 import { useContactTagVocabulary } from "@/hooks/contacts/useContactTagVocabulary";
 import { useConversationTagVocabulary } from "@/hooks/inbox/useConversationTags";
 import { useConversationCounts } from "@/hooks/inbox/useConversationCounts";
-import type { Role, VisibilityMode } from "@/lib/auth/types";
+import { useDepoisDeMontar } from "@/hooks/ui/useDepoisDeMontar";
+import { roleAtLeast, type Role, type VisibilityMode } from "@/lib/auth/types";
+import { SeletorDeAtendente } from "@/components/inbox/SeletorDeAtendente";
+import { IniciarConversaDialog } from "./PainelIniciarConversa";
 
 export type InboxTab = "unassigned" | "mine" | "all" | "closed" | "archived" | "ai";
 
+/**
+ * A faixa na ORDEM DO TRABALHO (#2498): primeiro o que o robô conduz, depois o
+ * que espera gente, depois o histórico. Antes "Automático" fechava a faixa,
+ * depois de dois passados — o valor que o operador mais olha era o último.
+ *
+ * Só a ordem mudou: mesmos `value`, mesmos rótulos, mesmas permissões
+ * (`visibleInboxTabs` filtra sem reordenar) e mesmas contagens (`countFor` lê
+ * por chave, e a chave não acompanha a posição). `moveTab` anda pelo MESMO
+ * array, então as setas continuam vizinha a vizinha.
+ */
 const INBOX_TABS: { value: InboxTab; label: string }[] = [
-  { value: "unassigned", label: "Fila" },
+  // Minhas primeiro (fork jhoow): é o trabalho de quem está olhando. A Fila vem logo depois.
   { value: "mine", label: "Minhas" },
+  { value: "unassigned", label: "Fila" },
   { value: "all", label: "Todas" },
   { value: "closed", label: "Fechadas" },
   // "Arquivadas" fica ao lado de "Fechadas" porque as duas são passado — e
@@ -49,10 +65,7 @@ const INBOX_TABS: { value: InboxTab; label: string }[] = [
   { value: "archived", label: "Arquivadas" },
   // "Automático", não "IA": a palavra deste ator já é contrato em quatro arquivos
   // e no dicionário, e `handoff-por-orcamento.test.ts` usa literalmente "Voltar
-  // para a IA" como a sabotagem que deve reprovar. A aba era a última fora do
-  // padrão — e ela mudou de significado junto (deixou de filtrar `ai_handling` e
-  // passou a perguntar a régua do motor), então o rótulo velho descreveria outra
-  // coisa.
+  // para a IA" como a sabotagem que deve reprovar.
   { value: "ai", label: "Automático" },
 ];
 
@@ -84,6 +97,21 @@ export interface InboxFiltersValue {
   tagMode?: ModoDeEtiqueta;
   /** A aba "Grupos" (Task 10): manda `is_group=true` na listagem. */
   onlyGroups?: boolean;
+  /**
+   * Só as conversas deste atendente (id do usuário). Filtro de GERENTE para cima;
+   * ausente = todas. A aba Minhas já é "as minhas", então ali ele não vale.
+   */
+  assigned_to?: string;
+}
+
+/**
+ * Trocar de aba, por QUALQUER caminho (clique na aba ou setas de "Aba anterior"/
+ * "Próxima aba"). Minhas já é "só as minhas": um atendente escolhido antes não
+ * vale ali, e seguir com ele deixaria as outras abas contando o atendente com o
+ * seletor escondido.
+ */
+export function comAba(value: InboxFiltersValue, tab: InboxTab): InboxFiltersValue {
+  return { ...value, tab, ...(tab === "mine" ? { assigned_to: undefined } : {}) };
 }
 
 interface Props {
@@ -94,6 +122,21 @@ interface Props {
 export function InboxFilters({ value, onChange }: Props) {
   const t = useT();
   const [searchInput, setSearchInput] = useState(value.search);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const filtrosRef = useRef<HTMLDivElement>(null);
+  // Clique fora fecha o popover dos filtros. O menu de etiquetas abre num
+  // portal (fora desta árvore): clique lá dentro não conta como "fora".
+  useEffect(() => {
+    if (!filtrosAbertos) return;
+    const fora = (e: PointerEvent) => {
+      const alvo = e.target as HTMLElement | null;
+      if (!alvo || filtrosRef.current?.contains(alvo)) return;
+      if (alvo.closest("[data-radix-popper-content-wrapper]")) return;
+      setFiltrosAbertos(false);
+    };
+    document.addEventListener("pointerdown", fora);
+    return () => document.removeEventListener("pointerdown", fora);
+  }, [filtrosAbertos]);
   const tabsListRef = useRef<HTMLDivElement>(null);
   const [moreTabs, setMoreTabs] = useState({ left: false, right: false });
   const updateMoreTabs = useCallback(() => {
@@ -155,7 +198,7 @@ export function InboxFilters({ value, onChange }: Props) {
     }
   }, [value.search]);
   const { data: channels } = useChannelSessions({ refetchInterval: 30_000 });
-  const { activeOrg } = useAuth();
+  const { user, activeOrg } = useAuth();
   /**
    * As opções são a UNIÃO das duas caixas — as mesmas que o filtro consulta
    * (`conversations.tags` ou `contacts.tags`, no handler da lista).
@@ -188,19 +231,38 @@ export function InboxFilters({ value, onChange }: Props) {
   // Os MESMOS filtros que a lista aplicou. Badge que conta o que a aba não mostra
   // manda o atendente procurar trabalho que não existe — a regra já estava escrita
   // na rota; faltava alcançar os filtros ao lado da aba.
+  // #3736 — o badge de contagem NÃO entra no HTML do servidor nem no primeiro
+  // render da hidratação: a contagem chega por react-query e, quando a resposta
+  // chegava no meio da hidratação, o `<span>` aparecia num render que o React
+  // comparava com um HTML sem ele (React #418, `isText=false`). `depoisDeMontar`
+  // é `false` no servidor E no snapshot de servidor do cliente, então o primeiro
+  // render do cliente é idêntico ao HTML por construção; o badge entra na
+  // re-renderização seguinte. Ver `hooks/ui/useDepoisDeMontar.ts`.
+  const depoisDeMontar = useDepoisDeMontar();
   const { data: counts } = useConversationCounts(activeOrg?.orgId ?? null, {
+    assigned_to: value.assigned_to,
     unread: value.onlyUnread,
     tag: etiquetas,
     tagMode: value.tagMode,
     channel_session_id: value.channel_session_id,
   });
 
+  // Filtro por ATENDENTE: só para gerente ou acima (a lista de quem atende é da
+  // gestão; o atendente comum continua vendo só o escopo dele, que a RLS impõe).
+  const podeFiltrarPorAtendente = roleAtLeast(activeOrg?.role, "manager");
+  const mostrarSeletorDeAtendente = podeFiltrarPorAtendente && value.tab !== "mine";
+  // A régua de `inbox.claim` (agent+), lida pelo papel que este componente já
+  // tem na mão — os testes da faixa mockam só `useAuth`.
+  const podeIniciarConversa =
+    (user?.is_platform_admin === true && !user?.support) || roleAtLeast(activeOrg?.role, "agent");
+  const [iniciarConversaAberto, setIniciarConversaAberto] = useState(false);
+
   const tabs = activeOrg
     ? visibleInboxTabs(activeOrg.role, activeOrg.visibility_mode)
     : INBOX_TABS.map((t) => t.value);
   const moveTab = (direction: -1 | 1) => {
     const next = tabs[tabs.indexOf(value.tab) + direction];
-    if (next) onChange({ ...value, tab: next });
+    if (next) onChange(comAba(value, next));
   };
   const countFor: Partial<Record<InboxTab, number>> = {
     // `fila` é o nome novo; `unassigned` é o alias que a rota versionada mantém.
@@ -290,6 +352,25 @@ export function InboxFilters({ value, onChange }: Props) {
     ...vocabularioDoSeletor,
     ...etiquetasForaDoVocabulario,
   ];
+  /**
+   * A BUSCA DENTRO DO SELETOR (#2498) — e ela é de propósito SEM consulta.
+   *
+   * O vocabulário inteiro já está no navegador (as mesmas duas caixas que o
+   * filtro consulta), então filtrar aqui custa um `filter` em memória. O que a
+   * busca NÃO pode fazer é mexer em `value`: `tag`/`tagMode` são a CHAVE da
+   * query de contagens e do pedido da lista, e cada tecla que os alterasse
+   * mandaria uma ida ao servidor por caractere digitado — o oposto do que a
+   * issue pede.
+   *
+   * O estado mora aqui e é ZERADO ao fechar o menu (`onOpenChange`): um termo
+   * esquecido reabriria o seletor já filtrado, sem dizer que há filtro — a
+   * mesma tela que mente que esta entrega existe para matar.
+   */
+  const [buscaDeEtiqueta, setBuscaDeEtiqueta] = useState("");
+  const termoDaEtiqueta = buscaDeEtiqueta.trim().toLocaleLowerCase();
+  const opcoesVisiveis = termoDaEtiqueta
+    ? opcoesDoSeletor.filter((tag) => tag.toLocaleLowerCase().includes(termoDaEtiqueta))
+    : opcoesDoSeletor;
   const alternaEtiqueta = (tag: string) => {
     const escolhida = etiquetas.includes(tag);
     const proximas = escolhida ? etiquetas.filter((t) => t !== tag) : [...etiquetas, tag];
@@ -339,69 +420,106 @@ export function InboxFilters({ value, onChange }: Props) {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  return (
-    <div className="border-b border-border bg-background">
-      <div className="space-y-2 px-3 pt-3 pb-2">
-        <div className="flex items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <MagnifyingGlass
-              size={15}
-              weight="regular"
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-subtle"
-              aria-hidden
-            />
-            {/* "última mensagem", e não "mensagem": a busca alcança apenas
-                `conversations.last_message_preview` — a ÚLTIMA mensagem, truncada em 200
-                caracteres já na ingestão (`grep -rn 'slice(0, 200)' lib/channels/` mostra onde).
-                Medido numa conversa real de 32 mensagens: buscar o que o cliente pediu na
-                3ª devolve ZERO. Alcançar o histórico é projeto próprio (índice trigram +
-                retenção + LGPD); até lá, a tela não promete o que o backend não faz. */}
-            <Input
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder={t("Buscar por nome, telefone ou última mensagem…")}
-              className="h-9 rounded-full border-transparent bg-surface-elevated pl-9 text-sm shadow-none focus-visible:border-border focus-visible:bg-background"
-              aria-label={t("Buscar conversas")}
-            />
-          </div>
-          {/* Botão pressionável em vez de Switch: o filtro vive na mesma linha
-              da busca, e o Switch com rótulo pedia uma linha inteira só para
-              si numa coluna de 280px. */}
-          <button
-            type="button"
-            aria-pressed={value.onlyUnread}
-            onClick={() => onChange({ ...value, onlyUnread: !value.onlyUnread })}
-            className={cn(
-              "h-9 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors",
-              "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              value.onlyUnread
-                ? "border-accent bg-accent text-accent-foreground"
-                : "border-border bg-transparent text-text-muted hover:bg-surface-elevated",
-            )}
-          >
-            {t("Não lidos")}
-          </button>
-          {/* MESMO PADRÃO do botão acima: filtro auxiliar pressionável, na
-              mesma linha. "Grupos" manda `is_group=true` na listagem — sem ele
-              a aba mostra tudo, individual e grupo misturados, como hoje. */}
-          <button
-            type="button"
-            aria-pressed={value.onlyGroups ?? false}
-            onClick={() => onChange({ ...value, onlyGroups: !value.onlyGroups })}
-            className={cn(
-              "h-9 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors",
-              "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              value.onlyGroups
-                ? "border-accent bg-accent text-accent-foreground"
-                : "border-border bg-transparent text-text-muted hover:bg-surface-elevated",
-            )}
-          >
-            {t("Grupos")}
-          </button>
-        </div>
+  const filtrosAtivos =
+    (value.onlyUnread ? 1 : 0) +
+    (value.onlyGroups ? 1 : 0) +
+    (value.channel_session_id != null ? 1 : 0) +
+    (etiquetas.length > 0 ? 1 : 0);
+  const botaoDeIcone =
+    "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] text-ibx-muted transition-colors hover:bg-ibx-field hover:text-ibx-text focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ibx-accent";
+  const alternadorDoFiltro = (ativo: boolean) =>
+    cn(
+      "flex h-8 w-full items-center justify-between rounded-[8px] px-2.5 text-[13px] transition-colors focus-visible:outline-2 focus-visible:outline-ibx-accent",
+      ativo ? "bg-ibx-accent-active-bg text-ibx-accent-text" : "text-ibx-text-2 hover:bg-ibx-field",
+    );
 
-        {(showChannelSwitch || mostrarSeletorDeTag) && (
-          <div className="flex gap-2">
+  return (
+    <div className="shrink-0">
+      {/* Montado só aberto: o diálogo lê o router e o react-query, e a faixa
+          renderiza também fora deles (testes, prévias). */}
+      {iniciarConversaAberto && (
+        <IniciarConversaDialog open onOpenChange={setIniciarConversaAberto} />
+      )}
+      <div className="space-y-2.5 px-3 pt-3.5 pb-2">
+        <div className="flex h-8 items-center justify-between gap-2">
+          <h1 className="text-[18px] font-semibold leading-none text-ibx-text">{t("Inbox")}</h1>
+          <div ref={filtrosRef} className="relative flex items-center gap-0.5">
+            {/* O popover dos filtros fica SEMPRE montado e só se esconde: o
+                seletor de etiqueta não pode desmontar com o menu aberto (ver o
+                aviso do `ultimoVocabulario` lá em cima), e o filtro aplicado
+                precisa continuar alcançável. */}
+            <button
+              type="button"
+              className={cn(botaoDeIcone, filtrosAbertos && "bg-ibx-field text-ibx-text")}
+              aria-label={t("Filtros")}
+              title={t("Filtros")}
+              aria-expanded={filtrosAbertos}
+              aria-controls="inbox-filtros"
+              onClick={() => setFiltrosAbertos((v) => !v)}
+            >
+              <SlidersHorizontal size={16} aria-hidden />
+              {filtrosAtivos > 0 && (
+                <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-ibx-accent" aria-hidden />
+              )}
+            </button>
+            {/* "Nova conversa" abre o painel de iniciar conversa (1.99) — o mesmo
+                POST /conversations/open-with-contact. Quem não pode atender
+                (`inbox.claim`) continua indo para Contatos. */}
+            {podeIniciarConversa ? (
+              <button
+                type="button"
+                className={botaoDeIcone}
+                aria-label={t("Nova conversa")}
+                title={t("Nova conversa")}
+                onClick={() => setIniciarConversaAberto(true)}
+                data-testid="nova-conversa"
+              >
+                <SquarePen size={16} aria-hidden />
+              </button>
+            ) : (
+              <Link
+                href="/app/contacts"
+                className={botaoDeIcone}
+                aria-label={t("Nova conversa")}
+                title={t("Nova conversa")}
+              >
+                <SquarePen size={16} aria-hidden />
+              </Link>
+            )}
+            <div
+              id="inbox-filtros"
+              role="group"
+              aria-label={t("Filtros")}
+              className={cn(
+                "absolute right-0 top-10 z-30 w-[260px] space-y-1 rounded-[12px] border border-ibx-border bg-ibx-pane p-2",
+                !filtrosAbertos && "hidden",
+              )}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setFiltrosAbertos(false);
+              }}
+            >
+              <button
+                type="button"
+                aria-pressed={value.onlyUnread}
+                onClick={() => onChange({ ...value, onlyUnread: !value.onlyUnread })}
+                className={alternadorDoFiltro(value.onlyUnread)}
+              >
+                {t("Não lidos")}
+                {value.onlyUnread && <Check size={14} aria-hidden />}
+              </button>
+              {/* "Grupos" manda `is_group=true` na listagem — sem ele a aba
+                  mostra tudo, individual e grupo misturados. */}
+              <button
+                type="button"
+                aria-pressed={value.onlyGroups ?? false}
+                onClick={() => onChange({ ...value, onlyGroups: !value.onlyGroups })}
+                className={alternadorDoFiltro(value.onlyGroups ?? false)}
+              >
+                {t("Grupos")}
+                {value.onlyGroups && <Check size={14} aria-hidden />}
+              </button>
+        {(showChannelSwitch || mostrarSeletorDeTag || mostrarSeletorDeAtendente) && (
+          <div className="flex flex-col gap-1 pt-1">
             {showChannelSwitch && (
               <Select
                 value={value.channel_session_id ?? "all"}
@@ -411,7 +529,7 @@ export function InboxFilters({ value, onChange }: Props) {
               >
                 <SelectTrigger
                   className={cn(
-                    "h-8 min-w-0 flex-1 rounded-full border-transparent bg-surface-elevated px-3 text-xs shadow-none",
+                    "h-8 w-full min-w-0 rounded-[8px] border-transparent bg-ibx-field px-2.5 text-[13px] shadow-none",
                     value.channel_session_id != null && "border-accent bg-accent-soft text-accent",
                   )}
                   aria-label={t("Filtrar por número de WhatsApp")}
@@ -433,7 +551,9 @@ export function InboxFilters({ value, onChange }: Props) {
             )}
 
             {mostrarSeletorDeTag && (
-              <DropdownMenu>
+              <DropdownMenu onOpenChange={(aberto) => {
+                if (!aberto) setBuscaDeEtiqueta("");
+              }}>
                 {/*
                   ⚠️ POR QUE ISTO DEIXOU DE SER UM `Select` (#1274).
                   O `Select` do Radix é de escolha ÚNICA e — o que mata a
@@ -453,7 +573,7 @@ export function InboxFilters({ value, onChange }: Props) {
                   <button
                     type="button"
                     className={cn(
-                      "h-8 min-w-0 flex-1 truncate rounded-full border border-transparent bg-surface-elevated px-3 text-left text-xs shadow-none",
+                      "h-8 w-full min-w-0 truncate rounded-[8px] border border-transparent bg-ibx-field px-2.5 text-left text-[13px] shadow-none",
                       "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                       etiquetas.length > 0 && "border-accent bg-accent-soft text-accent",
                     )}
@@ -476,8 +596,33 @@ export function InboxFilters({ value, onChange }: Props) {
                     )}
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
+                <DropdownMenuContent align="start" className="w-64">
                   <DropdownMenuLabel>{t("Todas as tags")}</DropdownMenuLabel>
+                  {/*
+                    A BUSCA (#2498): filtra o vocabulário que já está aqui dentro,
+                    sem tocar em `value` — ver o comentário junto de
+                    `opcoesVisiveis`. Ela fica ACIMA dos itens de propósito: o
+                    "Todas as tags" (que limpa o filtro) e o E/OU continuam
+                    alcançáveis mesmo com a lista toda filtrada, que é quando mais
+                    se precisa deles.
+                  */}
+                  <div className="px-2 pb-1">
+                    <Input
+                      value={buscaDeEtiqueta}
+                      onChange={(e) => setBuscaDeEtiqueta(e.target.value)}
+                      onKeyDown={(e) => {
+                        // O typeahead do Radix lê QUALQUER tecla imprimível que
+                        // suba do conteúdo e salta o foco para o item que começa
+                        // com ela — dentro de um campo de texto isso rouba a
+                        // segunda letra. `stopPropagation` só nas caracteres:
+                        // Escape continua subindo e fecha o menu.
+                        if (e.key.length === 1) e.stopPropagation();
+                      }}
+                      placeholder={t("Buscar etiqueta")}
+                      aria-label={t("Buscar etiqueta")}
+                      className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs shadow-none focus-visible:border-border"
+                    />
+                  </div>
                   <DropdownMenuItem
                     onClick={() => onChange({ ...value, tag: undefined, tagMode: undefined })}
                   >
@@ -511,7 +656,7 @@ export function InboxFilters({ value, onChange }: Props) {
                   {/* As órfãs entram na lista: sem elas o gatilho mostraria o
                       resumo de um filtro cujas opções não estão mais lá, e o
                       operador não teria como tirá-las. */}
-                  {opcoesDoSeletor.map((tag) => (
+                  {opcoesVisiveis.map((tag) => (
                     <DropdownMenuCheckboxItem
                       key={tag}
                       checked={etiquetas.includes(tag)}
@@ -528,19 +673,81 @@ export function InboxFilters({ value, onChange }: Props) {
                       </span>
                     </DropdownMenuCheckboxItem>
                   ))}
+                  {/* Dizer que NADA casou é diferente de uma lista vazia: sem
+                      esta linha o operador lê um menu em branco e acha que o
+                      seletor quebrou. Só existe quando há busca — sem termo,
+                      lista vazia é o caso "organização sem etiqueta", que o
+                      seletor nem deveria estar desenhando. */}
+                  {termoDaEtiqueta !== "" && opcoesVisiveis.length === 0 && (
+                    <p className="px-2 py-1.5 text-xs text-text-subtle">
+                      {t("Nenhuma etiqueta com esse texto")}
+                    </p>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+
+            {mostrarSeletorDeAtendente && (
+              <SeletorDeAtendente
+                value={value.assigned_to}
+                onChange={(atendente) => onChange({ ...value, assigned_to: atendente })}
+              />
+            )}
           </div>
         )}
+            </div>
+          </div>
+        </div>
+
+        <div className="relative">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ibx-muted"
+            aria-hidden
+          />
+          {/* A busca alcança nome, telefone e `conversations.last_message_preview`
+              (a ÚLTIMA mensagem, truncada em 200 caracteres na ingestão) — não o
+              histórico inteiro. Alcançar o histórico é projeto próprio (índice
+              trigram + retenção + LGPD). */}
+          <Input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder={t("Buscar conversa ou número")}
+            className="h-9 rounded-[10px] border-0 bg-ibx-field pl-9 text-[14px] text-ibx-text shadow-none placeholder:text-ibx-muted focus-visible:outline-2 focus-visible:outline-ibx-accent focus-visible:ring-0"
+            aria-label={t("Buscar conversas")}
+          />
+        </div>
       </div>
 
       {/* As setas aparecem só quando há abas fora da área visível; a faixa e o
-          sublinhado continuam com a altura compacta do Inbox. */}
+          sublinhado continuam com a altura compacta do Inbox.
+
+          `flex-wrap` + `gap-x-1` (#2745) — A FAIXA QUEBRA EM VEZ DE ESCONDER.
+          Medido em browser real, com o CSS do produto compilado e a fonte
+          verdadeira (`tests/sonda-abas-inbox-1280.test.tsx`), as seis abas
+          somam 358px de rótulo+contagem e 378px com o gap de 4px; a coluna da
+          lista vale de 240 (mínimo do arraste, `LIMITES_LISTA`) a 520px, e o
+          padrão da faixa `xl` — a janela de 1280px da issue — é 272px. Sem
+          quebra, o `overflow-x-auto` rolava 191px na coluna de 272 e 13px na
+          de 450: "Fechadas" cortada e "Arquivadas" escondida atrás da seta,
+          que era exatamente o corte medido. Agora, na mesma medição: 2 linhas
+          (68px) em 272, 1 linha (30px) em 450, e as seis dentro da coluna em
+          toda a faixa — rolagem zero.
+
+          `shrink-0` + `whitespace-nowrap` seguem valendo: rótulo não encolhe
+          nem parte no meio. O `gap-x-1` só aperta onde não há folga (com
+          `justify-between` a sobra continua distribuída, então a faixa larga
+          não muda de figura) — e é o que leva 272px de 3 linhas para 2. A
+          seta de rolagem fica sendo o que sempre foi: reserva para o caso em
+          que UMA aba sozinha não cabe (zoom alto, coluna arrastada no mínimo).
+
+          Só o LAYOUT mudou: `value.tab`, `onChange`, `visibleInboxTabs` e
+          `countFor` estão byte a byte como estavam — a aba continua o mesmo
+          filtro com o mesmo rótulo, e "Automático" continua "Automático". */}
       <Tabs
         value={value.tab}
-        onValueChange={(v) => onChange({ ...value, tab: v as InboxTab })}
-        className="px-3"
+        onValueChange={(v) => onChange(comAba(value, v as InboxTab))}
+        className="px-3 pb-2"
       >
         <div className="flex items-center gap-1">
           {moreTabs.left ? (
@@ -558,7 +765,7 @@ export function InboxFilters({ value, onChange }: Props) {
           <TabsList
             ref={tabsListRef}
             onScroll={updateMoreTabs}
-            className="h-auto min-w-0 flex-1 justify-between gap-2 rounded-none bg-transparent p-0 [scrollbar-width:none]"
+            className="h-auto min-w-0 flex-1 justify-start gap-0.5 overflow-x-auto rounded-[10px] bg-ibx-field p-0.5 [scrollbar-width:none]"
           >
             {tabs.map((tab) => {
               const meta = INBOX_TABS.find((t) => t.value === tab)!;
@@ -567,11 +774,11 @@ export function InboxFilters({ value, onChange }: Props) {
                 <TabsTrigger
                   key={tab}
                   value={tab}
-                  className="shrink-0 gap-1 rounded-none border-b-2 border-transparent px-0 pb-2 pt-1 text-xs font-medium text-text-muted data-[state=active]:border-accent data-[state=active]:bg-transparent data-[state=active]:text-text data-[state=active]:shadow-none"
+                  className="h-7 shrink-0 gap-1 rounded-[8px] border-0 px-2.5 text-[13px] font-medium text-ibx-muted hover:text-ibx-text focus-visible:outline-2 focus-visible:outline-ibx-accent data-[state=active]:bg-ibx-chip-strong data-[state=active]:text-ibx-text data-[state=active]:shadow-none"
                 >
                   {t(meta.label)}
-                  {typeof count === "number" && count > 0 && (
-                    <span className="text-[11px] tabular-nums text-text-subtle">{count}</span>
+                  {depoisDeMontar && typeof count === "number" && count > 0 && (
+                    <span className="font-inbox-mono text-[11px] tabular-nums text-ibx-muted">{count}</span>
                   )}
                 </TabsTrigger>
               );

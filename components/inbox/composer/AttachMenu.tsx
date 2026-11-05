@@ -1,10 +1,12 @@
 "use client";
+import { Paperclip as IconeDoClipe } from "@/components/inbox/icones";
+import { BOTAO_DE_ICONE } from "@/components/inbox/estilo";
 import { useRef } from "react";
 import { useT } from "@/hooks/i18n/useT";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
-import { FileText, ImageSquare, Plus, UserCircle } from "@/lib/ui/icons";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { FileText, ImageSquare, UserCircle } from "@/lib/ui/icons";
 
 interface Props {
   disabled?: boolean;
@@ -12,7 +14,7 @@ interface Props {
   onPickContact?: () => void;
 }
 
-/** Menu "+" do composer (padrão WhatsApp): Fotos e vídeos / Documento / Contato. */
+/** Menu do clipe 📎 do composer: Fotos e vídeos / Documento / Contato. */
 export function AttachMenu({ disabled, onPick, onPickContact }: Props) {
   const t = useT();
   const mediaRef = useRef<HTMLInputElement | null>(null);
@@ -26,48 +28,51 @@ export function AttachMenu({ disabled, onPick, onPickContact }: Props) {
 
   return (
     <>
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="h-9 w-9 shrink-0"
-            aria-label={t("Anexar")}
-            disabled={disabled}
-          >
-            <Plus size={18} weight="regular" aria-hidden />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="start" side="top" className="w-52 p-1">
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted"
-            onClick={() => mediaRef.current?.click()}
-          >
-            <ImageSquare size={18} weight="duotone" className="text-primary" aria-hidden />
-            {t("Fotos e vídeos")}
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted"
-            onClick={() => docRef.current?.click()}
-          >
-            <FileText size={18} weight="duotone" className="text-primary" aria-hidden />
-            {t("Documento")}
-          </button>
-          {onPickContact && (
+      {/* Provider LOCAL (1.99, #3296): o painel do inbox não tem TooltipProvider
+          ancestral e o Radix lança sem ele. Os wrappers não criam nó no DOM: o
+          botão do fork segue filho direto da linha de ações. */}
+      <TooltipProvider delayDuration={200}>
+        <Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <button type="button" className={BOTAO_DE_ICONE} aria-label={t("Anexar")} disabled={disabled}>
+                  <IconeDoClipe size={16} aria-hidden />
+                </button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{t("Anexar")}</TooltipContent>
+          </Tooltip>
+          <PopoverContent align="start" side="top" className="w-52 p-1">
             <button
               type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted"
-              onClick={onPickContact}
+              className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted lg:min-h-0"
+              onClick={() => mediaRef.current?.click()}
             >
-              <UserCircle size={18} weight="duotone" className="text-primary" aria-hidden />
-              {t("Contato")}
+              <ImageSquare size={18} weight="duotone" className="text-primary" aria-hidden />
+              {t("Fotos e vídeos")}
             </button>
-          )}
-        </PopoverContent>
-      </Popover>
+            <button
+              type="button"
+              className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted lg:min-h-0"
+              onClick={() => docRef.current?.click()}
+            >
+              <FileText size={18} weight="duotone" className="text-primary" aria-hidden />
+              {t("Documento")}
+            </button>
+            {onPickContact && (
+              <button
+                type="button"
+                className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted lg:min-h-0"
+                onClick={onPickContact}
+              >
+                <UserCircle size={18} weight="duotone" className="text-primary" aria-hidden />
+                {t("Contato")}
+              </button>
+            )}
+          </PopoverContent>
+        </Popover>
+      </TooltipProvider>
       {/* Os inputs vivem FORA do PopoverContent: o Radix desmonta o conteúdo do
           popover ao fechar, e um input desmontado no meio do clique perde o
           file picker ("nada acontece"). Aqui os refs seguem válidos após o

@@ -3,19 +3,21 @@
 import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 
 import type { Locale } from "date-fns";
-import { format, formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceToNowStrict } from "date-fns";
 import { useT } from "@/hooks/i18n/useT";
-import { Robot } from "@/lib/ui/icons";
+import { Check, Robot, Sparkle } from "@/lib/ui/icons";
 import { ChannelLogo } from "@/components/inbox/ChannelLogo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { ChipDeEtiqueta } from "@/components/tags/ChipDeEtiqueta";
-import { OwnerBadge } from "@/components/kanban/OwnerBadge";
+import { Contact, FileText, IconeImagem, MapPin, Mic, Sticker, Video } from "./icones";
+import { telefoneLegivel } from "@/lib/inbox/telefone-legivel";
 import { comandoDaConversa, esperaDaConversa } from "@/lib/inbox/comando-da-conversa";
 import { cn } from "@/lib/utils";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
-import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { nomeDoContato, rotuloParaAEquipe } from "@/lib/contacts/rotulo-do-contato";
+import { initials, relativeTime } from "@/lib/contacts/apresentacao-na-lista";
 import { phoneForDisplay } from "@/lib/channels/phone-variants";
+import { rotuloDoCanalDaConversa } from "@/lib/channels/estado";
 
 interface Props {
   conversation: ConversationWithContact;
@@ -56,50 +58,31 @@ interface Props {
    * afirme nada".
    */
   automaticoDaOrg?: boolean;
-}
-
-/**
- * A COR SAI DE QUEM MANDA, NÃO DO STATUS.
- *
- * O mapa anterior era por `conversations.status`, e o `bg-purple-500` de
- * `ai_handling` era a mesma mentira das abas em forma de cor: `ai_handling` é
- * escrito por UM caminho só em produção, então a bolinha do automático quase
- * nunca aparecia — enquanto o robô atendia a maior parte da lista — e, quando
- * aparecia, sobrevivia ao silêncio, porque o status não muda quando o atendente
- * cala o automático.
- *
- * As chaves são as de `Comando["quem"]`, ao lado de `ROTULO_DO_COMANDO`, pela
- * mesma razão que ele mora ali: a cor e a palavra dizem a mesma coisa e não
- * podem ser mantidas em arquivos diferentes.
- */
-const COR_DO_COMANDO: Record<string, string> = {
-  humano: "bg-blue-500",
-  automatico: "bg-purple-500",
-  aguardando: "bg-amber-500",
-  ninguem: "bg-muted-foreground/60",
-  encerrada: "bg-muted-foreground/30",
-};
-
-function initials(name: string | null | undefined, fallback: string): string {
-  const v = (name ?? "").trim();
-  if (!v) return fallback.slice(0, 2).toUpperCase();
-  const parts = v.split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return fallback.slice(0, 2).toUpperCase();
-  if (parts.length === 1) return (parts[0] ?? "").slice(0, 2).toUpperCase();
-  const first = parts[0]?.[0] ?? "";
-  const last = parts[parts.length - 1]?.[0] ?? "";
-  return (first + last).toUpperCase();
-}
-
-function relativeTime(iso: string | null, locale: Locale): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return format(d, "HH:mm");
-  const diff = (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24);
-  if (diff < 7) return formatDistanceToNowStrict(d, { addSuffix: false, locale: locale });
-  return format(d, "dd/MM");
+  /**
+   * Marca esta linha no lote (#2484, F1). Presente só quando a seleção
+   * múltipla está ligada — sem ela a caixa não aparece, e a lista continua
+   * sendo o que era.
+   */
+  selecionado?: boolean;
+  /**
+   * Liga o modo de seleção: com esta prop a linha ganha a caixa de marcação.
+   * A ação da caixa é SEPARADA do clique na linha — quem marca não abre a
+   * conversa, e quem abre não marca.
+   */
+  onAlternarSelecao?: (id: string) => void;
+  /**
+   * Marca (ou desmarca) ESTA conversa como exemplo para o agente aprender
+   * (#3006). Presente = a linha monta o controle; AUSENTE = a linha é
+   * exatamente a que era, sem controle nenhum e sem selo — é o que mantém os
+   * testes que renderizam a linha sozinha, e a lista que não oferece a ação.
+   *
+   * A CHAMADA À ROTA NÃO MORA AQUI, e isso é de propósito. Vem por prop, como
+   * o `automaticoDaOrg`: uma resposta por lista, não por linha — e, medido, a
+   * linha é renderizada sem `QueryClientProvider` em vários testes do repo, o
+   * que faria um `useQueryClient()` aqui dentro derrubar todos eles com "No
+   * QueryClient set". Quem faz o `POST .../usable-for-rag` é a lista.
+   */
+  onAlternarExemplo?: (id: string, enabled: boolean) => void;
 }
 
 /**
@@ -129,15 +112,16 @@ export function ConversationListItem({
   mostrarAtendente,
   mostrarAutomatico = true,
   automaticoDaOrg,
+  selecionado = false,
+  onAlternarSelecao,
+  onAlternarExemplo,
 }: Props) {
   const localeDaData = useLocaleDeData();
   const t = useT();
   const c = conversation.contacts ?? null;
-  const displayName = rotuloDoContato(c, t);
+  const displayName = rotuloParaAEquipe(c, t);
   const phoneFallback = c?.phone_number ? phoneForDisplay(c.phone_number) : "??";
   const tags = c?.tags ?? [];
-  const visibleTags = tags.slice(0, 2);
-  const overflow = tags.length - visibleTags.length;
   const preview = conversation.last_message_preview?.trim() || t("Sem mensagens");
   const truncated = preview.length > 60 ? `${preview.slice(0, 60)}…` : preview;
   const naFila = queuePosition !== undefined;
@@ -186,36 +170,91 @@ export function ConversationListItem({
     automaticoDaOrg,
   });
   const isAi = comando.quem === "automatico";
-  const dot = COR_DO_COMANDO[comando.quem] ?? COR_DO_COMANDO.ninguem;
 
-  // O número DA EMPRESA por onde esta conversa chegou — não o do cliente. Com
-  // dois canais é o que decide o tom da resposta e qual número a pessoa vê
-  // respondendo. Cai no nome do canal quando não há número (canal recém-criado).
+  // QUEM MANDA ESTA CONVERSA — o número DA EMPRESA por onde ela chegou, não o
+  // do cliente. Com dois canais é o que decide o tom da resposta e qual número
+  // a pessoa vê respondendo.
+  //
+  // #2383: quando o canal tem nome ou número, o texto é o MESMO do card da tela
+  // de canais (`/app/connections`), com o nome amigável na frente — antes o
+  // número vencia o nome, e um canal chamado "Peças" saía na lista como o
+  // número cru. Sem canal associado (grupo, conversa sem sessão, não-WA) e sem
+  // nome E sem número o badge continua não existindo, como estava.
   const canal = conversation.channel_sessions ?? null;
-  const rotuloCanal = canal?.phone_number ?? canal?.display_name ?? null;
+  const rotuloCanal = rotuloDoCanalDaConversa(canal, t);
 
-  const temSelos =
-    visibleTags.length > 0 ||
-    (mostrarAtendente && comando.quem === "humano") ||
-    (mostrarCanal && rotuloCanal != null) ||
-    Boolean(c?.is_blocked) ||
-    Boolean(c?.is_anonymized);
+  /**
+   * A CONVERSA MARCADA COMO EXEMPLO PARA O AGENTE (#3006).
+   *
+   * `usable_for_rag` é a coluna que a rota `usable-for-rag` liga; quem a traz
+   * para cá é o `SELECT_COLS` da lista. Os dois rótulos são literais `t()`
+   * separados — a cerca de espanhol cobra chave por chave, e uma escolha
+   * ternária dentro do `t()` ficaria invisível para ela.
+   */
+  const exemploMarcado = Boolean(conversation.usable_for_rag);
+  const rotuloExemplo = exemploMarcado
+    ? t("Deixar de usar como exemplo")
+    : t("Usar como exemplo para a IA");
+
+  // Tags, número de entrada e atendente saíram da linha (ficavam como chips
+  // embaixo da prévia) e passaram para a dica do selo do canal — a linha fica
+  // com duas leituras só: quem e o quê. A ficha do contato mostra o resto.
+  const dicaDoCanal = [
+    mostrarCanal && rotuloCanal ? `${t("Entrou por")} ${rotuloCanal}` : null,
+    mostrarAtendente && comando.quem === "humano" ? `${t("Atendido por")} ${comando.nome ?? t("Atendente")}` : null,
+    tags.length > 0 ? `${t("Tags")}: ${tags.join(", ")}` : null,
+    exemploMarcado ? t("Exemplo para a IA") : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const midia = midiaDaPrevia(preview);
+  // Sem nome de gente, o número formatado ("+55 19 2042-5772") no lugar do cru.
+  const nomeVisivel = nomeDoContato(c) ? displayName : c?.phone_number ? telefoneLegivel(c.phone_number) : displayName;
 
   return (
+    <div
+      className={cn(
+        "relative flex w-full items-start rounded-[10px]",
+        selecionado && "bg-ibx-accent-active-bg",
+      )}
+    >
+      {/*
+        A CAIXA DE SELEÇÃO (1.99, #2484) — fora do botão da linha, de propósito:
+        controle interativo dentro de `<button>` é HTML inválido, e o clique na
+        caixa NÃO pode abrir a conversa. Marcar e abrir são gestos diferentes.
+      */}
+      {onAlternarSelecao && (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={selecionado}
+          aria-label={t("Selecionar conversa")}
+          title={t("Selecionar conversa")}
+          data-testid={`selecao-em-lote-${conversation.id}`}
+          onClick={() => onAlternarSelecao(conversation.id)}
+          className={cn(
+            "ml-2 mt-[22px] flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+            "focus-visible:outline-2 focus-visible:outline-ibx-accent",
+            selecionado
+              ? "border-ibx-accent bg-ibx-accent text-white"
+              : "border-ibx-border-hover bg-ibx-pane hover:bg-ibx-field",
+          )}
+        >
+          {selecionado && <Check size={12} weight="bold" aria-hidden />}
+        </button>
+      )}
     <button
       type="button"
       data-conversation-id={conversation.id}
       onClick={() => onSelect(conversation.id)}
       className={cn(
-        "group relative flex w-full items-start gap-3 border-b border-border/70 px-3 py-2.5 text-left transition-colors hover:bg-surface-elevated",
-        "focus-visible:outline-hidden focus-visible:bg-surface-elevated",
-        isSelected && "bg-accent-50 hover:bg-accent-50",
+        "group relative flex min-w-0 flex-1 items-start gap-3 rounded-[10px] p-2.5 text-left transition-colors",
+        "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ibx-accent",
+        isSelected ? "bg-ibx-accent-active-bg" : selecionado ? "hover:bg-transparent" : "hover:bg-ibx-field",
       )}
       aria-current={isSelected ? "true" : undefined}
+      data-comando={comando.quem}
     >
-      {isSelected && (
-        <span className="absolute inset-y-0 left-0 w-0.5 bg-accent" aria-hidden />
-      )}
       <div className="relative shrink-0">
         <Avatar className="h-10 w-10">
           {/* Só monta a <img> quando existe arquivo: sem isso o browser pediria
@@ -229,30 +268,33 @@ export function ConversationListItem({
               className="object-cover"
             />
           ) : null}
-          <AvatarFallback className="bg-surface-elevated text-xs font-medium text-text-muted">
+          <AvatarFallback
+            className={cn(
+              "text-[12px] font-semibold",
+              isSelected ? "bg-ibx-avatar-sel-bg text-ibx-avatar-sel-fg" : "bg-ibx-chip text-ibx-text-2",
+            )}
+          >
             {initials(displayName, phoneFallback)}
           </AvatarFallback>
         </Avatar>
         <span
-          className={cn(
-            "absolute -bottom-0.5 -left-0.5 h-3 w-3 rounded-full border-2 border-background",
-            dot,
-          )}
-          aria-hidden
-        />
-        <ChannelLogo channel={canal} size={16} className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-background ring-2 ring-background" />
+          className="absolute -bottom-0.5 -right-0.5 flex h-[14px] w-[14px] items-center justify-center rounded-full border-2 border-ibx-pane bg-ibx-pane"
+          title={dicaDoCanal || undefined}
+        >
+          <ChannelLogo channel={canal} size={10} className="h-[10px] w-[10px]" />
+        </span>
       </div>
 
       <div className="min-w-0 flex-1">
         {naFila && (
           <div className="mb-1 flex items-center gap-1.5">
             <span
-              className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-soft px-1 text-[10px] font-medium tabular-nums text-accent"
+              className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-ibx-chip px-1 font-inbox-mono text-[10px] font-medium tabular-nums text-ibx-accent-text"
               aria-label={`${t("Posição")} ${queuePosition} ${t("na fila")}`}
             >
               {queuePosition}º
             </span>
-            <span className="text-[11px] text-text-muted">
+            <span className="text-[11px] text-ibx-muted">
               {waitingLabel(conversation, t, localeDaData)}
             </span>
           </div>
@@ -261,33 +303,28 @@ export function ConversationListItem({
           <span className="flex min-w-0 items-center gap-1.5">
             <span
               className={cn(
-                "truncate text-sm",
-                unread > 0 ? "font-semibold text-text" : "font-medium text-text",
-                c?.is_anonymized && "font-normal italic text-text-muted",
+                "truncate text-[14px] text-ibx-text",
+                unread > 0 ? "font-semibold" : "font-medium",
+                c?.is_anonymized && "font-normal italic text-ibx-muted",
               )}
             >
-              {displayName}
+              {nomeVisivel}
             </span>
-            {/*
-              A ETIQUETA "GRUPO", ao lado do nome.
-              `conversations.is_group` já chega no SELECT do handler (schema
-              original) — sem este selo, a lista não distingue um grupo de uma
-              conversa individual até abrir a conversa e ver vários remetentes
-              na mesma linha do tempo (ver `MessageBubble`, que mostra QUEM
-              mandou cada mensagem dentro do grupo).
-            */}
+            {/* A etiqueta "Grupo" ao lado do nome: sem ela a lista não distingue
+                um grupo de uma conversa individual até abrir a conversa. */}
             {conversation.is_group && (
-              <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px]">
+              <Badge variant="secondary" className="h-4 shrink-0 bg-ibx-chip px-1.5 text-[10px] text-ibx-text-2">
                 {t("Grupo")}
               </Badge>
             )}
           </span>
           <span
-            className="shrink-0 text-[11px] tabular-nums text-text-subtle"
-            // O mesmo lugar da tela mostra duas coisas diferentes conforme a aba:
-            // na Fila é "desde quando o cliente ESPERA" (a mensagem mais antiga sem
-            // resposta — #990), nas outras é "há quanto tempo a conversa mexeu". O
-            // rótulo existe só onde a leitura muda.
+            className={cn(
+              "shrink-0 font-inbox-mono text-[11px] tabular-nums",
+              unread > 0 ? "text-ibx-accent-text" : "text-ibx-muted",
+            )}
+            // Na Fila é "desde quando o cliente ESPERA" (#990), nas outras é "há
+            // quanto tempo a conversa mexeu". O rótulo existe só onde a leitura muda.
             title={naFila ? t("Desde quando o cliente espera resposta") : undefined}
           >
             {time}
@@ -297,42 +334,31 @@ export function ConversationListItem({
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p
             className={cn(
-              "min-w-0 truncate text-[13px]",
-              unread > 0 ? "text-text" : "text-text-muted",
+              "flex min-w-0 items-center gap-1 truncate text-[13px]",
+              unread > 0 ? "text-ibx-unread" : "text-ibx-muted",
             )}
           >
             {isAi && mostrarAutomatico ? (
-              <Robot size={12} weight="duotone" className="mr-1 inline align-[-2px]" aria-hidden />
+              <Robot size={12} weight="duotone" className="shrink-0" aria-hidden />
             ) : null}
-            {truncated}
+            {midia ? (
+              <>
+                <midia.Icone size={13} className="shrink-0" aria-hidden />
+                <span className="truncate">{t(midia.rotulo)}</span>
+              </>
+            ) : (
+              <span className="truncate">{truncated}</span>
+            )}
           </p>
           {unread > 0 && (
-            <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-accent px-1.5 text-[10px] font-semibold tabular-nums text-accent-foreground">
+            <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-ibx-accent px-1.5 font-inbox-mono text-[10px] font-semibold tabular-nums text-white">
               {unread}
             </span>
           )}
         </div>
 
-        {temSelos && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            {visibleTags.map((t) => (
-              <ChipDeEtiqueta key={t} tag={t} className="h-4 px-1.5 text-[10px]" />
-            ))}
-            {overflow > 0 && (
-              <span className="text-[10px] text-text-muted">+{overflow}</span>
-            )}
-            {mostrarAtendente && comando.quem === "humano" && (
-              <OwnerBadge ownerKind="user" ownerName={comando.nome ?? t("Atendente")} compacto />
-            )}
-            {mostrarCanal && rotuloCanal && (
-              <Badge
-                variant="outline"
-                className="h-4 gap-1 px-1.5 text-[10px] font-normal text-text-muted"
-                title={`${t("Entrou por")} ${rotuloCanal}`}
-              >
-                {rotuloCanal}
-              </Badge>
-            )}
+        {(c?.is_blocked || c?.is_anonymized) && (
+          <div className="mt-1 flex items-center gap-1">
             {c?.is_blocked && (
               <Badge variant="destructive" className="h-4 px-1.5 text-[10px]">
                 {t("Bloqueado")}
@@ -346,6 +372,65 @@ export function ConversationListItem({
           </div>
         )}
       </div>
-    </button>
+      </button>
+      {/*
+        O CONTROLE DE "EXEMPLO PARA A IA" (#3006) fica FORA do botão da linha,
+        como a caixa de seleção logo acima e pelo mesmo motivo: controle
+        interativo dentro de `<button>` é HTML inválido, e marcar não pode abrir
+        a conversa. O gesto de marcar é separado do gesto de abrir.
+
+        Fica sempre visível, e não só no hover: o defeito que esta issue
+        conserta é justamente um recurso que ninguém achava. Um ícone que só
+        aparece sob o cursor continuaria escondido no celular, onde não há
+        hover — e o alvo de toque é maior do que o desenho sugere.
+
+        Desmarcado usa `text-text-muted`, não `text-text-subtle`: é componente
+        gráfico e precisa de 3:1 contra o fundo da linha. Medido na prova de
+        tela, subtle dava 2,81:1 no escuro (#605e54 sobre #161510). Muted, no
+        pior fundo de cada tema (linha selecionada, `bg-accent-soft`): 5,74:1 no
+        claro (#5d594f sobre #e4ebe0) e 4,23:1 no escuro (#8e8b7f sobre #272b20).
+      */}
+      {onAlternarExemplo && (
+        <button
+          type="button"
+          data-testid={`exemplo-ia-${conversation.id}`}
+          aria-pressed={exemploMarcado}
+          aria-label={rotuloExemplo}
+          title={rotuloExemplo}
+          onClick={() => onAlternarExemplo(conversation.id, !exemploMarcado)}
+          className={cn(
+            "mr-1 mt-2.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm transition-colors",
+            "focus-visible:outline-2 focus-visible:outline-ibx-accent",
+            exemploMarcado
+              ? "text-ibx-accent hover:bg-ibx-accent-active-bg"
+              : "text-ibx-muted hover:bg-ibx-field hover:text-ibx-text",
+          )}
+        >
+          <Sparkle size={14} weight={exemploMarcado ? "fill" : "regular"} aria-hidden />
+        </button>
+      )}
+    </div>
   );
+}
+
+/**
+ * A prévia de mídia chega como `[image]`, `[audio]`… (o tipo da mensagem entre
+ * colchetes, gravado na ingestão). Na lista ela vira ícone + palavra.
+ */
+const MIDIAS: Record<string, { Icone: typeof Mic; rotulo: string }> = {
+  image: { Icone: IconeImagem, rotulo: "Imagem" },
+  audio: { Icone: Mic, rotulo: "Áudio" },
+  ptt: { Icone: Mic, rotulo: "Áudio" },
+  voice: { Icone: Mic, rotulo: "Áudio" },
+  video: { Icone: Video, rotulo: "Vídeo" },
+  document: { Icone: FileText, rotulo: "Documento" },
+  file: { Icone: FileText, rotulo: "Documento" },
+  sticker: { Icone: Sticker, rotulo: "Figurinha" },
+  location: { Icone: MapPin, rotulo: "Localização" },
+  contact: { Icone: Contact, rotulo: "Contato" },
+  vcard: { Icone: Contact, rotulo: "Contato" },
+};
+export function midiaDaPrevia(previa: string): { Icone: typeof Mic; rotulo: string } | null {
+  const m = /^\[([a-z_]+)\]$/i.exec(previa.trim());
+  return m ? (MIDIAS[m[1]!.toLowerCase()] ?? null) : null;
 }

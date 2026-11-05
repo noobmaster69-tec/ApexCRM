@@ -2,31 +2,42 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "@/hooks/i18n/useT";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useAuth } from "@/hooks/auth/AuthProvider";
-import { fonteDeTemplates } from "@/lib/channels/templates-fonte";
-import { estadoDaJanela, formatarDecorrido } from "@/lib/channels/janela";
+import { bloqueioDoEnvio } from "@/lib/inbox/bloqueio-do-envio";
+import { abaPadraoDoInbox, chaveDaAbaDoInbox, lerAbaGravada } from "@/lib/inbox/aba-do-inbox";
+import { useAuth, usePermission } from "@/hooks/auth/AuthProvider";
+import { roleAtLeast } from "@/lib/auth/types";
+import { useBulkConversations, type AcaoEmLote } from "@/hooks/inbox/useBulkConversations";
+import { useSelecaoEmLote } from "@/hooks/inbox/useSelecaoEmLote";
+import { composerBloqueadoAteAssumir } from "@/lib/inbox/bloqueio-ate-assumir";
 import { JanelaFechadaAviso } from "@/components/inbox/JanelaFechadaAviso";
 import { NumeroForaDoAr } from "@/components/inbox/NumeroForaDoAr";
 import { useClaimConversation } from "@/hooks/inbox/useClaimConversation";
 import { useCloseConversation } from "@/hooks/inbox/useCloseConversation";
 import { useMarkAsRead } from "@/hooks/inbox/useMarkAsRead";
+import { gravarFiltrosLembrados, lerFiltrosLembrados } from "@/lib/inbox/filtros-lembrados";
 import {
   useConversationsRealtime,
   type ConversationsFilters,
   type ConversationWithContact,
 } from "@/hooks/inbox/useConversationsRealtime";
 import { useConversation, isNotFound } from "@/hooks/inbox/useConversation";
+import { useParticipantesDaConversa } from "@/hooks/inbox/useParticipantesDaConversa";
+import { useParticipacoesRealtime } from "@/hooks/inbox/useParticipacoesRealtime";
 import { ConversationList } from "./ConversationList";
-import { InboxFilters, type InboxFiltersValue, type InboxTab } from "./InboxFilters";
+import { BarraDeAcoesEmLote } from "./BarraDeAcoesEmLote";
+import { InboxFilters, visibleInboxTabs, type InboxFiltersValue, type InboxTab } from "./InboxFilters";
 import { ChatThread } from "./ChatThread";
 import { Composer, type ComposerHandle } from "./Composer";
 import { ConversationHeader } from "./ConversationHeader";
 import { RetentionNotice } from "./RetentionNotice";
 import { CRMSidePanel } from "./CRMSidePanel";
+import type { ModuloDaLateral } from "@/lib/inbox/modulos-da-lateral";
 import type { Message as ConversationMensagem } from "@/lib/types/messaging";
 import { InboxKeyboardShortcuts } from "./InboxKeyboardShortcuts";
 
 import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
+import { EncaminharDialog } from "./EncaminharDialog";
+import { useEncaminharMensagem } from "@/hooks/inbox/useEncaminharMensagem";
 import { OpenConversationProvider } from "@/hooks/notifications/OpenConversationContext";
 // ADR-05: ícone de feature sai do mapa canônico, nunca do pacote direto.
 import { CaretLeft, ChatCircle, IdentificationCard, MagnifyingGlass, X } from "@/lib/ui/icons";
@@ -37,6 +48,7 @@ import { comandosDaFila } from "@/lib/inbox/comando-da-conversa";
 import type { AvisoDeRascunho } from "@/lib/inbox/rascunho-sugerido";
 import { buscaValeConsulta } from "@/lib/inbox/termo-de-busca";
 import { useAutomaticoAtivo } from "@/hooks/ai/useAutomaticoAtivo";
+import { useAlturaVisivel } from "@/lib/ui/altura-visivel";
 
 /**
  * QUAL COLUNA APARECE NO CELULAR — as duas saem da MESMA pergunta.
@@ -55,12 +67,126 @@ import { useAutomaticoAtivo } from "@/hooks/ai/useAutomaticoAtivo";
  *
  * Com uma pergunta só, "as duas escondidas" deixa de ser representável.
  * `md:flex` em ambas: no desktop as duas colunas convivem e a regra não vale.
+ *
+ * CONVERSA EM TELA CHEIA (F2 da ADR-0006). Escolhida, a conversa vira uma
+ * camada `fixed` abaixo do `md`, em vez de um layout novo:
+ *
+ *   - `z-[45]` cobre o TopBar (z-20) e a barra de abas (z-40) sem que ninguém
+ *     os edite, e fica abaixo das faixas de cima e dos portais Radix (z-50);
+ *   - o topo desconta `--faixas-de-cima`: o aviso de canal caído é o único
+ *     sinal de "nada entra nem sai" quando só há um número;
+ *   - `--vv-topo`/`--vv-altura` (`useAlturaVisivel`) colam a camada na área
+ *     visível com o teclado aberto; sem eles vale o `100dvh`;
+ *   - a área segura de baixo sai quando o teclado abre, porque aí o indicador
+ *     de home não está na tela.
+ *
+ * A lista fica `invisible`, e não `hidden`: sai da frente, do foco e da
+ * árvore de acessibilidade, mas guarda a rolagem para quando a pessoa voltar.
+ * Nenhum ancestral pode ter `transform`/`filter`/`contain` — isso quebraria o
+ * `fixed`; o e2e `atender-pelo-celular` mede o topo.
  */
+/**
+ * O painel do contato (300px) é recolhível e lembra a escolha no navegador.
+ * Sem escolha gravada: abre de 1280px para cima e começa fechado abaixo disso,
+ * onde os 300px custariam a conversa. Nasce fechado no servidor e decide
+ * depois da hidratação — a coluna aparece, nunca pisca sumindo.
+ */
+const CHAVE_DO_PAINEL = "inbox:painel-do-contato";
+function usePainelDoContato(): [boolean, () => void] {
+  const [aberto, setAberto] = useState(false);
+  useEffect(() => {
+    let gravado: string | null = null;
+    try {
+      gravado = window.localStorage.getItem(CHAVE_DO_PAINEL);
+    } catch {
+      gravado = null;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- leitura única do navegador depois da hidratação
+    setAberto(gravado != null ? gravado === "1" : window.innerWidth >= 1280);
+  }, []);
+  const alternar = useCallback(() => {
+    setAberto((atual) => {
+      const proximo = !atual;
+      try {
+        window.localStorage.setItem(CHAVE_DO_PAINEL, proximo ? "1" : "0");
+      } catch {
+        // navegador sem armazenamento: vale só nesta visita
+      }
+      return proximo;
+    });
+  }, []);
+  return [aberto, alternar];
+}
+
 export function colunasDoCelular(temSelecao: boolean): { lista: string; conversa: string } {
   return {
-    lista: temSelecao ? "hidden md:flex" : "flex",
-    conversa: temSelecao ? "flex" : "hidden md:flex",
+    lista: temSelecao ? "hidden lg:flex" : "flex",
+    conversa: temSelecao ? "flex" : "hidden lg:flex",
   };
+}
+
+/** A marca que o Inbox põe na entrada do histórico: conversas abertas desde a lista. */
+const MARCA_DO_INBOX = "inboxProfundidade";
+
+/**
+ * VOLTAR DESFAZ O PASSO, EM VEZ DE EMPILHAR (F2 da ADR-0006).
+ *
+ * Abrir a partir da lista empilha uma entrada com profundidade 1; abrir outra
+ * conversa a partir dessa soma 1 (o "Transferir para outro número", o aviso de
+ * número fora do ar, o j/k). Voltar anda a profundidade inteira para trás, e o
+ * `popstate` devolve a lista pelo efeito de `idNaUrl` — o gesto do sistema e o
+ * botão "‹ Conversas" passam a concordar.
+ *
+ * Sem marca (deep-link, clique no aviso) voltar troca a entrada no lugar, e
+ * trocar de conversa também: a pilha não cresce, e o gesto do sistema não
+ * reabre a conversa que a pessoa acabou de fechar. Se a troca empilhasse, um
+ * link direto X seguido de "Transferir" para Y deixaria [X, lista], e o voltar
+ * do sistema reabriria X. Custo aceito: no computador, j/k depois de um link
+ * direto não deixa rastro no voltar do navegador.
+ *
+ * Uma navegação do próprio Next (`router.push`, ex.: `PainelIniciarConversa`,
+ * `ContactCard`) DESCARTA a marca — o roteador grava o próprio estado por
+ * cima. A entrada nasce sem marca, o "‹" troca no lugar e a pilha fica
+ * [lista, lista]: o voltar do sistema parece "não fazer nada" uma vez. É o
+ * preço de não reabrir conversa, não um laço.
+ *
+ * O Next 16 copia o estado interno dele para dentro do objeto passado ao
+ * `pushState` (`copyNextJsInternalHistoryState`), então a marca sobrevive.
+ * Devolve `"pelo-historico"` quando quem troca a seleção é o `popstate`.
+ */
+export function navegarNoInbox(
+  url: string,
+  de: string | null,
+  para: string | null,
+): "trocou" | "pelo-historico" {
+  const historia = window.history;
+  const marca: unknown = (historia.state as Record<string, unknown> | null)?.[MARCA_DO_INBOX];
+  const profundidade = typeof marca === "number" && marca > 0 ? marca : 0;
+  if (para !== null) {
+    const proxima = de === null ? 1 : profundidade > 0 ? profundidade + 1 : 0;
+    if (proxima > 0) historia.pushState({ [MARCA_DO_INBOX]: proxima }, "", url);
+    else historia.replaceState(null, "", url);
+    return "trocou";
+  }
+  if (profundidade > 0) {
+    historia.go(-profundidade);
+    return "pelo-historico";
+  }
+  historia.replaceState(null, "", url);
+  return "trocou";
+}
+
+/**
+ * A LISTA ESCONDIDA NÃO GUARDA O FOCO. No celular a lista fica `invisible`
+ * atrás da conversa, e no Safari do iPhone tocar num botão não tira o foco do
+ * campo: a busca seguiria focada, com o teclado aberto, filtrando uma lista
+ * que ninguém vê. Só age com a lista de fato escondida — no computador ela
+ * segue visível e o foco (do teclado, inclusive) fica onde a pessoa o deixou.
+ */
+export function soltarFocoEscondido(lista: HTMLElement | null): void {
+  const ativo = document.activeElement;
+  if (!lista || !(ativo instanceof HTMLElement) || !lista.contains(ativo)) return;
+  if (getComputedStyle(lista).visibility === "hidden") ativo.blur();
 }
 
 /**
@@ -116,48 +242,150 @@ const FILTER_TABS: InboxTab[] = ["unassigned", "mine", "all", "closed", "archive
 
 /**
  * Lê ?filter= (G4-02, deep-link). ?filter=all é HONRADO mesmo para agent — a
- * lista volta RLS-scoped (a tab só some cosmeticamente); default: fila.
+ * lista volta RLS-scoped (a tab só some cosmeticamente). Sem parâmetro, o
+ * padrão vem de `abaPadraoDoInbox` ("Todas" para quem a vê).
  */
-function parseFilterParam(v: string | null): InboxTab {
-  return v && FILTER_TABS.includes(v as InboxTab) ? (v as InboxTab) : "unassigned";
+function parseFilterParam(v: string | null, padrao: InboxTab): InboxTab {
+  return v && FILTER_TABS.includes(v as InboxTab) ? (v as InboxTab) : padrao;
 }
+
+/**
+ * O getter de `window.localStorage` LANÇA (`SecurityError`) quando o navegador
+ * bloqueia o armazenamento do site. O `try` de `lerLarguras`/`gravarLarguras`
+ * só protege `getItem`/`setItem`; o getter tem de ser lido aqui dentro.
+ */
+function armazenamentoDoNavegador(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 
 interface InboxLayoutProps {
   initialSelectedId?: string | null;
   /** Rascunho sugerido por integração (issue #1611) — `null` é o caso comum. */
   rascunho?: AvisoDeRascunho | null;
+  /**
+   * O painel do contato começa recolhido? Vem do cookie lido no SERVIDOR
+   * (`app/app/inbox/page.tsx`), como `sidebar_collapsed` no layout da casca: é o
+   * que evita o painel nascer aberto e pular para trilho depois da hidratação.
+   */
+  painelRecolhidoInicial?: boolean;
+  /**
+   * Quais módulos da lateral do contato aparecem, e em que ordem (#3008).
+   *
+   * Vem do SERVIDOR (`app/app/inbox/page.tsx` -> `carregarModulosDaLateral`),
+   * pela mesma razão do recolhido acima: a preferência é da pessoa, mora no
+   * metadata dela, e o primeiro paint já tem de sair com ela — ler no cliente
+   * faria a lateral nascer completa e "pular" para a escolhida.
+   */
+  modulosDaLateral?: ModuloDaLateral[];
 }
 
-export function InboxLayout({ initialSelectedId = null, rascunho = null }: InboxLayoutProps = {}) {
+export function InboxLayout({
+  initialSelectedId = null,
+  rascunho = null,
+  modulosDaLateral,
+}: InboxLayoutProps = {}) {
   const t = useT();
   const { activeOrg, user } = useAuth();
+  useParticipacoesRealtime(user.id, activeOrg?.orgId ?? null);
   const supportReadonly = user.support?.access_mode === "support_readonly";
   const orgId = activeOrg?.orgId ?? null;
 
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const tab = parseFilterParam(searchParams.get("filter"));
+  const abaPadrao = abaPadraoDoInbox(activeOrg?.role, activeOrg?.visibility_mode);
+  const filtroNaUrl = searchParams.get("filter");
+  const tab = parseFilterParam(filtroNaUrl, abaPadrao);
   const idNaUrl = searchParams.get("id");
+  const chaveDaAba = chaveDaAbaDoInbox(user.id, orgId);
 
-  // tab vive na URL (?filter=); os demais filtros são estado local de sessão.
+  // Sem `?filter=`, volta para a última aba escolhida. Lido DEPOIS de montar
+  // (servidor e navegador pintam o mesmo padrão; a hidratação não diverge), e
+  // escrito na URL — a URL continua sendo a única dona da aba.
+  useEffect(() => {
+    if (filtroNaUrl) return;
+    let gravada: InboxTab | null = null;
+    try {
+      const visiveis = activeOrg
+        ? visibleInboxTabs(activeOrg.role, activeOrg.visibility_mode)
+        : FILTER_TABS;
+      gravada = lerAbaGravada(window.localStorage.getItem(chaveDaAba), visiveis);
+    } catch {
+      // Storage bloqueado (aba privada): fica o padrão.
+    }
+    if (!gravada || gravada === abaPadrao) return;
+    const params = new URLSearchParams(searchParams);
+    params.set("filter", gravada);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [filtroNaUrl, chaveDaAba, abaPadrao, activeOrg, searchParams, router, pathname]);
+  /**
+   * `?tag=` é o destino do link de cada linha do relatório Por etiqueta
+   * (#1891): a lista nasce filtrada pelo marcador escolhido lá. Sem esta
+   * leitura o link abriria o Inbox SEM filtrar nada — um link que promete
+   * conversa e entrega caixa de entrada inteira.
+   *
+   * Uma etiqueta só: o filtro de VÁRIAS (#1886) é o da própria tela, e uma
+   * query repetida aqui não teria como distinguir E de OU no seletor.
+   */
+  const tagNaUrl = searchParams.get("tag");
+
+  // tab vive na URL (?filter=); os demais filtros são estado local de sessão —
+  // exceto a etiqueta, que entra UMA vez, na abertura, pela URL, e o número e o
+  // "Não lidos", lembrados por organização (lib/inbox/filtros-lembrados).
   const [aux, setAux] = useState<Omit<InboxFiltersValue, "tab">>({
     search: "",
     onlyUnread: false,
     onlyGroups: false,
+    ...(tagNaUrl ? { tag: tagNaUrl } : {}),
   });
-  const filterValue: InboxFiltersValue = { tab, ...aux };
+  // Lidos depois da hidratação: o servidor não enxerga o localStorage.
+  const [orgDosFiltros, setOrgDosFiltros] = useState<string | null>(null);
+  useEffect(() => {
+    if (!orgId) return;
+    const lembrados = lerFiltrosLembrados(armazenamentoDoNavegador(), orgId);
+    setAux((atual) => ({
+      ...atual,
+      channel_session_id: lembrados.channel_session_id,
+      onlyUnread: lembrados.onlyUnread ?? false,
+    }));
+    // O contexto acompanha o estado restaurado no PRÓXIMO render. Uma ref
+    // marcada aqui liberaria o efeito de gravação com os filtros anteriores.
+    setOrgDosFiltros(orgId);
+  }, [orgId]);
+  useEffect(() => {
+    if (!orgId || orgDosFiltros !== orgId) return;
+    gravarFiltrosLembrados(armazenamentoDoNavegador(), orgId, {
+      channel_session_id: aux.channel_session_id,
+      onlyUnread: aux.onlyUnread,
+    });
+  }, [orgId, orgDosFiltros, aux.channel_session_id, aux.onlyUnread]);
+  const filterValue: InboxFiltersValue = {
+    tab,
+    ...aux,
+    // Uma troca de organização não leva o número anterior nem à consulta.
+    ...(orgDosFiltros !== orgId ? { channel_session_id: undefined, onlyUnread: false } : {}),
+  };
   const setFilterValue = useCallback(
     (next: InboxFiltersValue) => {
       if (next.tab !== tab) {
         const params = new URLSearchParams(searchParams);
         params.set("filter", next.tab);
         router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+        try {
+          window.localStorage.setItem(chaveDaAba, next.tab);
+        } catch {
+          // Storage bloqueado: a escolha vale só nesta visita.
+        }
       }
       const { tab: _t, ...rest } = next;
       setAux(rest);
     },
-    [tab, searchParams, router, pathname],
+    [tab, searchParams, router, pathname, chaveDaAba],
   );
 
   // Desliga só os AUXILIARES e mantém a aba: a aba é onde a pessoa está, e
@@ -170,6 +398,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   const ultimoIdNaUrl = useRef(idNaUrl);
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [painelAberto, alternarPainel] = usePainelDoContato();
   /** A ficha do contato como painel deslizante — só existe abaixo do `xl`. */
   const [fichaAberta, setFichaAberta] = useState(false);
   /**
@@ -192,6 +421,12 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
    */
   const [respondendo, setRespondendo] = useState<ConversationMensagem | null>(null);
   /**
+   * A mensagem escolhida para ENCAMINHAR (#2835). Irmã do `respondendo`: mora
+   * aqui porque quem escolhe é o fio e quem mostra o destino é o diálogo — o
+   * estado comum é do pai. `null` = diálogo fechado.
+   */
+  const [encaminhando, setEncaminhando] = useState<ConversationMensagem | null>(null);
+  /**
    * O rascunho sugerido (#1611) vale para a conversa da URL e só enquanto ela
    * está aberta: sair dela — clique, atalho ou voltar do navegador — o descarta
    * de vez. Sem isto o texto escrito para um cliente ficava no campo do próximo,
@@ -207,6 +442,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
     // O histórico do navegador também troca a conversa, sem carregar a página inteira.
     setSelectedId(idNaUrl);
     setRespondendo(null);
+    setEncaminhando(null);
   }, [idNaUrl]);
 
   /**
@@ -219,12 +455,15 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
    * e completa quando a resposta chega; a janela é de ~200ms e o rótulo nunca
    * discorda do filtro, porque os dois usam a mesma convenção.
    */
-  const { data: automaticoDaOrg } = useAutomaticoAtivo();
+  const { data: automaticoDaOrg, isLoading: automaticoCarregando } = useAutomaticoAtivo();
   const composerRef = useRef<ComposerHandle | null>(null);
 
   const filters: ConversationsFilters = useMemo(
     () => ({
       ...tabToFilter(filterValue.tab, automaticoDaOrg),
+      // O atendente escolhido pelo gerente. A aba Minhas já traz `assigned_to=me`,
+      // e esse valor da aba vence (o seletor nem aparece ali).
+      assigned_to: tabToFilter(filterValue.tab, automaticoDaOrg).assigned_to ?? filterValue.assigned_to,
       // A tela NÃO pede o que a rota recusa: o hook trata falha com
       // `showApiError`, então digitar a primeira letra de qualquer busca faria
       // piscar um erro na cara de quem digita. A regra é a MESMA que o schema
@@ -241,6 +480,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
     [
       filterValue.tab,
       automaticoDaOrg,
+      filterValue.assigned_to,
       filterValue.search,
       filterValue.channel_session_id,
       filterValue.tag,
@@ -251,9 +491,33 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   );
 
 
+  /**
+   * A FILA ESPERA O FATO DA ORG — E CONSULTA UMA VEZ SÓ (#2365).
+   *
+   * Só a aba Fila depende do fato org-wide: `comandosDaFila` devolve
+   * `aguardando,automatico` numa org SEM automático (sem robô, essas conversas
+   * também esperam gente) e `aguardando` numa org com. Enquanto o fato não
+   * chegou, `undefined` vale "assume que há" — e era essa suposição que saía
+   * como PRIMEIRA busca da lista: com o automático desligado, a resposta trocava
+   * a chave e o react-query abria uma segunda query, DESCARTANDO a primeira
+   * (trace do #2360: `comando=aguardando` 1091ms + `comando=aguardando,automatico`
+   * 896ms, duas voltas de rede pela mesma lista).
+   *
+   * Segurar a Fila até o fato chegar é o preço de UMA requisição: a pergunta já
+   * é feita pela tela de qualquer jeito (o `ConversationList` e o cabeçalho leem
+   * o mesmo hook, deduplicado), e o esqueleto cobre a espera — nunca a caixa
+   * vazia, porque `isPending` também é verdadeiro com a consulta segurada (ver
+   * `ConversationList`). Nas outras abas o filtro não depende do fato e a lista
+   * continua consultando na hora.
+   *
+   * Falha ou permissão ausente não travam a tela: aí `isLoading` é falso, a
+   * consulta sai com a convenção de sempre e nada fica esperando para sempre.
+   */
+  const filaEsperaOFatoDaOrg = filterValue.tab === "unassigned" && automaticoCarregando;
+
   // We need the selected conversation object for header / composer / side panel.
   // Source it from the same query the list uses to avoid an extra request.
-  const listQ = useConversationsRealtime(filters, orgId);
+  const listQ = useConversationsRealtime(filters, orgId, !filaEsperaOFatoDaOrg);
   const inList = useMemo(() => {
     const all = listQ.data?.pages.flatMap((p) => p.data) ?? [];
     return all.find((c) => c.id === selectedId) ?? null;
@@ -293,13 +557,61 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   const needsFetch = !!selectedId && !inList;
   const single = useConversation(selectedId, needsFetch);
   const selectedConversation: ConversationWithContact | null = inList ?? single.data ?? null;
+  const participantes = useParticipantesDaConversa(selectedConversation?.id ?? "");
+  const participaDoAtendimento = participantes.data?.some((p) => p.user_id === user.id) === true;
   const selectionNotFound =
     needsFetch && !single.isPending && !single.data && isNotFound(single.error);
 
   const colunas = colunasDoCelular(Boolean(selectedId));
+  // O teclado do celular, medido só com conversa aberta (ver `colunasDoCelular`).
+  const conversaRef = useRef<HTMLDivElement | null>(null);
+  const tecladoAberto = useAlturaVisivel(conversaRef, Boolean(selectedId));
+  const listaRef = useRef<HTMLDivElement | null>(null);
+  // Depois de pintar: só então a lista já está `invisible` (ver `soltarFocoEscondido`).
+  useEffect(() => {
+    if (selectedId) soltarFocoEscondido(listaRef.current);
+  }, [selectedId]);
 
   const claim = useClaimConversation();
   const close = useCloseConversation();
+  // Encaminhar (#2835): o gesto que abre a escolha do destino. A execução vira
+  // um POST que reusa o caminho de envio do Inbox (ver o hook).
+  const encaminhar = useEncaminharMensagem();
+  // As conversas já carregadas são o universo de destinos — sem busca nova.
+  const conversasDaLista = useMemo(
+    () => listQ.data?.pages.flatMap((p) => p.data) ?? [],
+    [listQ.data],
+  );
+
+  // LOTE (#2484, F1): a seleção múltipla e a barra de ações da Inbox. A
+  // permissão de ESCRITA continua sendo a do `usePermission` — quem tem
+  // `inbox.reply` pode marcar e agir em lote; para o `viewer` a seleção nem
+  // aparece. (A rota ainda valida por conta própria: este portão é de tela,
+  // a fonte da regra é a API.)
+  const podeAgirEmLote = usePermission("inbox.reply");
+  // O mesmo critério da rota `usable-for-rag` (#3006), como no CRMSidePanel.
+  const podeMarcarExemplo =
+    (user.is_platform_admin && !user.support) || roleAtLeast(activeOrg?.role, "agent");
+  const selecao = useSelecaoEmLote();
+  const lote = useBulkConversations();
+
+  const rodarLote = useCallback(
+    (action: AcaoEmLote, toUserId?: string, reason?: string) => {
+      const ids = Array.from(selecao.selecionados);
+      if (ids.length === 0) return;
+      lote.mutate(
+        { ids, action, to_user_id: toUserId, reason },
+        {
+          // A seleção é limpa depois do lote, aconteça o que acontecer:
+          // manter marcadas as conversas recusadas (de outra organização,
+          // inexistentes) deixaria a barra no lugar mensageando um lote que
+          // não existe mais.
+          onSuccess: () => selecao.limpar(),
+        },
+      );
+    },
+    [lote, selecao],
+  );
 
   // A leitura da conversa aberta é do upstream e fica: sem ela o contador de
   // não-lidas nunca zera para quem abre a conversa.
@@ -314,10 +626,12 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   //
   const handleSelect = useCallback((id: string | null) => {
     if (id === selectedId) return;
-    setSelectedId(id);
     // Sem isto, escolher "responder" numa conversa e trocar para outra levaria
     // a citação junto — e a resposta sairia citando mensagem de outro cliente.
     setRespondendo(null);
+    // O mesmo vale para o encaminhamento: o destino não pode sobreviver à
+    // troca de conversa.
+    setEncaminhando(null);
     // ?id= é o formato já usado pelos atalhos do CRM. A History API mantém a
     // seleção instantânea sem pedir um novo Server Component a cada clique.
     const params = new URLSearchParams(searchParams.toString());
@@ -326,7 +640,10 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
     // O ?rascunho= é da conversa que ficou para trás (ver `rascunhoVivo`).
     params.delete("rascunho");
     const query = params.toString();
-    window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname);
+    // Voltar pela história deixa a troca para o `popstate` (efeito de `idNaUrl`).
+    if (navegarNoInbox(query ? `${pathname}?${query}` : pathname, selectedId, id) === "trocou") {
+      setSelectedId(id);
+    }
   }, [selectedId, searchParams, pathname]);
   const handleVisibleChange = useCallback((ids: string[]) => setVisibleIds(ids), []);
   const handleFocusReply = useCallback(() => composerRef.current?.focus(), []);
@@ -360,47 +677,14 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   // Reusa o `blockedReason` que já existe (contato bloqueado/anonimizado) em vez
   // de um segundo mecanismo de bloqueio: dois caminhos para desabilitar o mesmo
   // composer divergem, e o segundo esquece de cobrir o áudio ou o anexo.
-  const janela = estadoDaJanela(
-    selectedConversation?.channel_sessions?.provider ?? null,
-    selectedConversation?.last_inbound_at ?? null,
-    agoraJanela,
-  );
-  const motivoDaJanela =
-    janela.tipo === "fechada"
-      ? fonteDeTemplates(selectedConversation?.channel_sessions?.provider) === null
-        ? t("Aguarde uma nova mensagem do cliente para reabrir o atendimento nesta rede.")
-        : janela.fechadaHaMs === null
-        ? t("O cliente ainda não escreveu — a janela de 24h nunca abriu. Só um modelo aprovado sai daqui.")
-        : `${t("A janela de 24h fechou há")} ${formatarDecorrido(janela.fechadaHaMs)}. ${t("Só um modelo aprovado sai daqui — texto livre é recusado pela plataforma.")}`
-      : null;
+  const { motivoDaJanela, blockedReason } = bloqueioDoEnvio(selectedConversation, agoraJanela, t);
 
-  const blockedReason = selectedConversation?.contacts?.is_blocked
-    ? t("Contato bloqueado — envio de mensagens desabilitado.")
-    : selectedConversation?.contacts?.is_anonymized
-      ? t("Contato anonimizado — não é possível enviar mensagens.")
-      : null;
-
-  // Altura da grade: a conta desconta TUDO que fica acima e abaixo dela.
-  //   3.5rem            TopBar (`h-14`, em components/shell/TopBar.tsx)
-  //   2 * --space-6     padding do <main> do AppShell (`p-6`, em cima e embaixo)
-  //
-  // Com `100vh-3.5rem` o padding ficava de fora e a grade media 48px a MAIS que a
-  // tela. Quem pagava a diferença era o composer, que fica no rodapé: nascia
-  // parcialmente abaixo da borda, atrapalhando justo na hora de escrever.
-  //
-  // As duas parcelas NÃO estão na mesma unidade, e por isso o padding entra pelo
-  // token e não como `3rem`: o `@theme inline` de `app/globals.css` remapeia a
-  // escala de spacing para `var(--space-N)` — `--space-6` é `24px` LITERAL —, mas
-  // não remapeia o `14`, que o Tailwind 4 calcula pelo multiplicador `--spacing`
-  // e segue sendo `3.5rem` de verdade. (Até o Tailwind 4 quem remapeava era o
-  // `tailwind.config.ts`; o arquivo não existe mais, o efeito é o mesmo.)
-  // Escrever a soma como
-  // `6.5rem` só acerta enquanto a raiz for 16px; com acessibilidade de fonte maior
-  // ou menor o composer sai da tela de novo. Pelo token, a conta se auto-corrige
-  // se a escala de espaçamento mudar.
-  //
-  // `dvh` em vez de `vh` porque no celular a `vh` ignora a barra do navegador — o
-  // mesmo corte, só que pior e mudando conforme se rola a página.
+  // Altura da grade: a do <main> da casca, que desde a Etapa 7 tem altura fixa
+  // (a janela inteira, sem barra no topo). `sh-tela-cheia` desfaz o respiro do
+  // <main> e soma de volta o de cima e o de baixo; a reserva do rodapé (#1305)
+  // entra sozinha, porque ela AUMENTA o respiro de baixo do <main> e a grade
+  // mede a partir dele. Nada de `100dvh` menos a barra: a conta a mão era o
+  // que deixava o composer abaixo da borda quando uma parcela mudava.
 
   // TRÊS COLUNAS QUE CABEM — medido, não estimado.
   //
@@ -423,7 +707,12 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   return (
     <OpenConversationProvider conversationId={selectedId}>
     <div
-      className="grid h-[calc(100dvh-3.5rem-var(--space-6)-max(var(--space-6),var(--rodape-ocupado,0px)))] w-full grid-cols-1 md:grid-cols-[300px_1fr] xl:grid-cols-[272px_1fr_296px] 2xl:grid-cols-[300px_1fr_320px]"
+      // PAINÉIS FLUTUANTES: a área cancela o respiro do <main> (`sh-tela-cheia`,
+      // em components/shell/shell.css) e aplica o próprio, de 10px.
+      className={cn(
+        "sh-tela-cheia grid grid-cols-1 gap-[10px] bg-bg p-[10px] font-inbox text-[14px] text-ibx-text lg:grid-cols-[320px_minmax(0,1fr)]",
+        painelAberto && "lg:grid-cols-[320px_minmax(0,1fr)_300px]",
+      )}
       /*
        * O ESTADO DO TEMPO REAL, LEGÍVEL DE FORA — mesmo par que o dossiê do lead
        * já publica (`LeadDossier`), e pela mesma razão: quando a entrega morre,
@@ -461,12 +750,26 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
         `md` — onde as duas colunas cabem juntas e a regra não se aplica.
       */}
       <div
+        ref={listaRef}
         className={cn(
-          "h-full min-h-0 flex-col border-r border-border md:flex",
+          "h-full min-h-0 flex-col overflow-hidden rounded-[16px] border border-ibx-line bg-ibx-pane lg:flex",
           colunas.lista,
         )}
       >
         <InboxFilters value={filterValue} onChange={setFilterValue} />
+        {podeAgirEmLote && (
+          <BarraDeAcoesEmLote
+            quantidade={selecao.quantidade}
+            pendente={lote.isPending}
+            onFechar={() => rodarLote("close")}
+            onArquivar={() => rodarLote("archive")}
+            onMarcarComoLida={() => rodarLote("mark-read")}
+            onPausarIa={() => rodarLote("pause-ai")}
+            onDevolverAoAutomatico={() => rodarLote("reactivate-bot")}
+            onTransferir={(toUserId, reason) => rodarLote("transfer", toUserId, reason)}
+            onLimpar={selecao.limpar}
+          />
+        )}
         <div className="min-h-0 flex-1 overflow-hidden">
           <ConversationList
             listQuery={listQ}
@@ -475,6 +778,17 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
             onSelect={handleSelect}
             onVisibleChange={handleVisibleChange}
             onLimparFiltros={limparFiltrosAuxiliares}
+            selecionados={selecao.selecionados}
+            onAlternarSelecao={podeAgirEmLote ? selecao.alternar : undefined}
+            onSelecionarTodosVisiveis={
+              podeAgirEmLote
+                ? () =>
+                    selecao.selecionarTodos(
+                      (listQ.data?.pages.flatMap((p) => p.data) ?? []).map((c) => c.id),
+                    )
+                : undefined
+            }
+            podeMarcarExemplo={podeMarcarExemplo}
           />
         </div>
       </div>
@@ -492,8 +806,10 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
         voltar, porque ele morava dentro do ramo da conversa carregada.
       */}
       <div
+        ref={conversaRef}
+        data-teclado-aberto={tecladoAberto ? "" : undefined}
         className={cn(
-          "h-full min-h-0 min-w-0 flex-col md:flex",
+          "h-full min-h-0 min-w-0 flex-col lg:flex overflow-hidden rounded-[16px] border border-ibx-line bg-ibx-pane-chat",
           colunas.conversa,
         )}
       >
@@ -504,11 +820,11 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
           conversa, e só aparece quando há uma.
         */}
         {selectedId && (
-          <div className="flex items-center gap-1 border-b border-border px-1 py-1 md:hidden">
+          <div className="flex items-center gap-1 border-b border-ibx-line px-1 py-1 lg:hidden">
             <Button
               variant="ghost"
               size="sm"
-              className="h-9 gap-1 px-2"
+              className="gap-1 px-2"
               onClick={() => handleSelect(null)}
             >
               <CaretLeft size={16} />
@@ -518,14 +834,17 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
             {selectedConversation && (
               <Sheet open={fichaAberta} onOpenChange={setFichaAberta}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-9 gap-1 px-2 xl:hidden">
+                  <Button variant="ghost" size="sm" className="h-9 gap-1 px-2 lg:hidden">
                     <IdentificationCard size={16} />
                     {t("Ficha")}
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="right" className="w-[min(22rem,90vw)] overflow-y-auto p-0">
                   <SheetTitle className="sr-only">{t("Ficha do contato")}</SheetTitle>
-                  <CRMSidePanel conversation={selectedConversation} />
+                  <CRMSidePanel
+                    conversation={selectedConversation}
+                    modulosIniciais={modulosDaLateral}
+                  />
                 </SheetContent>
               </Sheet>
             )}
@@ -546,14 +865,16 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
               }
               buscaAberta={buscaAberta}
               botaoBuscaRef={botaoBuscaRef}
+              painelAberto={painelAberto}
+              onAlternarPainel={alternarPainel}
             />
             {buscaAberta && (
-              <div className="flex items-center gap-2 border-b border-border px-4 py-1.5">
+              <div className="flex items-center gap-2 border-b border-ibx-line px-4 py-1.5">
                 <MagnifyingGlass size={16} className="shrink-0 text-muted-foreground" aria-hidden />
                 <input
                   type="search"
                   autoFocus
-                  className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-hidden placeholder:text-muted-foreground"
+                  className="min-w-0 flex-1 bg-transparent py-1 text-base outline-hidden placeholder:text-muted-foreground md:text-sm"
                   aria-label={t("Buscar nas mensagens carregadas")}
                   placeholder={t("Buscar nas mensagens carregadas")}
                   value={busca.termo}
@@ -579,6 +900,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
                 searchTerm={buscaAberta ? busca.termo : ""}
                 provider={selectedConversation.channel_sessions?.provider ?? null}
                 onResponder={setRespondendo}
+                onEncaminhar={setEncaminhando}
                 // O cartão da passagem escolhe o gesto a partir de quem é o dono
                 // da conversa: sem dono convida a assumir, com outro dono diz
                 // quem atende. Sem estes dois campos ele cairia no estado mais
@@ -618,10 +940,31 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
               blockedReason={supportReadonly ? "Acompanhamento somente leitura" : blockedReason}
               janelaFechada={motivoDaJanela}
               disabled={selectedConversation.status === "closed"}
+              // A CAIXA TRAVADA ATÉ ASSUMIR (#3012) — a opção é da ORGANIZAÇÃO e
+              // chega pela mesma preferência que o menu (`interface_settings` em
+              // `useAuth`). Desligada (o padrão) ninguém vê diferença: com ela
+              // fora, a expressão é `false` em todo estado. Assumir a conversa
+              // muda `assigned_to_user_id` e o compositor libera sozinho, porque
+              // a decisão é recalculada a cada render sobre a conversa atual.
+              aguardandoAssumir={composerBloqueadoAteAssumir({
+                ligada: activeOrg?.interface_settings?.bloquearAteAssumir === true,
+                donoDaConversa: selectedConversation.assigned_to_user_id,
+                atendenteId: user.id,
+                participanteAtivo: participaDoAtendimento,
+              })}
               contactName={selectedConversation.contacts?.name ?? null}
+              contactDisplayName={selectedConversation.contacts?.display_name}
               respondendo={respondendo}
               onCancelarResposta={() => setRespondendo(null)}
               currentContactId={selectedConversation.contact_id}
+              // A barra de recursos lembra o recolhimento POR usuário (#3282);
+              // o id vem do `AuthProvider` daqui, não de dentro do compositor.
+              usuarioId={user.id}
+              // #3732: a recusa do envio pode dizer que a conversa continua em
+              // outra conversa do MESMO contato, no número de quem responde —
+              // e o botão da faixa abre essa conversa. É a mesma seleção que a
+              // faixa do número fora do ar e o cabeçalho já usam.
+              onAbrirConversa={handleSelect}
               // O aviso é DA conversa da URL: trocar de conversa dentro da inbox
               // não pode deixar um texto sugerido no campo de outra pessoa.
               rascunho={rascunhoVivo}
@@ -643,9 +986,12 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
         )}
       </div>
 
-      <div className="hidden h-full min-h-0 min-w-0 xl:block">
-        <CRMSidePanel conversation={selectedConversation} />
-      </div>
+      {painelAberto && (
+        <div className="hidden h-full min-h-0 min-w-0 overflow-hidden rounded-[16px] border border-ibx-line bg-ibx-pane lg:block">
+          <CRMSidePanel conversation={selectedConversation} modulosIniciais={modulosDaLateral} />
+        </div>
+      )}
+
 
       <InboxKeyboardShortcuts
         visibleIds={visibleIds}
@@ -657,6 +1003,27 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
         onToggleHelp={() => setHelpOpen((v) => !v)}
       />
       <ShortcutsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      <EncaminharDialog
+        open={encaminhando !== null}
+        onOpenChange={(aberto) => {
+          if (!aberto) {
+            setEncaminhando(null);
+            // Diálogo fechado, intenção zerada: reabrir depois — outra mensagem
+            // ou até a mesma — tem de poder encaminhar de novo, com chave nova.
+            encaminhar.limparIntencao();
+          }
+        }}
+        conversas={conversasDaLista}
+        conversationIdAtual={selectedConversation?.id ?? null}
+        enviando={encaminhar.isPending}
+        onEscolher={(destino) => {
+          if (!encaminhando) return;
+          encaminhar.mutate(
+            { id: encaminhando.id, conversationIdDestino: destino },
+            { onSuccess: () => setEncaminhando(null) },
+          );
+        }}
+      />
     </div>
     </OpenConversationProvider>
   );

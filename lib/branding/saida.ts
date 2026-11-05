@@ -78,8 +78,8 @@ export type MarcaDeSaida = {
 /**
  * O accent do tema CLARO do produto — LIDO da régua, nunca redigitado.
  *
- * `REGUA_DO_PRODUTO.claro.indices.accent` é 6 (`regua-do-produto.ts:175`) e o
- * grau 600 da rampa do produto é `#506d48` (`:34`). Escrever `"#506d48"` aqui
+ * `REGUA_DO_PRODUTO.claro.indices.accent` é 6 e o
+ * grau 600 da rampa do produto é `#386bf8`. Escrever `"#386bf8"` aqui
  * criaria a QUARTA cópia do mesmo hex no repositório (as outras vivem em
  * `regua-do-produto.ts`, `app/globals.css` e na rampa derivada), e nada as
  * manteria em sincronia — o dia em que o produto mudar de cor, o botão dos
@@ -180,10 +180,15 @@ async function settingsDaOrganizacao(organizationId: string): Promise<unknown> {
  * `lib/event-log/register-handlers.ts:12` é importado só por
  * `app/api/v1/cron/event-log-drain/route.ts:21`; `Dockerfile.worker` roda
  * `workers/agent-worker/main.ts`, que não importa e-mail nenhum).
+ *
+ * `semMemo` é só de quem envia: a fachada mantém seu memo de leitura.
  */
-export async function marcaDaSaida(organizationId: string | null): Promise<MarcaDeSaida> {
+export async function marcaDaSaida(
+  organizationId: string | null,
+  opcoes: { semMemo?: boolean } = {},
+): Promise<MarcaDeSaida> {
   try {
-    const linha = await marcaDaInstalacao();
+    const linha = await marcaDaInstalacao({ semMemo: opcoes.semMemo });
     const marca =
       organizationId === null
         ? resolverMarca([camadaDaInstalacao(linha), camadaDoAmbiente(env)], REGUA_DO_PRODUTO)

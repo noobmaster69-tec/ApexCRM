@@ -1,17 +1,26 @@
 "use client";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { useHotkeys } from "react-hotkeys-hook";
 import { Sidebar } from "@/components/shell/Sidebar";
-import { TopBar } from "@/components/shell/TopBar";
+import { GavetaDaLateral } from "@/components/shell/GavetaDaLateral";
+import { AvisoDePropostaEmDestaque } from "@/components/shell/AvisoDePropostaEmDestaque";
+import { SonsDaCentral } from "@/components/shell/SonsDaCentral";
 import { BarraDeProgressoNavegacao } from "@/components/shell/BarraDeProgressoNavegacao";
+import { useLateral, useLateralDoConstrutor, type PreferenciaDaLateral } from "@/components/shell/estado-da-lateral";
+import { atalhoDaLateralVale, ehConstrutorDeFluxo } from "@/components/shell/lateral-forcada";
 import { useSinalDePresenca } from "@/hooks/atendimento/useSinalDePresenca";
 import { useInboundMessageAlerts } from "@/hooks/notifications/useInboundMessageAlerts";
 import { useInboundCallAlerts } from "@/hooks/calls/useInboundCallAlerts";
 import { useCrmAlerts } from "@/hooks/notifications/useCrmAlerts";
 import { useNotifyOpenFromServiceWorker } from "@/lib/notifications/notify_open";
+import { useTheme } from "@/lib/theme";
+import { ensureNotifyServiceWorker } from "@/lib/notifications/service_worker";
 import { estiloDaReserva, useOcupacaoDoRodape } from "@/lib/ui/rodape-ocupado";
 
 interface AppShellProps {
-  sidebarCollapsed: boolean;
+  /** A escolha salva, lida do cookie no servidor; `null` = a largura decide. */
+  preferenciaDaLateral?: PreferenciaDaLateral | null;
   /**
    * A pessoa pode atender (agent+)? Vem do papel resolvido no layout, e não de
    * uma consulta desta casca.
@@ -21,69 +30,106 @@ interface AppShellProps {
    * 403 a cada minuto em nome de ninguém.
    */
   podeAtender: boolean;
+  /**
+   * Faixas de aviso (suporte em andamento, conexão caída): no topo da área de
+   * conteúdo, acima do título da página — a barra do topo, onde elas ficavam
+   * por cima de tudo, saiu (Etapa 7).
+   */
+  faixas?: ReactNode;
   children: ReactNode;
 }
 
-export function AppShell({ sidebarCollapsed, podeAtender, children }: AppShellProps) {
+/**
+ * A CASCA (Etapa 7): lateral à esquerda e conteúdo ocupando a altura inteira
+ * da janela — sem barra no topo. Cada página rola dentro do `<main>`; a
+ * lateral nunca rola junto (só a navegação dela, quando não cabe).
+ */
+export function AppShell({ preferenciaDaLateral = null, podeAtender, faixas, children }: AppShellProps) {
   useInboundMessageAlerts();
   useInboundCallAlerts();
   useCrmAlerts();
   useNotifyOpenFromServiceWorker();
+  // O SW em todo /app, e não só depois da permissão de avisos: é ele que
+  // responde a página neutra quando a navegação cai sem rede (ADR-0006, D4),
+  // e é aqui que a versão nova dele substitui a antiga depois de um deploy.
+  // Sem contexto seguro (http://IP) a função devolve null e nada acontece.
+  useEffect(() => {
+    void ensureNotifyServiceWorker();
+  }, []);
   // O SINAL DE PRESENÇA (issue #996) sai daqui porque presença é "esta aba
-  // está aberta" — não "a pessoa está na tela Equipe". Quem atende passa o dia
-  // no Inbox e na Agenda; um emissor amarrado à tela de gestão diria que só o
-  // gerente está presente.
+  // está aberta" — não "a pessoa está na tela Equipe".
   useSinalDePresenca(podeAtender);
+  // O atalho de tema (era do botão do topo): uma vez só, na casca — o botão do
+  // rodapé existe duas vezes quando a gaveta está aberta.
+  const { toggle } = useTheme();
+  useHotkeys("mod+shift+l", toggle, { preventDefault: true }, [toggle]);
   // O que as peças fixas do rodapé declararam ocupar agora (issue #1305). Sem
-  // chamada nenhuma é ZERO, e aí o `<main>` fica exatamente como sempre foi —
-  // o `p-6` inteiro é rodapé. Com o painel de chamada na tela, é ele que
-  // decide a faixa que o conteúdo perde, e ninguém mais mede isso por fora.
+  // chamada nenhuma é ZERO, e aí o `<main>` fica exatamente como sempre foi.
+  // Com o painel de chamada na tela, é ele que decide a faixa que o conteúdo
+  // perde, e ninguém mais mede isso por fora.
   const ocupacaoDoRodape = useOcupacaoDoRodape();
-  return (
-    <div className="flex min-h-screen w-full bg-background">
-      <BarraDeProgressoNavegacao />
-      <div className="hidden md:block">
-        <Sidebar collapsed={sidebarCollapsed} />
-      </div>
-      {/*
-        `min-w-0` é o que permite a coluna de conteúdo ENCOLHER. Um flex item
-        nasce com `min-width: auto`, ou seja, nunca fica menor que o conteúdo —
-        então qualquer bloco largo (uma fila de abas, uma tabela) empurrava a
-        PÁGINA INTEIRA para o lado em vez de rolar dentro da própria caixa, e o
-        conteúdo sumia sem nada indicando que existia.
 
-        Medido em 390x844 no detalhe do agente, que tem seis abas: a página
-        estourava 476px na horizontal; com esta classe, 212px — o que sobra é o
-        cabeçalho, presente também em telas que não têm abas (a lista de agentes
-        estoura 236px). Isolado ancestral por ancestral: é este o que decide.
-      */}
+  const pathname = usePathname();
+  const geral = useLateral(preferenciaDaLateral);
+  const doConstrutor = useLateralDoConstrutor();
+  // No construtor de fluxo vale a preferência DELE (recolhida por padrão);
+  // nas outras telas, a geral. Recolher e expandir funcionam nas duas.
+  const noConstrutor = ehConstrutorDeFluxo(pathname);
+  const recolhida = noConstrutor ? doConstrutor.recolhida : geral.recolhida;
+  const alternarLateral = noConstrutor ? doConstrutor.alternar : geral.alternar;
+  useHotkeys(
+    "mod+b",
+    (e) => {
+      if (!atalhoDaLateralVale(e.target, document)) return;
+      e.preventDefault();
+      alternarLateral();
+    },
+    { enableOnFormTags: false, enableOnContentEditable: false },
+    [alternarLateral],
+  );
+  const [pronta, setPronta] = useState(false);
+  // Só depois do primeiro quadro a troca de largura anima.
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setPronta(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+
+  return (
+    <div className="sh-app" data-testid="casca">
+      <Sidebar
+        collapsed={recolhida}
+        automatica={!noConstrutor && geral.automatica}
+        pronta={pronta}
+        onToggle={alternarLateral}
+      />
+      <GavetaDaLateral />
       {/*
-        Sem `md:ml-*`: a barra voltou a ocupar lugar na linha (ver o comentário
-        em `Sidebar.tsx`), então o que sobra para esta coluna é exatamente o que
-        ela não usou. A margem existia para compensar uma barra `fixed`, e era a
-        SEGUNDA medida da mesma coisa — a que discordava e deixava a barra por
-        cima da lista.
+        `min-w-0` (em `.sh-coluna`) é o que permite a coluna de conteúdo
+        ENCOLHER: um flex item nasce com `min-width: auto` e nunca fica menor
+        que o conteúdo — qualquer bloco largo empurrava a página inteira para o
+        lado em vez de rolar dentro da própria caixa.
       */}
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-        <TopBar />
+      <div className="sh-coluna">
+        {/* A barra de progresso da navegação: linha fina no topo do conteúdo. */}
+        <BarraDeProgressoNavegacao />
+        <div className="sh-faixas">{faixas}</div>
         {/*
           O RODAPÉ DESCONTA O QUE AS PEÇAS FIXAS OCUPAM (issue #1305).
 
           `estiloDaReserva` devolve `undefined` quando não há peça registrada —
-          nenhum estilo, o `p-6` de sempre —, e um `padding-bottom` que consome
+          nenhum estilo, o respiro de sempre —, e um `padding-bottom` que consome
           `--rodape-ocupado` quando há. O que ele descontou está também no
           atributo `data-rodape-ocupado`: é por ali que o gate mede esta faixa
-          sem depender de o jsdom computar `var()` (ele não computa), e é o que
-          aparece no inspetor quando alguém pergunta quanto o rodapé perdeu.
+          sem depender de o jsdom computar `var()` (ele não computa).
         */}
-        <main
-          className="flex-1 overflow-auto p-6"
-          style={estiloDaReserva(ocupacaoDoRodape)}
-          data-rodape-ocupado={ocupacaoDoRodape}
-        >
+        <main className="sh-main" style={estiloDaReserva(ocupacaoDoRodape)} data-rodape-ocupado={ocupacaoDoRodape}>
           {children}
         </main>
       </div>
+      {/* Cartão fixo de proposta pronta (portal) e o som da Central: eram do
+          sino do topo, e precisam existir uma vez só, em toda tela. */}
+      <AvisoDePropostaEmDestaque />
+      <SonsDaCentral />
     </div>
   );
 }

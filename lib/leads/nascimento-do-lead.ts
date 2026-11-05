@@ -29,11 +29,20 @@
  *
  * ═══ NADA É FIXO ═══
  *
+ * ⚠️ DESDE O ROTEAMENTO POR NÚMERO (Funis no modelo Kommo, Fase D) o destino é
+ * o funil PRINCIPAL do CRM da conversa — o CRM vinculado ao número de WhatsApp
+ * (`crmDaConversa`), ou o CRM padrão — e a etapa é a Etapa de entrada dele. A
+ * regra abaixo (`is_default`) continua sendo o piso quando não há CRM a usar, e
+ * a régua "um lead aberto" passou a valer POR CRM.
+ *
  * O funil de entrada é `crm_pipelines.is_default` — que já existe, já tem tela e
  * já tem regra de exclusividade (`lib/pipelines/pipeline-editing.ts`). A etapa é
- * a de menor `position` entre as não-arquivadas. Criar `is_entry_pipeline` ou uma
- * flag de primeira etapa seria um segundo lugar para uma verdade que já existe, e
- * é daí que a divergência nasce.
+ * a de menor `position` entre as não-arquivadas, SALVO quando o funil declara
+ * outra (`settings.entrada_do_inbox`, issue #3011): a declarada vence, e a de
+ * menor `position` continua sendo o destino de todo funil que não declara
+ * nenhuma — que é toda instalação de hoje. Criar `is_entry_pipeline` ou uma
+ * flag de primeira etapa seria um segundo lugar para uma verdade que já existe,
+ * e é daí que a divergência nasce.
  *
  * ⚠️ ESTE CABEÇALHO DIZIA "nenhum campo novo", E DEIXOU DE SER VERDADE na
  * migration 0262, que criou `crm_pipelines.is_client_pipeline` — o funil de quem
@@ -50,13 +59,19 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { marcaDaOrigem, origemDeCampanhaDaConversa } from "@/lib/campanhas/origem-do-lead";
+import { entradaDoInboxDeclarada } from "@/lib/leads/entrada-do-inbox";
 
+import { audit } from "@/lib/audit";
 import { logger } from "@/lib/logger";
+import { ORIGEM_DO_WHATSAPP } from "@/lib/channels/origem-do-negocio";
 
-import { lerClientePelaAgenda } from "@/lib/contacts/cliente-pela-agenda";
+import { lerRegrasDeCliente } from "@/lib/contacts/regras-de-cliente";
+import { ehContatoInterno, lerTagsInternas } from "@/lib/contacts/tags-internas";
 import { ehIdentificadorTecnico, rotuloDoContato, SEM_NOME } from "@/lib/contacts/rotulo-do-contato";
 
+import { decidirPelaVenda, lerVendaAnterior } from "./cliente-pela-venda";
 import { emitLeadActivity } from "./activity-emitter";
+import { removerProvaMetaLeadSubmitted } from "./prova-meta-lead-submitted";
 
 /**
  * O rótulo que aparece no card do funil quando o lead nasceu de um clique em
@@ -92,11 +107,9 @@ export interface OrigemDoNascimento {
   motivo: string;
 }
 
-const ORIGEM_PADRAO: OrigemDoNascimento = {
-  rotulo: "WhatsApp",
-  source: "whatsapp",
-  motivo: "primeira mensagem recebida no WhatsApp",
-};
+// Um texto só para a origem padrão: o mesmo objeto que a ingestão usa quando
+// a conversa é de WhatsApp (`lib/channels/origem-do-negocio.ts`).
+const ORIGEM_PADRAO: OrigemDoNascimento = ORIGEM_DO_WHATSAPP;
 
 /**
  * Por que um lead NÃO nasceu. Cada motivo é registrado — silêncio não distingue
@@ -104,9 +117,13 @@ const ORIGEM_PADRAO: OrigemDoNascimento = {
  */
 export type MotivoSemLead =
   | "ja_existe" // o contato já tem lead aberto: um por demanda, não um por mensagem
+  | "ja_teve_lead" // pedido só o PRIMEIRO lead, e o contato já teve um (aberto ou fechado)
   | "contato_bloqueado" // pediu para sair; criar oportunidade seria desrespeito registrado
+  | "contato_pessoal" // marcado como pessoal (spec 21): não é oportunidade, nunca nasce
+  | "contato_interno" // #2353: equipe/sócio/família/fornecedor — tag interna, não é negócio
   | "sem_funil_de_entrada" // a organização não tem funil padrão — falha de configuração, visível
   | "sem_etapa" // o funil existe e não tem etapa utilizável
+  | "pos_venda" // #3644: comprou dentro da janela de pós-venda — a conversa não é demanda
   | "erro"; // qualquer falha de escrita
 
 export type NascimentoDoLead =
@@ -118,10 +135,22 @@ export interface DadosDoNascimento {
   contactId: string;
   /** conversa que originou — vai ao vínculo e ao registro. */
   conversationId: string;
+  /** O ingest de mensagem entrega a linha persistida; voz continua sem este ID. */
+  messageId?: string | null;
   /** nome do contato, para o título do card. */
   nomeDoContato: string | null;
   /** Rotulo/source/motivo do canal de origem -- default preserva o WhatsApp. */
   origem?: OrigemDoNascimento;
+  /**
+   * Só nasce se o contato NUNCA teve lead — aberto, ganho ou perdido.
+   *
+   * É a régua do ENVIO (`lib/channels/pos-saida.ts`): quem fala primeiro é a
+   * loja, e a loja também fala com quem já comprou — entregar o pedido,
+   * avisar de prazo. Com a régua da entrada ("sem lead ABERTO"), cada entrega
+   * pós-venda abriria uma demanda nova que ninguém pediu. Quando o CLIENTE
+   * volta a escrever, a entrada continua abrindo demanda nova como sempre.
+   */
+  apenasPrimeiroLead?: boolean;
 }
 
 /**
@@ -147,11 +176,88 @@ async function primeiraEtapa(
     .eq("is_archived", false)
     .eq("is_won", false)
     .eq("is_lost", false)
+    // A Etapa de entrada do funil principal (9007) ganha de qualquer posição:
+    // é a coluna declarada para o contato novo, e reordenar as outras não pode
+    // tirá-la da frente.
+    .order("is_entry", { ascending: false })
     .order("position", { ascending: true })
     .limit(1)
     .maybeSingle();
 
   return (etapa?.id as string | undefined) ?? null;
+}
+
+/**
+ * A etapa de entrada DECLARADA nas configurações do funil (issue #3011, fatia 1).
+ *
+ * O valor bruto é jsonb, escrito por fora do zod que o PATCH usa — script,
+ * seed, API antiga —, então a leitura é delegada a
+ * `lib/leads/entrada-do-inbox.ts`, que a faz pela MESMA régua da gravação e é a
+ * mesma que a TELA usa para abrir o seletor no valor escolhido. Uma leitura só:
+ * duas divergiriam. Um `stage_id` que não passa lá não vira etapa nenhuma: quem
+ * chama cai na primeira do funil, que é o comportamento de antes desta fatia.
+ *
+ * ⚠️ IDENTIFICADOR COM FORMA NÃO É ETAPA QUE EXISTE. O `safeParse` só diz que o
+ * valor *parece* um uuid. Que ele seja etapa DESTE funil, desta organização e
+ * aberta é conferido contra o banco em `etapaDeEntrada` — sem isso, uma
+ * configuração apontando para o funil do vizinho, para uma etapa arquivada ou
+ * para "Perdido" faria o card nascer no lugar errado, ou não nascer: é a falha
+ * que este arquivo inteiro existe para impedir.
+ */
+export function stageDeEntradaDeclarado(settings: unknown): string | null {
+  const lido = entradaDoInboxDeclarada(settings);
+  // Só o `true` explícito liga — a régua de `settings.crm.cliente_pela_agenda`.
+  return lido.ativa ? lido.stage_id : null;
+}
+
+/**
+ * ONDE o lead nasce dentro de um funil: a etapa declarada nas configurações
+ * dele, ou a primeira etapa aberta.
+ *
+ * A declarada vale **só se for uma etapa utilizável DESTE funil**: a consulta
+ * repete os quatro filtros de `primeiraEtapa` (organização, funil, não
+ * arquivada, não ganho, não perdido), e é ela que fecha a distância entre "o
+ * valor que está gravado" e "o que o banco aceita". Falha de leitura, valor
+ * ausente ou etapa inexistente caem na primeira etapa — a mesma escolha
+ * silenciosa de `funilDeEntrada`: errar a etapa é visível e corrigível, não
+ * nascer é a pessoa sumir.
+ *
+ * ⚠️ O CAMINHO COMUM NÃO PAGA CONSULTA A MAIS. A config só é consultada quando
+ * a chave está ligada e há um identificador: sem configuração (o estado de toda
+ * instalação hoje) a segunda ida ao banco não acontece.
+ */
+async function etapaDeEntrada(
+  db: SupabaseClient,
+  organizationId: string,
+  pipelineId: string,
+  settings: unknown,
+): Promise<string | null> {
+  const declarada = stageDeEntradaDeclarado(settings);
+  if (declarada) {
+    const { data: etapa } = await db
+      .from("crm_stages")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("pipeline_id", pipelineId)
+      .eq("id", declarada)
+      .eq("is_archived", false)
+      .eq("is_won", false)
+      .eq("is_lost", false)
+      .maybeSingle();
+    if (etapa?.id) return etapa.id as string;
+    // A etapa declarada NÃO VALE MAIS: arquivada, apagada, de outro funil, ou
+    // fechada como ganho/perdido. O card entra na primeira etapa, como antes
+    // deste ajuste — a decisão é a certa (errar a etapa é visível, não nascer é
+    // a pessoa sumir), mas ela não pode ser SILENCIOSA: o log fica para quem
+    // opera e a tela do funil mostra a escolha como indisponível, com o aviso
+    // de que as conversas estão caindo na primeira etapa.
+    logger.warn("[nascimento-do-lead] etapa de entrada do Inbox não vale mais", {
+      organizationId,
+      pipelineId,
+      stage_id_declarado: declarada,
+    });
+  }
+  return primeiraEtapa(db, organizationId, pipelineId);
 }
 
 /**
@@ -170,9 +276,12 @@ export async function funilDeEntrada(
    *
    * O destino é declarado por `crm_pipelines.is_client_pipeline`, irmão
    * exclusivo de `is_default` — nenhum NOME de funil aparece aqui, que é a
-   * mesma regra do cabeçalho deste arquivo. E só vale com
-   * `settings.crm.cliente_pela_agenda` ligado: quem decide isso é o chamador,
-   * que só passa `true` com a regra ligada.
+   * mesma regra do cabeçalho deste arquivo. E só vale quando o chamador diz que
+   * a pessoa é cliente: quem passa `true` é `garantirLeadDaConversa`, com a
+   * regra da agenda (`settings.crm.cliente_pela_agenda`, migration 0262) OU a
+   * da venda (`settings.crm.cliente_pela_venda`, #3644) ligada. Este arquivo não
+   * lê chave nenhuma — são duas regras, e quem sabe qual delas vale é quem tem
+   * o contato na mão.
    *
    * ⚠️ TODA FALHA CAI NO FUNIL DE ENTRADA, e isso é o desenho, não descuido.
    * Sem funil de clientes marcado (o estado de toda instalação nova), ou com um
@@ -182,25 +291,64 @@ export async function funilDeEntrada(
    * doença que este arquivo inteiro existe para curar.
    */
   ehCliente = false,
+  /**
+   * O CRM para onde a conversa vai (Funis no modelo Kommo, Fase D): o do número
+   * de WhatsApp, ou o padrão (`crmDaConversa`). Com ele, a entrada é o funil
+   * PRINCIPAL desse CRM — o da Etapa de entrada (9007) — e o funil de clientes
+   * só vale se for DESTE CRM: mandar o cliente de volta para outro CRM seria o
+   * número decidindo uma coisa e o funil de clientes, outra.
+   *
+   * Ausente = a regra de antes do roteamento: o funil padrão da organização.
+   * CRM sem funil principal vivo (estado que a 9009 não deixa existir, mas um
+   * clone pode ter) também cai nela.
+   */
+  crmId: string | null = null,
 ): Promise<{ pipelineId: string; stageId: string } | { erro: MotivoSemLead }> {
   if (ehCliente) {
-    const { data: funilDeClientes } = await db
+    let consulta = db
       .from("crm_pipelines")
-      .select("id")
+      .select("id, settings")
       .eq("organization_id", organizationId)
       .eq("is_client_pipeline", true)
-      .eq("is_archived", false)
-      .maybeSingle();
+      .eq("is_archived", false);
+    if (crmId) consulta = consulta.eq("crm_id", crmId);
+    const { data: funilDeClientes } = await consulta.maybeSingle();
 
     if (funilDeClientes) {
-      const stageId = await primeiraEtapa(db, organizationId, funilDeClientes.id as string);
+      const stageId = await etapaDeEntrada(
+        db,
+        organizationId,
+        funilDeClientes.id as string,
+        (funilDeClientes as { settings?: unknown }).settings,
+      );
       if (stageId) return { pipelineId: funilDeClientes.id as string, stageId };
+    }
+  }
+
+  if (crmId) {
+    const { data: principal } = await db
+      .from("crm_pipelines")
+      .select("id, settings")
+      .eq("organization_id", organizationId)
+      .eq("crm_id", crmId)
+      .eq("is_primary", true)
+      .eq("is_archived", false)
+      .maybeSingle();
+    if (principal) {
+      // A etapa declarada no funil (#3011) vale também no funil principal do CRM.
+      const stageId = await etapaDeEntrada(
+        db,
+        organizationId,
+        principal.id as string,
+        (principal as { settings?: unknown }).settings,
+      );
+      if (stageId) return { pipelineId: principal.id as string, stageId };
     }
   }
 
   const { data: funil } = await db
     .from("crm_pipelines")
-    .select("id")
+    .select("id, settings")
     .eq("organization_id", organizationId)
     .eq("is_default", true)
     .eq("is_archived", false)
@@ -208,9 +356,78 @@ export async function funilDeEntrada(
 
   if (!funil) return { erro: "sem_funil_de_entrada" };
 
-  const stageId = await primeiraEtapa(db, organizationId, funil.id as string);
+  const stageId = await etapaDeEntrada(
+    db,
+    organizationId,
+    funil.id as string,
+    (funil as { settings?: unknown }).settings,
+  );
   if (!stageId) return { erro: "sem_etapa" };
   return { pipelineId: funil.id as string, stageId };
+}
+
+/** Para onde a conversa vai, e por quê — `vinculo` ou `padrao` (o fallback). */
+export interface CrmDaConversa {
+  crmId: string | null;
+  motivo: "vinculo" | "padrao";
+  /** O número (`channel_sessions.id`) da conversa — vai para a auditoria do fallback. */
+  channelSessionId: string | null;
+}
+
+/**
+ * O CRM da conversa: o do NÚMERO de WhatsApp por onde ela passa
+ * (`crm_waha_session_bindings`, migration 9007), ou o CRM padrão da organização.
+ *
+ * Sai da CONVERSA, e não de um parâmetro do canal: toda conversa sabe de qual
+ * número é (`conversations.channel_session_id`), então a entrada
+ * (`pos-entrada`), o envio (`pos-saida`) e qualquer chamador futuro roteiam
+ * igual sem ninguém precisar lembrar de passar o número.
+ *
+ * Vínculo para CRM ARQUIVADO não vale (a 9009 apaga o vínculo ao arquivar, mas
+ * um vínculo antigo pode ter sobrado): o número cai no padrão. Falha de
+ * leitura também cai no padrão — rotear errado é visível e corrigível; o lead
+ * não nascer é a pessoa sumir.
+ */
+export async function crmDaConversa(
+  db: SupabaseClient,
+  organizationId: string,
+  conversationId: string,
+): Promise<CrmDaConversa> {
+  const { data: conversa } = await db
+    .from("conversations")
+    .select("channel_session_id")
+    .eq("organization_id", organizationId)
+    .eq("id", conversationId)
+    .maybeSingle();
+  const channelSessionId = (conversa as { channel_session_id?: string } | null)?.channel_session_id ?? null;
+
+  if (channelSessionId) {
+    const { data: vinculo } = await db
+      .from("crm_waha_session_bindings")
+      .select("crm_id")
+      .eq("organization_id", organizationId)
+      .eq("channel_session_id", channelSessionId)
+      .maybeSingle();
+    const crmVinculado = (vinculo as { crm_id?: string } | null)?.crm_id ?? null;
+    if (crmVinculado) {
+      const { data: vivo } = await db
+        .from("crm_crms")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .eq("id", crmVinculado)
+        .is("archived_at", null)
+        .maybeSingle();
+      if (vivo) return { crmId: crmVinculado, motivo: "vinculo", channelSessionId };
+    }
+  }
+
+  const { data: padrao } = await db
+    .from("crm_crms")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("is_default", true)
+    .maybeSingle();
+  return { crmId: (padrao as { id?: string } | null)?.id ?? null, motivo: "padrao", channelSessionId };
 }
 
 /**
@@ -264,52 +481,115 @@ export async function garantirLeadDaConversa(
 
   // 1 · quem pediu para sair não vira oportunidade. O gate de envio já respeita
   // o opt-out; abrir um card para essa pessoa seria a mesma desatenção num
-  // lugar onde ninguém olharia.
+  // lugar onde ninguém olharia. Pessoal (spec 21) recusa igual: não é
+  // oportunidade, e a recusa aqui é a segunda defesa — cobre o voice-agent,
+  // que chama direto (`workers/voice-agent/index.ts`), e qualquer chamador
+  // futuro que não passe pela pós-entrada.
   const { data: contato } = await db
     .from("contacts")
     // `first_service_at` viaja no select que JÁ existe: decidir o funil não custa
     // uma consulta a mais no caminho quente da ingestão. É por isso que o fato
     // mora numa coluna de `contacts`, e não é derivado da agenda a cada inbound.
-    .select("is_blocked,display_name,name,phone_number,source,source_metadata,first_service_at")
+    .select("is_blocked,is_personal,display_name,name,phone_number,source,source_metadata,first_service_at,tags")
     .eq("organization_id", organizationId)
     .eq("id", contactId)
     .maybeSingle();
 
   if (contato?.is_blocked === true) return { criado: false, motivo: "contato_bloqueado" };
+  if ((contato as { is_personal?: boolean } | null)?.is_personal === true)
+    return { criado: false, motivo: "contato_pessoal" };
 
-  // 2 · já existe demanda aberta?
-  const { data: existente } = await db
+  // 1b · #2353 · contato INTERNO (equipe, sócio, família, fornecedor) não vira
+  // card. A tag pode ter sido posta ANTES da primeira mensagem (cadastro ou
+  // importação), que é o caso que a issue resolve. A leitura da lista da
+  // organização só acontece quando o contato TEM etiqueta: o caminho comum
+  // (contato sem tag) não paga consulta a mais no quente. Falha de leitura cai
+  // em lista vazia — o card nasce, e o motivo do erro fica no log (fail-open,
+  // como o resto do arquivo).
+  const tagsDoContato = (contato as { tags?: string[] } | null)?.tags ?? [];
+  if (tagsDoContato.length > 0) {
+    const tagsInternas = await lerTagsInternas(db, organizationId);
+    if (ehContatoInterno(tagsDoContato, tagsInternas))
+      return { criado: false, motivo: "contato_interno" };
+  }
+
+  // 2 · as demandas que o contato já tem (abertas, ou qualquer uma na régua do
+  // envio). Só a LEITURA aqui; quem decide se alguma delas bloqueia é o passo 3,
+  // porque desde o roteamento por número (Fase D) a regra é UM LEAD ABERTO POR
+  // CRM — e o CRM só se sabe depois de escolher o destino. O caso comum (contato
+  // sem lead nenhum) continua custando esta leitura e nada mais para decidir.
+  let busca = db
     .from("crm_leads")
-    .select("id")
+    .select("id,status,pipeline_id")
     .eq("organization_id", organizationId)
-    .eq("contact_id", contactId)
-    .eq("status", "open")
-    .limit(1)
-    .maybeSingle();
+    .eq("contact_id", contactId);
+  if (!dados.apenasPrimeiroLead) busca = busca.eq("status", "open");
+  const { data: existentes, error: erroDaBusca } = await busca.limit(50);
 
-  if (existente) return { criado: false, motivo: "ja_existe" };
+  // Na régua do envio a leitura falha FECHADA: sem saber se o contato já foi
+  // cliente, criar card arriscaria reabrir quem só recebeu uma entrega. Na
+  // entrada segue o comportamento de sempre (a RPC abaixo ainda deduplica).
+  if (erroDaBusca && dados.apenasPrimeiroLead) {
+    return { criado: false, motivo: "erro", detalhe: erroDaBusca.message.slice(0, 120) };
+  }
 
   // 3 · onde entra
   //
   // Cliente que volta a escrever não é captação: ele tem histórico, e o funil de
-  // entrada existe para medir quem é novo. Quem decide é `first_service_at` (a
-  // COLUNA, carimbada pelo agendamento), nunca a tag `cliente` — a tag é
-  // removível à mão e pelo PATCH de contatos, e âncora removível faria alguém
-  // voltar a ser lead por descuido de quem editou etiquetas.
+  // entrada existe para medir quem é novo. Duas coisas fazem alguém ser cliente:
   //
-  // ⚠️ E SÓ COM A REGRA LIGADA NA ORGANIZAÇÃO (migration 0262). Desligada, a
-  // coluna fica congelada no que era quando a regra estava ligada, e rotear por
-  // ela seria decidir o funil com um fato vencido. A leitura do interruptor só
-  // acontece quando o contato TEM a data — o caso comum (contato sem data) não
-  // paga consulta a mais — e falha de leitura cai no funil de entrada, que é a
-  // regra que o cabeçalho deste arquivo já declara.
+  //   a) `first_service_at` (a COLUNA, carimbada pelo agendamento), e só com a
+  //      regra `settings.crm.cliente_pela_agenda` ligada (migration 0262).
+  //      Desligada, a coluna fica congelada no que era quando a regra estava
+  //      ligada, e rotear por ela seria decidir o funil com um fato vencido.
+  //   b) TER COMPRADO — negócio `won` e nenhum aberto (o aberto já saiu no passo
+  //      2) —, com `settings.crm.cliente_pela_venda` ligada (#3644). É o caso que
+  //      faltava: quem comprou sem nunca agendar nada tem a coluna nula e caía no
+  //      funil de captação, como lead frio.
+  //
+  // Nunca a tag `cliente`: ela é removível à mão e pelo PATCH de contatos, e
+  // âncora removível faria alguém voltar a ser lead por descuido de quem editou
+  // etiquetas.
+  //
+  // ⚠️ AS TRÊS CHAVES DE `settings.crm` SÃO LIDAS DE UMA VEZ. Uma consulta por
+  // chave seriam três `select` na mesma linha de `organizations`, no caminho
+  // quente da ingestão. E a leitura da VENDA só acontece com a chave ligada.
+  // A leitura das regras, porém, roda em todo nascimento de card, com a opção
+  // desligada também: antes, o contato sem `first_service_at` não lia
+  // `organizations` aqui; agora lê uma vez. É uma consulta por card que nasce
+  // (o passo 2 já saiu quando há demanda aberta), não por mensagem.
+  const regras = await lerRegrasDeCliente(db, organizationId);
+  const venda = regras.pelaVenda ? await lerVendaAnterior(db, organizationId, contactId) : null;
+  const pelaVenda = decidirPelaVenda({
+    pelaVenda: regras.pelaVenda,
+    posVendaDias: regras.posVendaDias,
+    venda,
+  });
+
+  // 3b · pós-venda: quem comprou ontem e escreve hoje não abre demanda nova — é
+  // o "chegou certinho?". Sem isso, a janela de `pos_venda_dias` prometeria na
+  // tela o que o nascimento ignoraria. Só vale COM a chave ligada (o `decidir`
+  // já devolve `posVenda: false` desligada).
+  if (pelaVenda.posVenda) {
+    logger.info("[nascimento-do-lead] pós-venda: a conversa não abre negócio", {
+      organization_id: organizationId,
+      contact_id: contactId,
+      conversation_id: conversationId,
+      venda_anterior_id: venda?.leadId,
+      dias_desde_a_venda: pelaVenda.diasDesdeAVenda,
+      pos_venda_dias: regras.posVendaDias,
+    });
+    return { criado: false, motivo: "pos_venda", detalhe: pelaVenda.motivo ?? undefined };
+  }
+
   const ehCliente =
-    contato?.first_service_at != null && (await lerClientePelaAgenda(db, organizationId));
-  // A CAMPANHA ganha do padrão quando declara funil (migration 0378): é a
+    (contato?.first_service_at != null && regras.pelaAgenda) || pelaVenda.cliente;
+  // A CAMPANHA ganha do número quando declara funil (migration 0378): é a
   // escolha mais específica, e quem montou a campanha sabe onde quer medir o
-  // resultado dela. Campanha sem funil declarado, ou conversa que não nasceu de
-  // campanha, seguem a regra da 0262 sem diferença nenhuma.
+  // resultado dela. Sem campanha com funil, quem decide é o NÚMERO da conversa
+  // (Fase D): o CRM vinculado a ele, ou o CRM padrão.
   const origemDaCampanha = await origemDeCampanhaDaConversa(db, organizationId, conversationId);
+  const doNumero = origemDaCampanha?.pipelineId ? null : await crmDaConversa(db, organizationId, conversationId);
   const destino = origemDaCampanha?.pipelineId
     ? await destinoDaCampanha(
         db,
@@ -317,8 +597,28 @@ export async function garantirLeadDaConversa(
         origemDaCampanha.pipelineId,
         origemDaCampanha.stageId,
       )
-    : await funilDeEntrada(db, organizationId, ehCliente);
+    : await funilDeEntrada(db, organizationId, ehCliente, doNumero?.crmId ?? null);
   if ("erro" in destino) return { criado: false, motivo: destino.erro };
+
+  // 3b · UM LEAD ABERTO POR CRM (Fase D). A demanda que o contato tem em OUTRO
+  // CRM não bloqueia: o contato com card na Apex que escreve para o número da PA
+  // ganha card na PA. A mesma régua vale para o envio ("nunca teve lead" passa a
+  // ser "nunca teve lead NESTE CRM"). A RPC do passo 4 aplica a mesma regra
+  // dentro da trava (migration 9009).
+  const lista = (existentes ?? []) as Array<{ id: string; status?: string; pipeline_id: string }>;
+  if (lista.length > 0) {
+    const { data: funis } = await db
+      .from("crm_pipelines")
+      .select("id,crm_id")
+      .eq("organization_id", organizationId)
+      .in("id", [...new Set([destino.pipelineId, ...lista.map((l) => l.pipeline_id)])]);
+    const crmDe = new Map(((funis ?? []) as Array<{ id: string; crm_id: string | null }>).map((f) => [f.id, f.crm_id]));
+    const crmDoDestino = crmDe.get(destino.pipelineId) ?? null;
+    const doMesmoCrm = lista.find((l) => (crmDe.get(l.pipeline_id) ?? null) === crmDoDestino);
+    if (doMesmoCrm) {
+      return { criado: false, motivo: doMesmoCrm.status === "open" ? "ja_existe" : "ja_teve_lead" };
+    }
+  }
 
   // 4 · o card.
   //
@@ -373,26 +673,28 @@ export async function garantirLeadDaConversa(
   // advisory lock e devolve NULL quando já existe um aberto. O passo 2 fica
   // onde está: ele evita a ida ao banco no caso comum, que é a mensagem número
   // dez de uma conversa que já tem card.
-  const { data: novoId, error } = await db.rpc("fn_nascer_lead_da_conversa", {
-    p_org: organizationId,
-    p_contact: contactId,
-    p_pipeline: destino.pipelineId,
-    p_stage: destino.stageId,
-    p_title: titulo,
-    // A campanha ganha: quem montou a lista sabe de onde o card veio. Sem ela,
-    // vale a regra do upstream — anúncio mantém a origem do contato, e o resto
-    // usa `origem.source`.
-    p_source: marca ? marca.source : rotuloDeAnuncio ? contato!.source : origem.source,
-    p_source_metadata: marca
-      ? marca.source_metadata
-      : rotuloDeAnuncio
-        ? (contato!.source_metadata ?? {})
-        : {},
-    // O ponto ao lado do título só acende se a organização cadastrar este
-    // rótulo em `crm_pipelines.settings.canonical_tags` (Configurações do
-    // funil) — a tag sempre entra; o destaque visual é opt-in do operador.
-    p_tags: rotuloDeAnuncio ? [rotuloDeAnuncio] : [],
-  });
+  const { data: novoId, error } = await db.rpc(
+    dados.messageId ? "fn_nascer_lead_da_mensagem" : "fn_nascer_lead_da_conversa",
+    {
+      p_org: organizationId,
+      p_contact: contactId,
+      p_pipeline: destino.pipelineId,
+      p_stage: destino.stageId,
+      p_title: titulo,
+      // A campanha ganha: quem montou a lista sabe de onde o card veio. Sem ela,
+      // vale a regra do upstream — anúncio mantém a origem do contato, e o resto
+      // usa `origem.source`.
+      p_source: marca ? marca.source : rotuloDeAnuncio ? contato!.source : origem.source,
+      p_source_metadata: removerProvaMetaLeadSubmitted(
+        marca ? marca.source_metadata : rotuloDeAnuncio ? (contato!.source_metadata ?? {}) : {},
+      ),
+      // O ponto ao lado do título só acende se a organização cadastrar este
+      // rótulo em `crm_pipelines.settings.canonical_tags` (Configurações do
+      // funil) — a tag sempre entra; o destaque visual é opt-in do operador.
+      p_tags: rotuloDeAnuncio ? [rotuloDeAnuncio] : [],
+      ...(dados.messageId ? { p_message: dados.messageId, p_conversation: conversationId } : {}),
+    } as never,
+  );
 
   if (error) {
     return { criado: false, motivo: "erro", detalhe: error.message.slice(0, 120) };
@@ -403,6 +705,26 @@ export async function garantirLeadDaConversa(
     return { criado: false, motivo: "ja_existe" };
   }
   const lead = { id: novoId as string };
+
+  // O rastro do FALLBACK (Fase D): o número da conversa não tem CRM vinculado
+  // (ou o vinculado foi arquivado), e o card caiu no CRM padrão. Sem esta linha,
+  // "por que este card está aqui e não no CRM do número?" não tem resposta em
+  // lugar nenhum. Só quando o lead NASCE — mensagem de quem já tem card não é
+  // decisão de roteamento. `audit` não lança.
+  if (doNumero?.motivo === "padrao") {
+    void audit({
+      action: "lead.crm_fallback",
+      organizationId,
+      resourceType: "crm_lead",
+      resourceId: lead.id,
+      metadata: {
+        conversation_id: conversationId,
+        channel_session_id: doNumero.channelSessionId,
+        crm_id: doNumero.crmId,
+        motivo: "numero_sem_vinculo",
+      },
+    });
+  }
 
   // 5 · o registro, pelo EMISSOR CANÔNICO — não por insert cru.
   //
@@ -431,9 +753,25 @@ export async function garantirLeadDaConversa(
     // A timeline é o ÚNICO lugar onde quem abre o card descobre por que ele
     // nasceu naquele funil. Sem esta distinção, o cliente antigo aparece num
     // quadro diferente do resto sem explicação nenhuma, e quem vê conclui que
-    // alguém arrastou.
-    reason: ehCliente ? "cliente conhecido voltou a escrever" : origem.motivo,
-    payload: { conversation_id: conversationId, cliente: ehCliente },
+    // alguém arrastou. Com a venda (#3644) o texto diz mais: há quanto tempo foi
+    // a compra, em que funil e por quanto — o vendedor sabe que é recompra mesmo
+    // quando o card caiu no funil padrão por falta de um funil de clientes.
+    reason:
+      pelaVenda.cliente && pelaVenda.motivo
+        ? pelaVenda.motivo
+        : ehCliente
+          ? "cliente conhecido voltou a escrever"
+          : origem.motivo,
+    payload: {
+      conversation_id: conversationId,
+      cliente: ehCliente,
+      // Só com a venda como fundamento: sem ela, o campo seria uma referência
+      // falsa para uma "venda anterior" que não é a razão desta classificação.
+      ...(pelaVenda.cliente && venda ? { venda_anterior_id: venda.leadId } : {}),
+      // Por que ESTE CRM (fork jhoow): o do número da conversa, ou o padrão por
+      // falta de vínculo. A timeline é onde quem abre o card procura a resposta.
+      crm_roteado_por: origemDaCampanha?.pipelineId ? "campanha" : (doNumero?.motivo ?? null),
+    },
   });
   if (!registro.ok) {
     // O lead existe e é o que importa; a linha da timeline falhou. Devolver erro
@@ -450,24 +788,26 @@ export async function garantirLeadDaConversa(
   // conversa — o follow-up só existiria para formulário e API. `emit_event`
   // carimba a origem do atendimento quando o payload não traz uma; falha aqui
   // não desfaz o card.
-  const { error: erroEvento } = await db.rpc("emit_event", {
-    p_event_type: "lead.created",
-    p_entity_kind: "crm_lead",
-    p_entity_id: lead.id,
-    p_payload: {
-      pipeline_id: destino.pipelineId,
-      stage_id: destino.stageId,
-      conversation_id: conversationId,
-    },
-    p_metadata: { source: "nascimento-da-conversa" },
-    p_organization_id: organizationId,
-  });
-  if (erroEvento) {
-    logger.warn("nascimento-do-lead: evento lead.created não emitido", {
-      organization_id: organizationId,
-      lead_id: lead.id as string,
-      error: erroEvento.message.slice(0, 120),
+  if (!dados.messageId) {
+    const { error: erroEvento } = await db.rpc("emit_event", {
+      p_event_type: "lead.created",
+      p_entity_kind: "crm_lead",
+      p_entity_id: lead.id,
+      p_payload: {
+        pipeline_id: destino.pipelineId,
+        stage_id: destino.stageId,
+        conversation_id: conversationId,
+      },
+      p_metadata: { source: "nascimento-da-conversa" },
+      p_organization_id: organizationId,
     });
+    if (erroEvento) {
+      logger.warn("nascimento-do-lead: evento lead.created não emitido", {
+        organization_id: organizationId,
+        lead_id: lead.id as string,
+        error: erroEvento.message.slice(0, 120),
+      });
+    }
   }
 
   return {

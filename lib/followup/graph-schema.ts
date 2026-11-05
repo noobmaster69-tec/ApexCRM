@@ -1,6 +1,22 @@
 import { z } from 'zod';
+import { variaveisDoModeloSchema } from '@/lib/channels/meta/variaveis-do-fluxo';
 
 import { PRIORIDADES_DA_TAREFA } from '@/lib/tarefas/tipos';
+import {
+  aguardarRespostaConfigSchema,
+  blocoIaConfigSchema,
+  condicionalConfigSchema,
+  conexaoFluxoConfigSchema,
+  distribuidorConfigSchema,
+  etiquetasConfigSchema,
+  intervaloConfigSchema,
+  kanbanConfigSchema,
+  mensagemConfigSchema,
+  notificacaoConfigSchema,
+  pixelConfigSchema,
+  TIPOS_DE_BLOCO_DO_FLUXO,
+} from './blocos-do-fluxo';
+import { ehOpDeData, OPS_DE_DATA } from './condicao-por-data';
 
 /**
  * Flow graph schema for the follow-up automation system.
@@ -21,7 +37,17 @@ export const NODE_TYPES = [
   // que advocacia, saúde e serviços regulados precisam — o sistema lembra a
   // equipe, a mensagem sai de uma pessoa.
   'internal_task',
+  // #2065: dois tipos de ACAO que não falam com o cliente — o fluxo deixa de
+  // só mandar mensagem. `move_lead` move o card para outra etapa (o mesmo
+  // escritor de etapa do board/automação), `edit_lead_tag` grava tag no lead
+  // (a MESMA `add_tag` do motor de automação). "Disparar campanha" ficou de
+  // fora desta fatia e é o passo seguinte da issue.
+  'move_lead',
+  'edit_lead_tag',
   'end',
+  // Os 11 blocos do construtor de FLUXOS (fork jhoow) — só na superfície
+  // `fluxo` (`NOS_DA_SUPERFICIE`). Formato em `blocos-do-fluxo.ts`.
+  ...TIPOS_DE_BLOCO_DO_FLUXO,
 ] as const;
 export type NodeType = (typeof NODE_TYPES)[number];
 
@@ -56,6 +82,14 @@ export const CONDITION_FALSE_BRANCH_ID = 'false';
 export const REPEAT_BODY_BRANCH_ID = 'body';
 /** Saída do `repeat` quando o contador chegou a zero. */
 export const REPEAT_DONE_BRANCH_ID = 'done';
+/** As duas saídas do bloco `aguardar_resposta` (Fluxos, fork jhoow). */
+export const AGUARDAR_RESPONDEU_BRANCH_ID = 'respondeu';
+export const AGUARDAR_SEM_RESPOSTA_BRANCH_ID = 'sem_resposta';
+/** As duas saídas do bloco `condicional` (Fluxos, fork jhoow). */
+export const CONDICIONAL_SIM_BRANCH_ID = 'sim';
+export const CONDICIONAL_NAO_BRANCH_ID = 'nao';
+/** A saída do Bloco de IA quando a chamada falha (sem chave, erro do provedor). */
+export const BLOCO_IA_FALHA_BRANCH_ID = 'falha';
 
 /** Branch ids the contract owns — a user-declared branch may not claim one. */
 export const RESERVED_BRANCH_IDS = [
@@ -65,6 +99,11 @@ export const RESERVED_BRANCH_IDS = [
   CONDITION_FALSE_BRANCH_ID,
   REPEAT_BODY_BRANCH_ID,
   REPEAT_DONE_BRANCH_ID,
+  AGUARDAR_RESPONDEU_BRANCH_ID,
+  AGUARDAR_SEM_RESPOSTA_BRANCH_ID,
+  CONDICIONAL_SIM_BRANCH_ID,
+  CONDICIONAL_NAO_BRANCH_ID,
+  BLOCO_IA_FALHA_BRANCH_ID,
 ] as const;
 
 /** Id of a branch the user declared (a check, an AI class) — opaque, stable across renames. */
@@ -240,6 +279,14 @@ export const actionConfigSchema = z.discriminatedUnion('mode', [
   z.strictObject({
     mode: z.literal('text'),
     body: z.string().min(1).max(4000),
+    /**
+     * #2734 — MÍDIA OPCIONAL (imagem, vídeo, áudio ou documento, #2972) por URL.
+     * Presente, o `body` vira a
+     * LEGENDA. Opcional de propósito: os grafos publicados não têm a chave e
+     * continuam válidos byte a byte (o `strictObject` só recusa o que ELE não
+     * conhece; um campo novo e opcional é aceito pelos antigos).
+     */
+    media_url: z.string().url().max(2000).optional(),
   }),
   z.strictObject({
     mode: z.literal('ai_message'),
@@ -249,6 +296,12 @@ export const actionConfigSchema = z.discriminatedUnion('mode', [
   z.strictObject({
     mode: z.literal('template'),
     template_id: z.string().uuid(),
+    /**
+     * De onde sai cada variável (`{{1}}`, `{{2}}`…) de um modelo APROVADO:
+     * nome do contato ou campo do negócio, resolvido na hora do envio
+     * (`lib/channels/meta/variaveis-do-fluxo.ts`). Ausente = modelo sem variável.
+     */
+    template_values: variaveisDoModeloSchema.optional(),
   }),
 ]);
 
@@ -273,23 +326,97 @@ export const internalTaskConfigSchema = z.strictObject({
 });
 
 /**
+ * Nó `move_lead` (#2065) — mover o card para outra etapa do MESMO funil.
+ *
+ * Só a etapa, sem `pipeline_id`: quem escolhe o destino é o SELETOR de etapas
+ * da tela, e quem RECUSA troca de funil é a casa — `moveLeadHandler`
+ * (`app/api/v1/leads/_handler`) devolve `pipeline_immutable_use_clone` quando a
+ * etapa não é do funil do lead, a mesma régua do board, das automações e da
+ * tool MCP. Repetir aqui a pergunta de funil seria uma segunda régua para a
+ * mesma regra.
+ *
+ * `stage_id` aceita vazio porque o rascunho é validado SÓ estruturalmente
+ * (`flowGraphSchema`) e o nó nasce sem destino — quem exige etapa escolhida é o
+ * `validate-publish` (`etapa_destino_ausente`), como a condição com regra em
+ * branco.
+ *
+ * `lost_reason` é opcional para não invalidar grafo já publicado: quem montou
+ * o fluxo antes desta régua continua válido, e quem publica com destino em
+ * etapa de perda precisa preenchê-lo (`motivo_da_perda_ausente`).
+ */
+export const moveLeadConfigSchema = z.strictObject({
+  stage_id: z.string().max(64),
+  lost_reason: z.string().max(500).optional(),
+});
+
+/**
+ * Nó `edit_lead_tag` (#2065) — grava tag no lead, o merge idempotente da ação
+ * `add_tag` do motor de automação (`lib/automation/actions/add-tag.ts`), com os
+ * MESMOS limites do schema de webhook (`lib/schemas/webhooks.ts`): até 10 tags
+ * de até 60 caracteres.
+ *
+ * Lista vazia é rascunho em construção (mesma degradação do `stage_id`); o
+ * publish recusa (`tag_ausente`) — um nó que não grava nada não pode ser
+ * publicado como se gravasse.
+ */
+export const editLeadTagConfigSchema = z.strictObject({
+  tags: z
+    .array(z.string().max(60, "Tag muito longa: máximo de 60 caracteres."))
+    .max(10, "No máximo 10 tags por caixa."),
+});
+
+/**
  * One rule of a `condition` node. In `branching: 'per_check'` it IS a branch,
  * so it carries the stable id an edge references and the label the handle shows
  * — identity lives on the rule itself, never in a parallel array that would
  * desync the moment the user reorders the rules.
  */
-export const conditionCheckSchema = z.strictObject({
-  id: declaredBranchIdSchema.optional(),
-  label: z.string().min(1).max(60).optional(),
-  field: z.enum([
-    'lead_stage',
-    'tag',
-    'steps_taken',
-    'last_outcome',
-  ]),
-  op: z.enum(['eq', 'neq', 'gte', 'lte', 'contains']),
-  value: z.union([z.string(), z.number()]),
-});
+export const conditionCheckSchema = z
+  .strictObject({
+    id: declaredBranchIdSchema.optional(),
+    label: z.string().min(1).max(60).optional(),
+    field: z.enum([
+      'lead_stage',
+      'tag',
+      'steps_taken',
+      'last_outcome',
+      // Data relativa sobre um campo personalizado do negócio — ver
+      // `condicao-por-data.ts`. É o que permite perguntar "o período de teste
+      // terminou?", que nenhum dos quatro campos acima alcança.
+      'lead_date',
+    ]),
+    op: z.enum(['eq', 'neq', 'gte', 'lte', 'contains', ...OPS_DE_DATA]),
+    value: z.union([z.string(), z.number()]),
+    /**
+     * A chave em `crm_leads.custom_fields` que a regra lê (ex.: `fim_teste`).
+     * Só `lead_date` usa, e para ele é OBRIGATÓRIA no PUBLISH: regra de data
+     * sem campo não tem o que comparar, e deixá-la passar daria uma condição
+     * que responde sempre `false` sem dizer por quê. Aqui, no rascunho, a
+     * chave VAZIA passa — ver o aviso logo abaixo.
+     */
+    key: z.string().max(60, 'Nome do campo muito longo: máximo de 60 caracteres.').optional(),
+  })
+  // ⚠️ `key` VAZIA PASSA AQUI, de propósito, e isso foi achado pela prova de
+  // tela. O rascunho é validado SÓ estruturalmente — a mesma razão pela qual
+  // `move_lead.stage_id` e `edit_lead_tag.tags` aceitam vazio: quem escolhe o
+  // campo de data ainda não digitou o nome dele, e o painel grava a cada
+  // tecla (`commit` → `safeParse`). Exigir a chave aqui fazia aparecer um erro
+  // no instante em que a pessoa escolhia «Data de um campo do negócio», antes
+  // de ela ter chance de preencher — e a regra nem era persistida, então o nó
+  // continuava com a regra ANTERIOR enquanto a tela mostrava a nova.
+  //
+  // Quem exige é o publish (`campo_de_data_ausente` em `validate-publish.ts`),
+  // como exige etapa de destino e tag. O mesmo vale para o prazo: limpar o
+  // campo para redigitar passa por um valor vazio, e o publish é que recusa
+  // (`check_value_not_number`).
+  .refine((c) => c.field !== 'lead_date' || ehOpDeData(c.op), {
+    message: `uma regra de data usa ${OPS_DE_DATA.join(' ou ')}`,
+    path: ['op'],
+  })
+  .refine((c) => c.field === 'lead_date' || !ehOpDeData(c.op), {
+    message: 'passou_ha e falta_para existem só para regra de data',
+    path: ['op'],
+  });
 
 export type ConditionCheck = z.infer<typeof conditionCheckSchema>;
 
@@ -408,6 +535,26 @@ export const endConfigSchema = z.strictObject({
  * Flow node schema — discriminated union based on node type.
  * Each node type has its specific config schema.
  */
+/** Um bloco de FLUXO: o mesmo envelope dos nós de follow-up, com o `config` do tipo. */
+function noDoFluxo<T extends string, C extends z.ZodType>(type: T, config: C) {
+  return z.strictObject({
+    id: z.string().min(1),
+    type: z.literal(type),
+    label: z.string().min(1).max(60),
+    position: z.strictObject({ x: z.number(), y: z.number() }),
+    config,
+  });
+}
+
+/**
+ * Teto de nós e arestas do GRAFO. Fluxo de venda real passa de 100 blocos (o
+ * principal do dono do fork tem 111 no Leona), então o teto do formato é o do
+ * fluxo; o follow-up continua limitado a 60 na publicação
+ * (`LIMITE_DE_NOS_DA_SUPERFICIE` em `validate-publish.ts`).
+ */
+export const MAX_NOS_DO_GRAFO = 250;
+export const MAX_ARESTAS_DO_GRAFO = 500;
+
 export const flowNodeSchema = z.discriminatedUnion('type', [
   // Trigger node: entry point, no config
   z.strictObject({
@@ -517,6 +664,28 @@ export const flowNodeSchema = z.discriminatedUnion('type', [
     }),
     config: internalTaskConfigSchema,
   }),
+  // Nó de ação (#2065): move o card para outra etapa do funil
+  z.strictObject({
+    id: z.string().min(1),
+    type: z.literal('move_lead'),
+    label: z.string().min(1).max(60),
+    position: z.strictObject({
+      x: z.number(),
+      y: z.number(),
+    }),
+    config: moveLeadConfigSchema,
+  }),
+  // Nó de ação (#2065): grava tag no lead, sem mensagem
+  z.strictObject({
+    id: z.string().min(1),
+    type: z.literal('edit_lead_tag'),
+    label: z.string().min(1).max(60),
+    position: z.strictObject({
+      x: z.number(),
+      y: z.number(),
+    }),
+    config: editLeadTagConfigSchema,
+  }),
   // End node: terminal state
   z.strictObject({
     id: z.string().min(1),
@@ -528,6 +697,18 @@ export const flowNodeSchema = z.discriminatedUnion('type', [
     }),
     config: endConfigSchema,
   }),
+  // Blocos do construtor de FLUXOS (fork jhoow) — ver `blocos-do-fluxo.ts`.
+  noDoFluxo('mensagem', mensagemConfigSchema),
+  noDoFluxo('etiquetas', etiquetasConfigSchema),
+  noDoFluxo('aguardar_resposta', aguardarRespostaConfigSchema),
+  noDoFluxo('notificacao', notificacaoConfigSchema),
+  noDoFluxo('condicional', condicionalConfigSchema),
+  noDoFluxo('distribuidor', distribuidorConfigSchema),
+  noDoFluxo('conexao_fluxo', conexaoFluxoConfigSchema),
+  noDoFluxo('pixel', pixelConfigSchema),
+  noDoFluxo('intervalo', intervaloConfigSchema),
+  noDoFluxo('bloco_ia', blocoIaConfigSchema),
+  noDoFluxo('kanban', kanbanConfigSchema),
 ]);
 
 export type FlowNode = z.infer<typeof flowNodeSchema>;
@@ -582,9 +763,32 @@ export const flowSettingsSchema = z.strictObject({
   /**
    * Palavras/expressões que LIGAM este fluxo: quando a mensagem do cliente
    * contém uma delas, o MOTOR inicia o fluxo (entrada por gatilho, sem depender
-   * do modelo). Vazio/ausente = o fluxo só começa por `flow_start` ou roteador.
+   * do modelo). Vazio/ausente = este fluxo só começa por `etapas_do_funil`, pelo
+   * roteador ou encadeado no fim de outro — `flow_start` não existe no código,
+   * e citá-lo aqui prometia uma entrada que ninguém podia configurar.
    */
   gatilhos: z.array(z.string().min(1).max(60)).max(30).optional(),
+  /**
+   * As ETAPAS DO FUNIL que LIGAM este roteiro: quando o card do contato está
+   * numa delas, o MOTOR começa o roteiro no próximo turno daquela conversa —
+   * a entrada por etapa, irmã da palavra-gatilho, e sem depender da mensagem.
+   *
+   * ⚠️ POR QUE AQUI (no `settings` do grafo) E NÃO EM `trigger_config`. Para o
+   * follow-up, a entrada por etapa mora no gatilho (`kind: 'stage_change'`,
+   * `lib/followup/gatilho-etapa.ts`, event-driven). No roteiro de atendimento
+   * isso é impossível por construção: o CHECK
+   * `followup_flow_pointers_roteiro_so_manual` (0394) obriga
+   * `trigger_config->>'kind' = 'manual'` na superfície `atendimento`, e o
+   * publicador devolve 422 a qualquer outro kind. O `settings` é o lugar do
+   * vocabulário do roteiro (é onde já vivem `gatilhos`, `expira_em_horas` e
+   * `pode_recomecar`), é versionado junto do grafo e passa pelo schema.
+   *
+   * O id é o da ETAPA (`crm_stages.id`) — o mesmo que `crm_leads.stage_id`, que
+   * é o que o turno lê. A etapa já identifica o funil, então não há par
+   * (funil, etapa) a guardar; o nome do funil existe na tela, para distinguir
+   * etapas homônimas de funis diferentes. Vazio/ausente = nenhuma etapa liga.
+   */
+  etapas_do_funil: z.array(z.string().min(1).max(64)).max(30).optional(),
   /**
    * Em quantas horas SEM mensagem do cliente o roteiro em andamento expira
    * (0397, `fn_encerrar_roteiros_vencidos`). Ausente = 72 h. Sem prazo, um
@@ -605,6 +809,17 @@ export const flowSettingsSchema = z.strictObject({
    * alguém esquece de conferir antes de publicar.
    */
   somente_interno: z.boolean().optional(),
+  /**
+   * FLUXOS (fork jhoow): com `gatilhos`, a palavra precisa ser a mensagem
+   * INTEIRA (sem diferença de maiúscula, acento e pontuação nas pontas), e não
+   * só aparecer dentro dela. Ausente = "contém".
+   */
+  gatilho_exato: z.boolean().optional(),
+  /**
+   * FLUXOS (fork jhoow): o fluxo começa sozinho na PRIMEIRA mensagem que um
+   * contato manda para a empresa. Palavra-gatilho ganha deste quando as duas casam.
+   */
+  entrada_primeiro_contato: z.boolean().optional(),
 });
 export type FlowSettings = z.infer<typeof flowSettingsSchema>;
 
@@ -624,8 +839,8 @@ export type FlowSettings = z.infer<typeof flowSettingsSchema>;
  */
 export const flowGraphSchema = z
   .strictObject({
-    nodes: z.array(flowNodeSchema).min(2).max(60),
-    edges: z.array(flowEdgeSchema).max(120),
+    nodes: z.array(flowNodeSchema).min(2).max(MAX_NOS_DO_GRAFO),
+    edges: z.array(flowEdgeSchema).max(MAX_ARESTAS_DO_GRAFO),
     settings: flowSettingsSchema.optional(),
   })
   .superRefine((grafo, ctx) => {
@@ -864,6 +1079,87 @@ export function nodeBranches(node: BranchableNode): FlowBranch[] {
           condition: { type: 'branch', branch_id: REPEAT_DONE_BRANCH_ID },
         },
         fallbackBranch(FALLBACK_OTHERS_LABEL),
+      ];
+
+    // Fluxos (fork jhoow): as duas saídas cobrem tudo — respondeu ou o tempo
+    // acabou —, então não há saída de escape. O publish exige as duas ligadas;
+    // sem tempo máximo ("aguardar indefinidamente") a única saída é a de quem
+    // respondeu, e ela é a saída comum do bloco (uma bolinha só no canvas).
+    case 'aguardar_resposta':
+      if (node.config.sem_limite) return [fallbackBranch(FALLBACK_ALWAYS_LABEL)];
+      return [
+        {
+          id: AGUARDAR_RESPONDEU_BRANCH_ID,
+          label: 'Respondeu',
+          check: null,
+          kind: 'match',
+          condition: { type: 'branch', branch_id: AGUARDAR_RESPONDEU_BRANCH_ID },
+        },
+        {
+          id: AGUARDAR_SEM_RESPOSTA_BRANCH_ID,
+          label: 'Não respondeu',
+          check: null,
+          kind: 'match',
+          condition: { type: 'branch', branch_id: AGUARDAR_SEM_RESPOSTA_BRANCH_ID },
+        },
+      ];
+
+    // Condicional (fork jhoow): verdadeiro ou falso — as duas cobrem tudo.
+    case 'condicional':
+      return [
+        {
+          id: CONDICIONAL_SIM_BRANCH_ID,
+          label: 'Sim',
+          check: null,
+          kind: 'match',
+          condition: { type: 'branch', branch_id: CONDICIONAL_SIM_BRANCH_ID },
+        },
+        {
+          id: CONDICIONAL_NAO_BRANCH_ID,
+          label: 'Não',
+          check: null,
+          kind: 'match',
+          condition: { type: 'branch', branch_id: CONDICIONAL_NAO_BRANCH_ID },
+        },
+      ];
+
+    // Distribuidor (fork jhoow): uma saída por destino declarado; o id é o da
+    // saída (estável quando ela é renomeada).
+    case 'distribuidor':
+      return node.config.saidas.map((s) => ({
+        id: s.id,
+        label: s.nome,
+        check: null,
+        kind: 'match' as const,
+        condition: { type: 'branch' as const, branch_id: s.id },
+      }));
+
+    // Conexão de fluxo (fork jhoow): sem "voltar", o fluxo termina aqui (o
+    // contato segue no outro) e não há saída; com "voltar", a saída é por onde
+    // ele continua quando o outro fluxo chega ao Fim.
+    case 'conexao_fluxo':
+      return node.config.retornar ? [fallbackBranch(FALLBACK_ALWAYS_LABEL)] : [];
+
+    // Bloco de IA (fork jhoow, Fase D): uma saída por condicional que a IA
+    // escolhe, a de escape quando nenhuma serve (ou a única, sem condicionais),
+    // e "Falhou" — que o publish exige ligada, como no Leona.
+    case 'bloco_ia':
+      return [
+        ...node.config.condicionais.map((c) => ({
+          id: c.id,
+          label: c.nome,
+          check: null,
+          kind: 'match' as const,
+          condition: { type: 'branch' as const, branch_id: c.id },
+        })),
+        fallbackBranch(node.config.condicionais.length > 0 ? FALLBACK_NONE_LABEL : 'Respondeu'),
+        {
+          id: BLOCO_IA_FALHA_BRANCH_ID,
+          label: 'Falhou',
+          check: null,
+          kind: 'match',
+          condition: { type: 'branch', branch_id: BLOCO_IA_FALHA_BRANCH_ID },
+        },
       ];
 
     default:

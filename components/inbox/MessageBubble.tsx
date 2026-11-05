@@ -1,10 +1,13 @@
 "use client";
 
+import { estadoDaTraducao, LinhaDaTraducao, textoDaBolha } from "./TraducaoDaMensagem";
+import { Check as LucideCheck, CheckCheck } from "./icones";
 import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 import { format } from "date-fns";
 import { useT } from "@/hooks/i18n/useT";
-import { ArrowBendUpLeft, CaretDown, Check, Checks, PencilSimple, Robot, Trash, WarningOctagon } from "@/lib/ui/icons";
+import { ArrowBendUpLeft, ArrowBendUpRight, CalendarX, CaretDown, Check, Checks, Clock, PencilSimple, Robot, Trash, WarningOctagon } from "@/lib/ui/icons";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -14,12 +17,23 @@ import {
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Message } from "@/lib/types/messaging";
+import type { ReacaoNoBalao } from "@/lib/inbox/reacoes-no-fio";
+import { lerMencoesDeGrupo, textoComMencoesResolvidas } from "@/lib/messaging/mencoes-de-grupo";
 import { lerRemetenteDeGrupo, rotuloDoRemetente } from "@/lib/messaging/remetente-de-grupo";
+import { motivoDaFalhaDaMensagem } from "@/lib/inbox/motivo-da-falha";
+import { hrefDoCompromisso, puloDaAgendaDaMensagem } from "@/lib/inbox/pulo-da-agenda";
 import { CitationButton } from "@/components/ai/CitationButton";
 import { MediaRenderer } from "@/components/inbox/media/MediaRenderer";
+import { MediaUnavailable } from "@/components/inbox/media/MediaUnavailable";
 import { ContactCard } from "@/components/inbox/media/ContactCard";
 import { LocationCard } from "@/components/inbox/media/LocationCard";
 import { localizacaoDaMensagem } from "@/lib/messaging/localizacao";
+import { reenvioDaMensagem } from "@/lib/messaging/reenvio";
+import { ApiError } from "@/lib/api/types";
+import { resolveSharedContact } from "@/lib/messaging/contact-card";
+import { lerAnuncioDaMensagem } from "@/lib/leads/atribuicao-de-anuncio";
+import { marcadorDaApagada, textoDaApagadaApareceNaInbox } from "@/lib/messaging/apagada";
+import { AnuncioCard } from "@/components/inbox/AnuncioCard";
 import {
   extractCitations,
   isAiGeneratedMessage,
@@ -31,8 +45,15 @@ interface Props {
   debugCitations?: boolean;
   /** Escolher esta mensagem para responder "em cima" dela. */
   onResponder?: (m: Message) => void;
+  /**
+   * Escolher esta mensagem para ENCAMINHAR a outra conversa (#2835). O gesto
+   * abre a escolha de destino; quem executa é o hook da tela.
+   */
+  onEncaminhar?: (m: Message) => void;
   /** A mensagem citada por ESTA, quando houver — desenha o fio. */
   citada?: Message | null;
+  /** As reações a ESTA mensagem — marca no canto do balão, nunca balão próprio. */
+  reacoes?: ReacaoNoBalao[];
   /**
    * QUEM está lendo a conversa. É o que separa "Você" de "Atendente": a coluna
    * `sent_via='user'` só diz *"um humano digitou no CRM"*, nunca QUAL humano.
@@ -48,17 +69,52 @@ interface Props {
   onApagar?: () => Promise<void>;
   onOcultar?: () => Promise<void>;
   onRestaurar?: () => Promise<void>;
+  /**
+   * A mensagem anterior é do MESMO lado. Bolhas seguidas do mesmo remetente
+   * formam um bloco: o canto de cima do lado de quem fala fica em 4px.
+   */
+  agrupadaComAnterior?: boolean;
+  /**
+   * Enviar de novo uma mensagem que falhou ou ficou parada. Só quem tem a
+   * conversa na mão passa (o `ChatThread`); a leitura do super-admin não
+   * passa, e a bolha não desenha o botão. Quem decide SE a mensagem pode ser
+   * reenviada é `reenvioDaMensagem`, a mesma regra da rota.
+   */
+  onReenviar?: (confirmado: boolean) => Promise<void>;
+  /** Gerente para cima reenvia mensagem de colega — a mesma régua da rota. */
+  podeReenviarDeOutros?: boolean;
 }
 
-function AckIndicator({ status, t }: { status: string; t: (texto: string) => string }) {
+/** Quem tem um motor que reenvia sozinho quando a conexão volta (`redriveQueued`). */
+const SAI_SOZINHA_QUANDO_VOLTAR = new Set(["ai", "automation", "system"]);
+
+function AckIndicator({ status, paradaSemConexao, saiSozinha, t }: {
+  status: string; paradaSemConexao: boolean; saiSozinha: boolean; t: (texto: string) => string;
+}) {
+  // Só a linha que o envio PAROU por falta de conexão (`queued_reason`). Todo
+  // envio nasce `queued` por um instante; mostrar o relógio nele diria
+  // "aguardando" a cada mensagem que sai normalmente.
+  if (paradaSemConexao) {
+    // "Aguardando" só promete o que acontece: a mensagem de pessoa não é
+    // reenviada por ninguém quando o número volta, e fica com o botão.
+    return saiSozinha ? (
+      <span className="inline-flex items-center gap-0.5 font-semibold">
+        <Clock size={10} weight="bold" aria-hidden /> {t("Aguardando conexão")}
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-0.5 font-semibold">
+        <WarningOctagon size={10} weight="bold" aria-hidden /> {t("Não enviada — sem conexão")}
+      </span>
+    );
+  }
   if (status === "read") {
-    return <Checks size={12} weight="bold" className="text-blue-400" aria-label={t("Lida")} />;
+    return <CheckCheck size={13} strokeWidth={2.25} className="text-white" aria-label={t("Lida")} />;
   }
   if (status === "delivered") {
-    return <Checks size={12} weight="bold" className="text-current/70" aria-label={t("Entregue")} />;
+    return <CheckCheck size={13} strokeWidth={2.25} className="text-current/80" aria-label={t("Entregue")} />;
   }
   if (status === "sent") {
-    return <Check size={12} weight="bold" className="text-current/70" aria-label={t("Enviada")} />;
+    return <LucideCheck size={13} strokeWidth={2.25} className="text-current/80" aria-label={t("Enviada")} />;
   }
   return null;
 }
@@ -68,18 +124,26 @@ export function MessageBubble({
   searchMatch = false,
   debugCitations,
   onResponder,
+  onEncaminhar,
   citada,
+  reacoes,
   viewerUserId,
   onEditar,
   onApagar,
   onOcultar,
   onRestaurar,
+  agrupadaComAnterior,
+  onReenviar,
+  podeReenviarDeOutros = false,
 }: Props) {
   const [editando, setEditando] = useState(false);
+  // "Ver original": a bolha traduzida (entrada ou saída) alterna com o texto de origem.
+  const [verOriginal, setVerOriginal] = useState(false);
   const [texto, setTexto] = useState(message.body ?? "");
   const [apagando, setApagando] = useState(false);
   const [ocultando, setOcultando] = useState(false);
   const [ocupado, setOcupado] = useState(false);
+  const [confirmandoReenvio, setConfirmandoReenvio] = useState(false);
   const salvandoEdicao = useRef(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const abrindoEdicao = useRef(false);
@@ -100,16 +164,46 @@ export function MessageBubble({
   const time = format(new Date(message.sent_at), "HH:mm", { locale: localeDaData });
   const isFailed = message.status === "failed";
   const hasMedia = Boolean(message.media_url || message.media_storage_path);
+  // A retenção marcou `metadata.media_status = 'expired'` (migration 0557) e a
+  // poda anulou os DOIS campos — a partir daí `hasMedia` é false e esta mensagem
+  // de mídia perde o render. O aviso é o do issue #1534.
+  const mediaExpirada = (message.metadata as Record<string, unknown> | null)?.media_status === "expired";
+  // O texto do aviso carrega os DIAS que a organização configurou — a 0557
+  // guarda `media_retention_days` (já com o piso de 30) junto do marcador,
+  // porque a bolha não tem acesso à configuração da organização e "por política"
+  // sem o número é uma promessa sem medida. Sem o campo (mensagem marcada por
+  // uma versão anterior), o aviso genérico.
+  const diasDaRetencao = (() => {
+    const meta = message.metadata as Record<string, unknown> | null;
+    return typeof meta?.media_retention_days === "number" ? meta.media_retention_days : null;
+  })();
+  const avisoDeExpiracao =
+    diasDaRetencao !== null
+      ? t("Mídia apagada pela política de retenção ({n} dias)").replace("{n}", String(diasDaRetencao))
+      : t("Mídia apagada pela política de retenção.");
   const isContact = message.type === "contact";
   // Pino com coordenadas: o cartão substitui o corpo, que é só o mesmo link em texto.
   const localizacao = localizacaoDaMensagem(message);
   // Figurinha sem caption: sem moldura de bolha (padrão WhatsApp).
   const isBareSticker = hasMedia && message.type === "sticker" && !message.body;
+  // Imagem sem legenda: sem bolha, a foto É a bolha, e a hora vai por cima
+  // dela num degradê (padrão WhatsApp).
+  const isBareImage = hasMedia && message.type === "image" && !message.body;
+  const traducao = estadoDaTraducao(message);
+  const textoExibido = textoDaBolha(message, verOriginal);
+  // Texto puro: a hora entra na última linha, à direita (o espaço é reservado
+  // por um espaçador do tamanho dela no fim do parágrafo).
+  const horaNaLinha =
+    Boolean(message.body) && !hasMedia && message.type !== "contact" && !message.revoked_at &&
+    !message.metadata?.crm_hidden_at && !localizacaoDaMensagem(message) && !editando && !traducao;
+  const larguraDaHora =
+    40 + (isOutbound ? 18 : 0) + (message.edited_at ? 44 : 0) + (message.status === "failed" ? 48 : 0);
   // Apagada pelo autor ("apagar para todos"). A linha continua no histórico —
   // sumir com ela deixaria a resposta seguinte respondendo ao nada —, mas o
-  // texto não aparece: mostrá-lo seria expor justamente o que o cliente pediu
-  // para tirar do ar.
+  // texto do CLIENTE não aparece: mostrá-lo seria expor justamente o que ele
+  // pediu para tirar do ar. A régua mora em `lib/messaging/apagada.ts`.
   const apagada = Boolean(message.revoked_at);
+  const textoApagadoVisivel = apagada && textoDaApagadaApareceNaInbox(message.direction);
   const ocultaNoCrm = Boolean(message.metadata?.crm_hidden_at);
   const editada = Boolean(message.edited_at) && !apagada;
   const enviadaPeloAtendente = isOutbound && ["user", "crm"].includes(message.sent_via)
@@ -119,7 +213,38 @@ export function MessageBubble({
     && agora - new Date(message.sent_at).getTime() <= 15 * 60 * 1000;
   const podeApagar = enviadaPeloAtendente && Boolean(onApagar);
   const podeOcultar = !isOutbound && !apagada && Boolean(ocultaNoCrm ? onRestaurar : onOcultar);
-  const temMenu = Boolean(onResponder || (podeEditar && onEditar) || podeApagar || podeOcultar);
+  // Encaminhar vale para qualquer mensagem com conteúdo — recebida ou enviada.
+  // Só não se encaminha o que foi apagado: o conteúdo saiu do ar de propósito.
+  const podeEncaminhar = Boolean(onEncaminhar) && !apagada;
+  const temMenu = Boolean(onResponder || podeEncaminhar || (podeEditar && onEditar) || podeApagar || podeOcultar);
+  const cartaoDeDocumentoVisivel = hasMedia && message.type === "document"
+    && !editando && !apagada && !ocultaNoCrm;
+  const reenvio = onReenviar
+    ? reenvioDaMensagem(message, { userId: viewerUserId, podeReenviarDeOutros, agora })
+    : "nenhum";
+  // PULO DA AGENDA (#3848): o fluxo escolheu não enviar porque o contato tem
+  // compromisso marcado. A linha do banco carrega `failed` + o código do pulo
+  // (é o par que já identifica o caso — ver lib/inbox/pulo-da-agenda.ts), e é
+  // aqui que os dois desfechos se separam na tela: falha de verdade continua
+  // com "Falhou" e com o botão; pulo ganha selo próprio e NÃO oferece reenvio
+  // (a regra é `reenvioDaMensagem`, a mesma da rota — acrescentar um botão aqui
+  // seria oferecer um toque que o servidor recusa).
+  const pulo = puloDaAgendaDaMensagem(message);
+  const puloHref = pulo ? hrefDoCompromisso(pulo) : null;
+  // O motivo medido pela guarda muda a frase: horário no futuro, atendimento
+  // acontecendo agora e presença sem confirmação são coisas diferentes para
+  // quem lê o fio.
+  const fraseDoPulo =
+    pulo?.motivo === "em_atendimento"
+      ? t("O contato está na agenda agora — o fluxo está configurado para não enviar quando isso acontece.")
+      : pulo?.motivo === "presenca_pendente"
+        ? t("O compromisso do contato já terminou e a presença ainda não foi confirmada — o fluxo está configurado para não enviar quando isso acontece.")
+        : t("O contato tem compromisso marcado na agenda — o fluxo está configurado para não enviar quando isso acontece.");
+  const paradaSemConexao = message.status === "queued" && Boolean(message.metadata?.queued_reason)
+    && !message.metadata?._optimistic;
+  // O MOTIVO à vista, e não só no Tooltip: o dedo não abre Tooltip. O texto
+  // cru do canal fica fora daqui — ele pode trazer endereço interno do serviço.
+  const motivoDaFalha = motivoDaFalhaDaMensagem(message, t);
   const aiGenerated = isAiGeneratedMessage(message.metadata);
   const citations = extractCitations(message.metadata);
   const showCitationButton =
@@ -155,7 +280,16 @@ export function MessageBubble({
       // o mesmo erro de #1046.
       return emNomeDe.token_name ? `${nome} · ${t("via")} ${emNomeDe.token_name}` : nome;
     }
-    if (message.sent_via === "ai") return "IA";
+    if (message.sent_via === "ai") {
+      // #3649: o nome do agente vem GRAVADO na linha, como o de `sent_on_behalf`.
+      // Só `ai_actor_name`: é o campo que o handler grava DEPOIS de
+      // `input.metadata`, então o cliente não o forja; outro apelido em
+      // `metadata` seria entrada do cliente. Sem nome (linha antiga), "IA".
+      // "IA" passa por `t()`; o nome do agente sai como cadastrado (#1046).
+      const gravado = message.metadata?.ai_actor_name;
+      const nome = typeof gravado === "string" ? gravado.trim() : "";
+      return nome ? `${t("IA")} · ${nome}` : "IA";
+    }
     // A REGRA falou, e não a IA: texto fixo de automação, follow-up ou lembrete
     // de agenda (#652). O ramo passou a existir porque o valor passou a ser
     // gravado — antes dele, um rótulo aqui seria promessa sem dado atrás.
@@ -182,6 +316,31 @@ export function MessageBubble({
   // `lerRemetenteDeGrupo` (Task 2): este componente não conhece o formato de
   // `metadata.group_sender`, só o resultado já validado.
   const remetente = !isOutbound ? lerRemetenteDeGrupo(message.metadata) : null;
+  // #3566 — AS MENÇÕES do grupo. Em grupo o WhatsApp escreve `@<lid>` no texto,
+  // e `metadata.mentions` guarda quem é cada identificador. O corpo GRAVADO
+  // continua cru (é o dado do provedor, auditável); a troca acontece aqui, por
+  // ocorrência e pelo PRÓPRIO lid — menção repetida resolve cada uma pelo seu, e
+  // dois contatos chamados "João" não trocam de lugar. Sem menção conhecida, o
+  // texto sai idêntico (o número que já estava lá é a informação disponível).
+  const mencoes = lerMencoesDeGrupo(message.metadata);
+  // Fork jhoow: a menção resolve sobre o texto da bolha (original ou tradução).
+  const corpo = textoComMencoesResolvidas(textoExibido, mencoes);
+  // O anúncio que gerou ESTA mensagem (a ingestão grava em `metadata.anuncio`
+  // a mensagem nascida de um clique). Só na recebida: é o cliente que chega
+  // pelo anúncio, como o WhatsApp mostra no celular.
+  const anuncio = !isOutbound ? lerAnuncioDaMensagem(message.metadata?.anuncio) : null;
+
+  async function reenviar(confirmado: boolean) {
+    if (!onReenviar || ocupado) return;
+    setOcupado(true);
+    try { await onReenviar(confirmado); setConfirmandoReenvio(false); }
+    catch (err) {
+      // A rota viu "pode ter chegado" onde a bolha viu "nada saiu": pergunta antes.
+      // Os outros erros o hook mostra; a bolha continua com o botão.
+      if (err instanceof ApiError && err.code === "confirmacao_necessaria") setConfirmandoReenvio(true);
+    }
+    finally { setOcupado(false); }
+  }
 
   async function salvarEdicao() {
     const novoTexto = texto.trim();
@@ -199,7 +358,7 @@ export function MessageBubble({
     <div
       data-search-match={searchMatch || undefined}
       className={cn(
-        "group flex w-full min-w-0 items-center gap-1 px-4 py-1",
+        "group flex w-full min-w-0 items-center gap-1",
         isOutbound ? "justify-end" : "justify-start",
       )}
     >
@@ -210,21 +369,33 @@ export function MessageBubble({
         // fez a spec achar que havia mensagem onde não havia (issue #1318).
         data-testid="message-bubble"
         className={cn(
-          "relative max-w-[75%] min-w-0 text-sm",
+          "relative max-w-[60%] min-w-0 text-[14px] leading-[1.45]",
           isBareSticker
             ? "px-0 py-0"
-            : cn(
-                "rounded-2xl px-3 py-2 shadow-sm",
-                temMenu && "pr-8",
-                isOutbound
-                  ? "rounded-br-sm bg-primary text-primary-foreground"
-                  : "rounded-bl-sm bg-muted text-foreground",
-              ),
-          isFailed && "border border-destructive",
+            : isBareImage
+              ? cn(
+                  "overflow-hidden border border-ibx-img-border p-0",
+                  isOutbound ? "rounded-[14px_14px_4px_14px]" : "rounded-[14px_14px_14px_4px]",
+                )
+              : cn(
+                  "rounded-[14px]",
+                  hasMedia && message.type === "image" ? "p-1" : "px-3.5 py-[9px]",
+                  temMenu && "pr-8",
+                  // A área de toque da seta ocupa 48px. O documento precisa
+                  // terminar antes dela, inclusive quando o cartão encolhe.
+                  temMenu && cartaoDeDocumentoVisivel && "pointer-coarse:pr-12 pointer-coarse:max-w-[85%]",
+                  isOutbound
+                    ? cn("rounded-br-[4px] bg-ibx-accent text-white", agrupadaComAnterior && "rounded-tr-[4px]")
+                    : cn("rounded-bl-[4px] bg-ibx-bubble-in text-ibx-text", agrupadaComAnterior && "rounded-tl-[4px]"),
+                ),
+          // O pulo da agenda não é falha: o selo diz isso (#3850).
+          isFailed && !pulo && "border border-destructive",
           // A marca da busca é ANEL, não cor de fundo: o fundo já diz de quem é
           // a mensagem, e trocá-lo apagaria essa leitura justo na bolha achada.
-          searchMatch && "ring-2 ring-foreground ring-offset-2 ring-offset-background",
+          searchMatch && "ring-2 ring-ibx-accent-text ring-offset-2 ring-offset-ibx-pane-chat",
           apagada && "opacity-70",
+          // Espaço para a marca de reação, que fica metade para fora do balão.
+          Boolean(reacoes?.length) && "mb-3",
         )}
       >
         {temMenu && (
@@ -233,8 +404,11 @@ export function MessageBubble({
               <button type="button" aria-label={t("Opções da mensagem")} disabled={ocupado}
                 className={cn(
                   "absolute right-1 top-1 z-10 rounded-md p-0.5 transition-opacity focus-visible:outline-2 focus-visible:outline-offset-1",
+                  // No toque, a área que pega o dedo passa a ~48px sem mudar o desenho:
+                  // a setinha é o único caminho para "Responder a esta mensagem".
+                  "pointer-coarse:before:absolute pointer-coarse:before:-inset-3.5 pointer-coarse:before:content-['']",
                   "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100",
-                  isOutbound ? "text-primary-foreground hover:bg-primary-foreground/15" : "text-muted-foreground hover:bg-background/70",
+                  isOutbound ? "text-white hover:bg-white/15" : "text-ibx-muted hover:bg-ibx-chip",
                 )}>
                 <CaretDown size={16} weight="bold" aria-hidden />
               </button>
@@ -252,6 +426,11 @@ export function MessageBubble({
               {onResponder && (
                 <DropdownMenuItem onSelect={() => onResponder(message)}>
                   <ArrowBendUpLeft size={16} aria-hidden />{t("Responder a esta mensagem")}
+                </DropdownMenuItem>
+              )}
+              {podeEncaminhar && (
+                <DropdownMenuItem onSelect={() => onEncaminhar?.(message)}>
+                  <ArrowBendUpRight size={16} aria-hidden />{t("Encaminhar")}
                 </DropdownMenuItem>
               )}
               {podeEditar && onEditar && (
@@ -316,6 +495,8 @@ export function MessageBubble({
                 ? t("Esta mensagem foi apagada")
                 : citada.metadata?.crm_hidden_at
                 ? t("Mensagem ocultada no CRM")
+                : citada.type === "contact"
+                ? resolveSharedContact(citada)?.name || t("Contato")
                 : citada.body?.trim() || t("(sem texto)")}
             </div>
           </div>
@@ -327,7 +508,7 @@ export function MessageBubble({
         )}
         {senderLabel && (
           <div className="mb-0.5 flex items-center gap-1 text-[11px] font-semibold opacity-80">
-            {senderLabel === "IA" ? (
+            {message.sent_via === "ai" ? (
               <Robot size={10} weight="duotone" aria-hidden />
             ) : null}
             {senderLabel && t(senderLabel)}
@@ -342,12 +523,16 @@ export function MessageBubble({
               onChange={(event) => setTexto(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  // No toque, a tecla de retorno quebra linha e quem salva é o
+                  // botão — a mesma lei do composer (F2). Ctrl/Cmd+Enter salva.
+                  const forca = event.ctrlKey || event.metaKey;
+                  if (!forca && window.matchMedia?.("(pointer: coarse)").matches) return;
                   event.preventDefault();
                   void salvarEdicao();
                 }
               }}
               maxLength={4096}
-              className="min-h-20 w-full rounded-md border border-border bg-background p-2 text-foreground"
+              className="min-h-20 w-full rounded-md border border-border bg-background p-2 text-base text-foreground md:text-sm"
             />
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="ghost" disabled={ocupado} onClick={() => setEditando(false)}>{t("Cancelar")}</Button>
@@ -356,10 +541,11 @@ export function MessageBubble({
           </div>
         ) : apagada ? (
           <div className="space-y-1">
-            <p className="italic leading-snug opacity-70">{t("Esta mensagem foi apagada")}</p>
+            <p className="italic leading-snug opacity-80">{t(marcadorDaApagada(message.direction))}</p>
             {/* O WhatsApp revoga o envio; o CRM conserva o corpo para auditoria
-                interna. Não revelamos texto de uma mensagem apagada pelo cliente. */}
-            {isOutbound && message.body && (
+                interna. Não revelamos texto de uma mensagem apagada pelo cliente
+                (`textoDaApagadaApareceNaInbox`). */}
+            {textoApagadoVisivel && message.body && (
               <div className="border-t border-current/20 pt-1">
                 <p className="text-[10px] opacity-70">{t("Visível só aqui no CRM")}</p>
                 <p className="whitespace-pre-wrap wrap-anywhere leading-snug">{message.body}</p>
@@ -372,13 +558,21 @@ export function MessageBubble({
           </p>
         ) : (
           <>
+            {anuncio && <AnuncioCard anuncio={anuncio} compacto className="mb-1.5" />}
+
             {hasMedia && (
               <div className={cn(message.body && "mb-1")}>
-                <MediaRenderer message={message} />
+                <MediaRenderer message={message} agora={agora} encostada={isBareImage} />
               </div>
             )}
 
-            {isContact && !hasMedia && (
+            {!hasMedia && mediaExpirada && (
+              <div className={cn(message.body && "mb-1")}>
+                <MediaUnavailable detalhe={avisoDeExpiracao} />
+              </div>
+            )}
+
+            {isContact && !hasMedia && !mediaExpirada && (
               <div className={cn(message.body && isContact && "mb-1")}>
                 <ContactCard message={message} />
               </div>
@@ -387,15 +581,29 @@ export function MessageBubble({
             {localizacao && <LocationCard localizacao={localizacao} />}
 
             {message.body && !isContact && !localizacao && (
-              <p className="whitespace-pre-wrap wrap-anywhere leading-snug">{message.body}</p>
+              <p className={cn("whitespace-pre-wrap wrap-anywhere", hasMedia && message.type === "image" && "px-2.5 pb-1 pt-0.5")}>
+                {corpo}
+                {/* Reserva o canto da hora na última linha: a hora fica NA
+                    linha do texto, à direita, sem ganhar uma linha só sua. */}
+                {horaNaLinha && <span className="inline-block" style={{ width: larguraDaHora }} aria-hidden />}
+              </p>
+            )}
+            {message.body && !isContact && !localizacao && traducao && (
+              <LinhaDaTraducao message={message} verOriginal={verOriginal} onAlternar={() => setVerOriginal((v) => !v)} />
             )}
           </>
         )}
 
         <div
           className={cn(
-            "mt-1 flex items-center justify-end gap-1 text-[10px]",
-            isOutbound ? "text-primary-foreground" : "text-muted-foreground",
+            "flex items-center justify-end gap-1 font-inbox-mono text-[11px] leading-none",
+            isOutbound ? "text-ibx-sent-meta" : "text-ibx-muted",
+            horaNaLinha
+              ? "absolute bottom-[9px] right-3.5"
+              : isBareImage
+                ? "absolute inset-x-0 bottom-0 bg-linear-to-t from-black/60 to-transparent px-2.5 pb-1.5 pt-5 text-white"
+                : "mt-1",
+            hasMedia && message.type === "image" && message.body && "px-2.5 pb-1",
           )}
         >
           {editada && (
@@ -409,8 +617,9 @@ export function MessageBubble({
           {showCitationButton && (
             <CitationButton citations={citations} messageId={message.id} />
           )}
-          {isOutbound && !isFailed && <AckIndicator status={message.status} t={t} />}
-          {isFailed && (
+          {isOutbound && !isFailed && <AckIndicator status={message.status} paradaSemConexao={paradaSemConexao}
+            saiSozinha={SAI_SOZINHA_QUANDO_VOLTAR.has(message.sent_via)} t={t} />}
+          {isFailed && !pulo && (
             // Provider local: o painel do inbox não tem TooltipProvider ancestral e
             // este Tooltip só monta em mensagem failed — sem o provider, abrir uma
             // conversa com falha de envio derrubava o painel inteiro (error boundary).
@@ -421,13 +630,76 @@ export function MessageBubble({
                     <WarningOctagon size={10} weight="fill" aria-hidden /> {t("Falhou")}
                   </span>
                 </TooltipTrigger>
-                <TooltipContent>
-                  {message.error_message ? t(message.error_message) : (message.error_code ?? t("Erro desconhecido"))}
-                </TooltipContent>
+                <TooltipContent>{motivoDaFalha}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {pulo && (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    data-testid="selo-pulada-pela-agenda"
+                    className="inline-flex items-center gap-0.5 font-semibold"
+                  >
+                    <CalendarX size={10} weight="bold" aria-hidden /> {t("Pulada pela agenda")}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{fraseDoPulo}</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           )}
         </div>
+        {(isFailed || reenvio !== "nenhum" || pulo) && (
+          <div className="mt-1.5 space-y-1.5 border-t border-current/20 pt-1.5">
+            {isFailed && !pulo && <p data-testid="motivo-da-falha" className="text-xs leading-snug">{motivoDaFalha}</p>}
+            {pulo && (
+              // O pulo não tem botão de reenvio: quem decidiu não enviar foi a
+              // escolha do fluxo, e insistir por aqui a furaria em silêncio. A
+              // ação é abrir o compromisso que barrou; mandar assim mesmo é
+              // mudar a escolha do fluxo ou escrever pelo campo de resposta —
+              // a tela diz isso, em vez de esconder a saída.
+              <div data-testid="pulo-da-agenda" className="space-y-1">
+                <p className="text-xs leading-snug">{fraseDoPulo}</p>
+                {pulo.titulo && (
+                  <p className="text-xs leading-snug opacity-80">
+                    {t("Compromisso: {titulo}").replace("{titulo}", pulo.titulo)}
+                  </p>
+                )}
+                {puloHref && (
+                  <Link href={puloHref} className="inline-flex text-xs underline">
+                    {t("Abrir compromisso")}
+                  </Link>
+                )}
+                <p className="text-[10px] leading-snug opacity-70">
+                  {t("Para mandar mesmo assim, mude a escolha do fluxo ou escreva pelo campo de resposta.")}
+                </p>
+              </div>
+            )}
+            {reenvio !== "nenhum" && (
+              <Button size="sm" variant="secondary" disabled={ocupado}
+                onClick={() => (reenvio === "confirmar" ? setConfirmandoReenvio(true) : void reenviar(false))}>
+                {t("Tentar de novo")}
+              </Button>
+            )}
+          </div>
+        )}
+        {reacoes?.length ? (
+          <span
+            role="img"
+            data-testid="message-reactions"
+            aria-label={reacoes
+              .map((r) => t(r.direction === "inbound" ? "Cliente reagiu com {emoji}" : "Atendente reagiu com {emoji}").replace("{emoji}", r.emoji))
+              .join(", ")}
+            className={cn(
+              "absolute -bottom-3 flex items-center gap-0.5 rounded-full border border-border bg-background px-1.5 py-0.5 text-xs leading-none text-foreground shadow-sm",
+              isOutbound ? "right-2" : "left-2",
+            )}
+          >
+            {[...new Set(reacoes.map((r) => r.emoji))].join("")}
+            {reacoes.length > 1 && <span className="text-[10px] text-muted-foreground">{reacoes.length}</span>}
+          </span>
+        ) : null}
       </div>
       <AlertDialog open={apagando} onOpenChange={setApagando}>
         <AlertDialogContent>
@@ -447,11 +719,23 @@ export function MessageBubble({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog open={confirmandoReenvio} onOpenChange={setConfirmandoReenvio}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Enviar esta mensagem de novo?")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("Pode ser que esta mensagem já tenha chegado. Confira no WhatsApp do cliente antes de enviar de novo.")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={ocupado}>{t("Cancelar")}</AlertDialogCancel>
+            <Button disabled={ocupado} onClick={() => void reenviar(true)}>{t("Enviar de novo")}</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog open={ocultando} onOpenChange={setOcultando}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("Ocultar esta mensagem no CRM?")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("A mensagem continua no WhatsApp do cliente e no registro da empresa. Um gestor pode restaurá-la aqui.")}</AlertDialogDescription>
+            <AlertDialogDescription>{t("A mensagem continua na conversa do cliente e no registro da empresa. Um gestor pode restaurá-la aqui.")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={ocupado}>{t("Cancelar")}</AlertDialogCancel>

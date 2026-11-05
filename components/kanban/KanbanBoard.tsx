@@ -1,23 +1,31 @@
 "use client";
 import { useCallback, useMemo, useState } from "react";
-import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
+import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-pangea/dnd";
+import { useQueryClient } from "@tanstack/react-query";
 import { useT } from "@/hooks/i18n/useT";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useBoard } from "@/hooks/kanban/useBoard";
-import { useMoveCard, type RecusaDeCampos, type RetomadaPendente } from "@/hooks/kanban/useMoveCard";
-import { useRenameStage } from "@/hooks/kanban/useRenameStage";
+import { chaveDoQuadro, useBoard } from "@/hooks/kanban/useBoard";
+import { useMoveCard, type MoveArgs, type RecusaDeCampos, type RetomadaPendente } from "@/hooks/kanban/useMoveCard";
+import { useReordenarEtapa } from "@/hooks/kanban/useEtapasDoQuadro";
+import { Plus } from "@/lib/ui/icons";
+import { EtapaDialog } from "./EtapaDialog";
 import { CamposObrigatoriosDialog } from "./CamposObrigatoriosDialog";
+import { LoseLeadDialog } from "./LoseLeadDialog";
 import { useAssignableMembers } from "@/hooks/inbox/useAssignableMembers";
 import { useAtRiskLeads } from "@/hooks/leads/useAtRiskLeads";
 import { useReactivations } from "@/hooks/leads/useReactivations";
 import { midpoint } from "@/lib/kanban/fractional-indexing";
+import { posicaoNoFimDaEtapa, proximoNaEtapaInteira } from "@/lib/kanban/vizinho-na-etapa";
+import { compararNaEtapa, posicaoNoTopoDaEtapa } from "@/lib/kanban/entrada-na-etapa";
+import { decideMotivoDaPerda } from "@/lib/leads/motivo-da-perda";
 import type { Lead } from "@/lib/types/leads";
-import type { Pipeline, Stage } from "@/lib/kanban/types";
+import type { BoardData, Pipeline, Stage } from "@/lib/kanban/types";
 import { StageColumn } from "./StageColumn";
 import { LeadDossier } from "./LeadDossier";
 import { RetomarComoNovoNegocioDialog } from "./RetomarComoNovoNegocioDialog";
-import { camposDoFunil } from "@/lib/leads/campos-do-funil";
+import { atalhosDoFunil } from "@/lib/leads/atalhos-do-card";
+import { camposPorEscopo, camposDoFunil } from "@/lib/leads/campos-do-funil";
 
 interface KanbanBoardProps {
   pipelineId: string;
@@ -39,12 +47,21 @@ interface KanbanBoardProps {
   /** Lead a abrir já na montagem (deep link `?lead=` — ver o dossiê abaixo). */
   leadInicial?: string | null;
   /**
-   * `manager`+ pode renomear a etapa direto no cabeçalho da coluna — mesmo
-   * corte de papel da rota (`PATCH .../stages/:stageId`, `requireRole("manager")`).
-   * `viewer`/`agent` também abrem este board (ele não é rota manager-only),
-   * então o cabeçalho fica só leitura para eles.
+   * `manager`+ mexe nas colunas direto no quadro: "+ Nova etapa", clicar no
+   * título para editar e arrastar a coluna — mesmo corte de papel das rotas
+   * (`.../stages`, `requireRole("manager")`). `viewer`/`agent` também abrem
+   * este board (ele não é rota manager-only), e para eles as colunas ficam
+   * só leitura.
    */
-  podeRenomearEtapa?: boolean;
+  podeEditarEtapas?: boolean;
+  /** Densidade compacta dos cards (issue #3461, item 2), escolhida na página. */
+  denso?: boolean;
+  /**
+   * Quadro de funil ARQUIVADO (#1298): abre para OLHAR, e nada aqui grava —
+   * sem arrastar card, sem menu de ações, sem seleção em lote e sem dossiê.
+   * É a razão de o funil arquivado ser abrível sem desarquivar.
+   */
+  somenteLeitura?: boolean;
 }
 
 function groupLeadsByStage(stages: Stage[], leads: Lead[]): Map<string, Lead[]> {
@@ -54,9 +71,12 @@ function groupLeadsByStage(stages: Stage[], leads: Lead[]): Map<string, Lead[]> 
     const bucket = map.get(lead.stage_id);
     if (bucket) bucket.push(lead);
   }
-  // Already ordered by position_in_stage at fetch time, but be defensive.
+  // A rota já devolve `position_in_stage, id` — este sort repete a MESMA régua
+  // (com o desempate por `id`) para a tela não depender da ordem de chegada:
+  // sem o desempate, dois cards empatados trocavam de lugar a cada render
+  // (#3461).
   for (const list of map.values()) {
-    list.sort((a, b) => a.position_in_stage - b.position_in_stage);
+    list.sort(compararNaEtapa);
   }
   return map;
 }
@@ -67,7 +87,7 @@ function BoardSkeleton() {
       {[0, 1, 2].map((c) => (
         <div
           key={c}
-          className="flex w-80 shrink-0 flex-col gap-2 rounded-lg border border-border bg-surface-muted/40 p-3"
+          className="flex w-80 shrink-0 flex-col gap-2 rounded-lg border border-border bg-surface-elevated/40 p-3"
         >
           <Skeleton className="h-5 w-32" />
           {[0, 1, 2, 3].map((i) => (
@@ -88,18 +108,27 @@ export function KanbanBoard({
   pulses: pulsesProp,
   onSelectionChange,
   leadInicial,
-  podeRenomearEtapa = false,
+  podeEditarEtapas = false,
+  denso = false,
+  somenteLeitura = false,
 }: KanbanBoardProps) {
   const t = useT();
   const useExternal = stagesProp !== undefined && leadsProp !== undefined;
   const queryResult = useBoard(useExternal ? null : pipelineId);
-  const renameStage = useRenameStage(pipelineId);
+  const reordenar = useReordenarEtapa(pipelineId);
+  /** O modal de etapa: `"nova"` = criar no fim; um id = editar essa coluna. */
+  const [modalDeEtapa, setModalDeEtapa] = useState<"nova" | string | null>(null);
+  // O funil INTEIRO, sem o filtro da página: com `leads` vindo de fora esse
+  // `data.leads` é a lista já filtrada, e é do cache `chaveDoQuadro(pipelineId)`
+  // — preenchido pela página sem filtro — que o `after` do arrasto é lido.
+  const qc = useQueryClient();
   // A RECUSA DE CAMPOS ABRE DIÁLOGO, não toast (issue #1536): o 422 traz em
   // `details.faltando` o que falta, o diálogo coleta, e o reenvio leva os
   // valores NA MESMA escrita que muda a etapa. O hook é o MESMO de antes —
   // esta opção só troca o destino do erro.
   const [recusaDeCampos, setRecusaDeCampos] = useState<RecusaDeCampos | null>(null);
   const [retomada, setRetomada] = useState<RetomadaPendente | null>(null);
+  const [perdaPendente, setPerdaPendente] = useState<MoveArgs | null>(null);
   const moveCard = useMoveCard(pipelineId, {
     onCamposFaltando: setRecusaDeCampos,
     onRetomada: setRetomada,
@@ -146,6 +175,15 @@ export function KanbanBoard({
   // o histórico de captação tinha o id e nenhum lugar para levá-lo. Uma vez
   // aberto, o estado local manda (fechar não reabre pela URL).
   const [dossieId, setDossieId] = useState<string | null>(leadInicial ?? null);
+  // O deep link também vale com o quadro JÁ montado: o "Ver negócio" do chat
+  // flutuante navega para este mesmo quadro com outro `?lead=`, e só o estado
+  // inicial nunca o veria. Ajustado no render (não em efeito): só quando o
+  // `?lead=` MUDA, então fechar o dossiê continua não reabrindo.
+  const [leadVisto, setLeadVisto] = useState(leadInicial);
+  if (leadInicial !== leadVisto) {
+    setLeadVisto(leadInicial);
+    if (leadInicial) setDossieId(leadInicial);
+  }
   const [internalSelected, setInternalSelected] = useState<Set<string>>(new Set());
   const selectedLeadIds = useMemo(
     () => (selectedIds ? new Set(selectedIds) : internalSelected),
@@ -163,9 +201,12 @@ export function KanbanBoard({
   const isError = useExternal ? false : queryResult.isError;
   const error = useExternal ? null : queryResult.error;
 
-  const leadDoDossie = dossieId
-    ? (data?.leads.find((l) => l.id === dossieId) ?? null)
-    : null;
+  // Funil arquivado (#1298): o deep link `?lead=` também não abre o dossiê —
+  // ele tem ações de escrita, e o quadro em leitura não as oferece.
+  const leadDoDossie =
+    dossieId && !somenteLeitura
+      ? (data?.leads.find((l) => l.id === dossieId) ?? null)
+      : null;
 
   const grouped = useMemo(() => {
     if (!data) return null;
@@ -195,11 +236,71 @@ export function KanbanBoard({
     [onSelectionChange, selectedLeadIds],
   );
 
+  // Arrastar e "Mover para…" passam por aqui. A etapa de perda sem motivo abre a
+  // janela do motivo ANTES do move, com a mesma regra que a rota aplica: sem
+  // isso o move ia sem `lost_reason` e voltava como toast.
+  const moverPara = useCallback(
+    (args: MoveArgs) => {
+      const etapa = data?.stages.find((s) => s.id === args.stageId);
+      const lead = data?.leads.find((l) => l.id === args.leadId);
+      // O motivo na linha só vale para o card que JÁ está perdido (reordenar na
+      // coluna de perda). O reaberto volta a `open` com o `lost_reason` da perda
+      // anterior — `fn_crm_lead_close_on_stage` não o limpa —, e reaproveitá-lo
+      // gravaria a perda nova com a causa da antiga.
+      const motivoAtual =
+        lead && (lead.status === "lost" || lead.stage_id === args.stageId) ? lead.lost_reason : null;
+      if (!decideMotivoDaPerda({ etapaDeDestino: etapa, motivoAtual }).ok) {
+        setPerdaPendente(args);
+        return;
+      }
+      moveCard.mutate(args);
+    },
+    [data, moveCard],
+  );
+
+  // O menu não tem ponto de soltura. Quem CHEGA a outra etapa entra no TOPO,
+  // a mesma regra do `moveLeadHandler` sem posição (#3461); a mesma etapa é
+  // reordenação e segue para o fim. As duas pontas leem a etapa INTEIRA (cache
+  // do quadro, sem o filtro da página — #2545).
+  const aoMoverPelaLista = useCallback(
+    (lead: Lead, stageId: string) => {
+      const funil = qc.getQueryData<BoardData>(chaveDoQuadro(pipelineId))?.leads ?? data?.leads ?? [];
+      const etapa = funil.filter((l) => l.stage_id === stageId);
+      moverPara({
+        leadId: lead.id,
+        stageId,
+        positionInStage:
+          stageId === lead.stage_id ? posicaoNoFimDaEtapa(etapa, lead.id) : posicaoNoTopoDaEtapa(etapa, lead.id),
+        expectedUpdatedAt: lead.updated_at,
+      });
+    },
+    [qc, pipelineId, data, moverPara],
+  );
+
   const handleDragEnd = useCallback(
     (result: DropResult) => {
+      // Funil arquivado é leitura: soltar um card não move nada (#1298).
+      if (somenteLeitura) return;
       if (!data || !grouped) return;
       const { source, destination, draggableId } = result;
       if (!destination) return;
+
+      // ── ARRASTAR A COLUNA ───────────────────────────────────────────────────
+      // O PATCH quer o vizinho da ESQUERDA, não a posição: a conta é dele.
+      // Ninguém passa à frente da Etapa de entrada — soltar na ponta esquerda
+      // vira "logo depois dela", a mesma regra que o servidor aplica.
+      if (result.type === "COLUMN") {
+        const ordem = data.stages.map((s) => s.id);
+        const [movida] = ordem.splice(source.index, 1);
+        if (!movida) return;
+        const piso = data.stages[0]?.is_entry && movida !== data.stages[0].id ? 1 : 0;
+        const destino = Math.max(destination.index, piso);
+        if (destino === source.index) return;
+        ordem.splice(destino, 0, movida);
+        reordenar.mutate({ stageId: movida, depoisDe: ordem[destino - 1] ?? null, novaOrdem: ordem });
+        return;
+      }
+
       if (
         source.droppableId === destination.droppableId &&
         source.index === destination.index
@@ -216,8 +317,25 @@ export function KanbanBoard({
       );
 
       const before = destination.index > 0 ? destList[destination.index - 1] : null;
-      const after =
-        destination.index < destList.length ? destList[destination.index] : null;
+      // `destList` sai do `grouped`, que a página já FILTROU. O de cima fica
+      // sendo o vizinho visível — foi o que o operador escolheu ao soltar; o de
+      // baixo, porém, tem de ser o próximo card da etapa INTEIRA depois dele.
+      // Tirado da lista filtrada, `midpoint` devolvia `último + 1000` no fim da
+      // coluna visível (a posição nascida do card escondido) e, entre dois
+      // visíveis, a média caía em cima do escondido do meio — os dois cards
+      // ficavam com a MESMA `position_in_stage` e o arrasto seguinte entre eles
+      // era cancelado em silêncio (issue #2545). O funil sem filtro mora no
+      // cache do quadro, que a página preenche inteiro.
+      const etapaInteira =
+        qc
+          .getQueryData<BoardData>(chaveDoQuadro(pipelineId))
+          ?.leads.filter((l) => l.stage_id === destStageId) ?? null;
+      const after = proximoNaEtapaInteira(
+        before ?? null,
+        destList[destination.index] ?? null,
+        etapaInteira,
+        draggableId,
+      );
 
       const newPosition = midpoint(
         before?.position_in_stage ?? null,
@@ -229,14 +347,14 @@ export function KanbanBoard({
         return;
       }
 
-      moveCard.mutate({
+      moverPara({
         leadId: lead.id,
         stageId: destStageId,
         positionInStage: newPosition,
         expectedUpdatedAt: lead.updated_at,
       });
     },
-    [data, grouped, moveCard],
+    [data, grouped, moverPara, qc, pipelineId, somenteLeitura, reordenar],
   );
 
   if (isLoading) {
@@ -259,7 +377,7 @@ export function KanbanBoard({
   if (data.stages.length === 0) {
     return (
       <Card className="m-4 p-6 text-sm text-text-muted">
-        {t("Nenhum lead nesta pipeline ainda.")}
+        {t("Nenhum negócio neste funil ainda.")}
       </Card>
     );
   }
@@ -272,48 +390,102 @@ export function KanbanBoard({
           scroll containers are currently not supported") — o arraste perderia
           a rolagem automática. Com o quadro como único pai rolável, o arraste
           continua inteiro, e o cabeçalho de cada etapa fica preso em cima
-          (`sticky` em StageColumn). `items-start` + `min-h-full` na coluna: a
-          coluna curta ocupa a altura toda (dá para soltar card no vazio) e a
-          comprida cresce com os cards, com o fundo acompanhando.
+          (`sticky` em StageColumn). `items-start` no quadro + a faixa de dentro
+          com `min-h-full`/`items-stretch`: a coluna curta ocupa a altura toda
+          — inclusive depois de rolar além da tela (#3030) — e a comprida
+          cresce com os cards, com o fundo acompanhando.
           Sem padding no ALTO, e é de propósito: o `sticky` prende o cabeçalho
           na borda do conteúdo do contêiner, então um `pt-4` deixava uma faixa
           de 16px acima dele por onde os cards apareciam rolando (medido no e2e
           "o quadro cabe na tela"). O respiro até os filtros vem do `gap-4` da
           página. */}
-      <div
-        className="flex min-h-0 flex-1 items-start gap-3 overflow-auto px-4 pb-4"
-        data-quadro-do-funil
-      >
-        {data.stages.map((stage) => (
-          <StageColumn
-            key={stage.id}
-            stage={stage}
-            leads={grouped.get(stage.id) ?? []}
-            pipelineId={pipelineId}
-            ownerNames={ownerNames}
-            coolingIds={coolingIds}
-            reactivations={reactivations}
-            pulses={pulsesProp ?? queryResult.pulses}
-            canonicalTags={canonicalTags}
-            selectedLeadIds={selectedLeadIds}
-            onSelectMany={handleSelectMany}
-            onOpen={setDossieId}
-            podeRenomear={podeRenomearEtapa}
-            onRenomear={(nome) => renameStage.mutate({ stageId: stage.id, name: nome })}
-          />
-        ))}
-      </div>
+      <Droppable droppableId="colunas-do-quadro" type="COLUMN" direction="horizontal">
+        {(colunas) => (
+          <div
+            ref={colunas.innerRef}
+            {...colunas.droppableProps}
+            className="flex min-h-0 flex-1 items-start gap-3 overflow-auto px-4 pb-4"
+            data-quadro-do-funil
+          >
+            {data.stages.map((stage, index) => (
+              <Draggable
+                key={stage.id}
+                draggableId={`coluna:${stage.id}`}
+                index={index}
+                isDragDisabled={somenteLeitura || !podeEditarEtapas || stage.is_entry === true}
+              >
+                {(arraste) => (
+                  <div
+                    ref={arraste.innerRef}
+                    {...arraste.draggableProps}
+                    className="flex min-h-full shrink-0"
+                    data-coluna-arrastavel={stage.id}
+                  >
+                    <StageColumn
+                      stage={stage}
+                      leads={grouped.get(stage.id) ?? []}
+                      pipelineId={pipelineId}
+                      ownerNames={ownerNames}
+                      coolingIds={coolingIds}
+                      reactivations={reactivations}
+                      pulses={pulsesProp ?? queryResult.pulses}
+                      canonicalTags={canonicalTags}
+                      selectedLeadIds={selectedLeadIds}
+                      onSelectMany={handleSelectMany}
+                      onOpen={setDossieId}
+                      etapas={data.stages}
+                      onMoverPara={aoMoverPelaLista}
+                      denso={denso}
+                      somenteLeitura={somenteLeitura}
+                      podeEditar={podeEditarEtapas && !somenteLeitura}
+                      onEditar={() => setModalDeEtapa(stage.id)}
+                      alcaDeArraste={podeEditarEtapas && !somenteLeitura && !stage.is_entry ? arraste.dragHandleProps : null}
+                    />
+                  </div>
+                )}
+              </Draggable>
+            ))}
+            {colunas.placeholder}
+            {podeEditarEtapas && !somenteLeitura && (
+              <button
+                type="button"
+                onClick={() => setModalDeEtapa("nova")}
+                className="flex h-11 w-56 shrink-0 items-center justify-center gap-2 rounded-lg border border-dashed border-border text-sm font-medium text-text-muted hover:border-accent hover:text-text"
+                data-testid="nova-etapa"
+              >
+                <Plus size={16} aria-hidden /> {t("Nova etapa")}
+              </button>
+            )}
+          </div>
+        )}
+      </Droppable>
+      {modalDeEtapa !== null && (
+        <EtapaDialog
+          // Remonta a cada abertura: o rascunho do modal nasce da coluna atual.
+          key={modalDeEtapa}
+          open
+          onOpenChange={(aberto) => !aberto && setModalDeEtapa(null)}
+          pipelineId={pipelineId}
+          stages={data.stages}
+          etapa={modalDeEtapa === "nova" ? null : (data.stages.find((s) => s.id === modalDeEtapa) ?? null)}
+        />
+      )}
       {leadDoDossie && (
         <LeadDossier
           open
           onOpenChange={(v: boolean) => !v && setDossieId(null)}
           lead={leadDoDossie}
           pipelineId={pipelineId}
-          fieldDefs={camposDoFunil(data.pipeline.settings ?? null)}
+          fieldDefs={camposPorEscopo(camposDoFunil(data.pipeline.settings ?? null), "negocio")}
           stageName={
             data.stages.find((s) => s.id === leadDoDossie.stage_id)?.name ?? "—"
           }
           ownerNames={ownerNames}
+          etapas={data.stages}
+          onMudarEtapa={(stageId) => aoMoverPelaLista(leadDoDossie, stageId)}
+          // Os atalhos do card (#3487) saem do `settings` do funil que este
+          // quadro já carregou — nenhuma chamada nova.
+          atalhos={atalhosDoFunil(data.pipeline.settings ?? null)}
         />
       )}
 
@@ -333,6 +505,22 @@ export function KanbanBoard({
             customFields,
             ...(wonReason !== undefined ? { wonReason } : {}),
           });
+        }}
+      />
+      {/* Uma instância para o quadro todo: a `key` a remonta a cada pendência,
+          senão o motivo escolhido e cancelado num negócio voltava marcado no próximo. */}
+      <LoseLeadDialog
+        key={perdaPendente?.leadId ?? "fechado"}
+        open={perdaPendente !== null}
+        onOpenChange={(aberto) => {
+          if (!aberto) setPerdaPendente(null);
+        }}
+        pipelineId={pipelineId}
+        submitting={moveCard.isPending}
+        onConfirm={(lostReason) => {
+          if (!perdaPendente) return;
+          setPerdaPendente(null);
+          moveCard.mutate({ ...perdaPendente, lostReason });
         }}
       />
       {retomada && (

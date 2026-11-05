@@ -49,8 +49,12 @@ export function useFollowupFlow(id: string, opts?: { initialData?: FollowupFlowD
   });
 }
 
-/** PATCH draft_graph — "Salvar". Errors handled by the caller (dirty-state UI), no toast noise. */
-export function useSaveFollowupFlowDraft(id: string) {
+/**
+ * PATCH draft_graph — "Salvar". Errors handled by the caller (dirty-state UI), no toast noise.
+ * `silencioso` (Fluxos, salvamento automático): sem o toast "Rascunho salvo." a cada edição —
+ * a topbar mostra "Salvo há…".
+ */
+export function useSaveFollowupFlowDraft(id: string, opts?: { silencioso?: boolean }) {
   const t = useT();
   const qc = useQueryClient();
   return useMutation({
@@ -64,7 +68,7 @@ export function useSaveFollowupFlowDraft(id: string) {
       qc.setQueryData<FollowupFlowDetailRow>(followupFlowQueryKey(id), (prev) =>
         prev ? { ...prev, ...updated } : prev,
       );
-      toast.success(t("Rascunho salvo."));
+      if (!opts?.silencioso) toast.success(t("Rascunho salvo."));
     },
     onError: (err) => showApiError(err),
   });
@@ -79,14 +83,27 @@ export function usePublishFollowupFlow(id: string) {
   const t = useT();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      const res = await apiClient.post<SingleResponse>(`/api/v1/ai/followup-flows/${id}/publish`, {});
+    // `aceitarAvisos`: publicar mesmo com blocos desconectados (Fluxos), depois
+    // que a pessoa confirmou o 422 `publish_warnings`.
+    mutationFn: async (opcoes?: { aceitarAvisos?: boolean }) => {
+      const res = await apiClient.post<SingleResponse>(
+        `/api/v1/ai/followup-flows/${id}/publish`,
+        opcoes?.aceitarAvisos ? { aceitar_avisos: true } : {},
+      );
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: followupFlowQueryKey(id) });
       qc.invalidateQueries({ queryKey: ["followup", "flows", "list"] });
       toast.success(t("Fluxo publicado."));
+      // OS AVISOS DO GATILHO, um a um, no momento em que a pessoa está olhando.
+      // Eles não reprovam a publicação (ver `avisosDoGatilho`), e guardá-los
+      // para depois é guardá-los para nunca. `duration` longa de propósito: a
+      // frase é longa e diz o que fazer, não só que há algo errado.
+      const avisos = (data as { avisos?: Array<{ code: string; message: string }> } | undefined)?.avisos;
+      for (const aviso of avisos ?? []) {
+        toast.warning(t(aviso.message), { duration: 12_000 });
+      }
     },
   });
 }

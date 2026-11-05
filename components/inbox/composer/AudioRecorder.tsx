@@ -1,13 +1,25 @@
 "use client";
+import { Mic } from "@/components/inbox/icones";
 import { useEffect, useRef, useState } from "react";
 import { useT } from "@/hooks/i18n/useT";
 
 import { Button } from "@/components/ui/button";
-import { Microphone, PaperPlaneTilt, Trash } from "@/lib/ui/icons";
+import { PaperPlaneTilt, Trash } from "@/lib/ui/icons";
 import { useSendMessage } from "@/hooks/inbox/useSendMessage";
 import { useUploadMedia } from "@/hooks/inbox/useUploadMedia";
 
 const PREFERRED_MIMES = ["audio/ogg;codecs=opus", "audio/webm;codecs=opus"];
+
+/**
+ * A extensão vem do mime que o navegador DE FATO gravou. O Safari do iPhone
+ * (antes do 18.4) ignora os dois preferidos e grava `audio/mp4` — subir isso
+ * como `.webm` mentia o formato para quem lê o arquivo depois.
+ */
+function extensaoDaGravacao(mime: string): "ogg" | "webm" | "m4a" {
+  if (mime.includes("ogg")) return "ogg";
+  if (mime.includes("mp4") || mime.includes("aac") || mime.includes("m4a")) return "m4a";
+  return "webm";
+}
 
 function pickMime(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
@@ -84,7 +96,10 @@ export function AudioRecorder({ conversationId, disabled }: Props) {
           .mutateAsync({
             conversationId,
             file: blob,
-            filename: `ptt.${type.includes("ogg") ? "ogg" : "webm"}`,
+            filename: `ptt.${extensaoDaGravacao(type)}`,
+            // "É nota de voz": só com esta marca o servidor converte o AAC do
+            // iPhone em opus, o único formato de nota de voz dos canais oficiais.
+            notaDeVoz: true,
           })
           .then((uploaded) =>
             send.mutate(
@@ -126,16 +141,16 @@ export function AudioRecorder({ conversationId, disabled }: Props) {
 
   if (!recording) {
     return (
-      <Button
+      <button
         type="button"
-        size="icon"
-        className="h-9 w-9 shrink-0"
+        className="ml-1 inline-flex h-8 w-9 shrink-0 items-center justify-center rounded-[10px] bg-ibx-accent text-white transition-colors hover:bg-ibx-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ibx-accent disabled:opacity-50"
         aria-label={t("Gravar áudio")}
+        title={t("Gravar áudio")}
         onClick={start}
         disabled={disabled}
       >
-        <Microphone size={16} weight="fill" aria-hidden />
-      </Button>
+        <Mic size={16} aria-hidden />
+      </button>
     );
   }
 
@@ -145,7 +160,7 @@ export function AudioRecorder({ conversationId, disabled }: Props) {
         type="button"
         size="icon"
         variant="ghost"
-        className="h-9 w-9 shrink-0 text-destructive"
+        className="shrink-0 text-destructive"
         aria-label={t("Cancelar gravação")}
         onClick={() => {
           discardRef.current = true;
@@ -161,7 +176,7 @@ export function AudioRecorder({ conversationId, disabled }: Props) {
       <Button
         type="button"
         size="icon"
-        className="h-9 w-9 shrink-0"
+        className="shrink-0"
         aria-label={t("Enviar áudio")}
         onClick={stopIfRecording}
       >

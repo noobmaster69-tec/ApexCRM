@@ -37,11 +37,13 @@ import {
   resolveSessionRef,
   type ChannelSessionRef,
 } from "@/lib/channels";
+import { enderecoDaUltimaRecebida } from "@/lib/channels/endereco-da-ultima-recebida";
 
 /** Único estado em que o canal pode falar agora — mesmo critério do handler de envio. */
 const SESSAO_SAUDAVEL = "WORKING";
 
 interface ConversaParaPresenca {
+  contact_id: string | null;
   is_group: boolean;
   group_chat_id: string | null;
   contacts: {
@@ -70,7 +72,7 @@ export async function sinalizarDigitando(
   const { data } = await supabase
     .from("conversations")
     .select(
-      `is_group, group_chat_id, contacts:contact_id(phone_number, wa_identity, wa_lid), ` +
+      `contact_id, is_group, group_chat_id, contacts:contact_id(phone_number, wa_identity, wa_lid), ` +
         `channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS}, status)`,
     )
     .eq("id", input.conversationId)
@@ -90,12 +92,22 @@ export async function sinalizarDigitando(
   // da doutrina de restrição de canal).
   if (!adapter.signalTyping) return;
 
+  // Ficha com telefone extra: o "digitando…" sai pelo número que a pessoa escreveu,
+  // o mesmo endereço da resposta. A porta de canal decide quem tem isso.
+  const ultimoRecebidoChatId = await enderecoDaUltimaRecebida(supabase, {
+    provider: sessao.provider,
+    isGroup: conversa.is_group,
+    organizationId: input.organizationId,
+    conversationId: input.conversationId,
+    contactId: conversa.contact_id ?? null,
+  });
   const recipient = adapter.resolveRecipient({
     isGroup: conversa.is_group,
     groupChatId: conversa.group_chat_id,
     phoneNumber: conversa.contacts?.phone_number,
     waIdentity: conversa.contacts?.wa_identity,
     waLid: conversa.contacts?.wa_lid,
+    ultimoRecebidoChatId,
   });
   if (!recipient) return;
 
@@ -103,5 +115,99 @@ export async function sinalizarDigitando(
     organizationId: input.organizationId,
     sessionRef: resolveSessionRef(sessao),
     recipient,
+    inboundExternalId: await ultimaMensagemDoCliente(supabase, input),
   });
+}
+
+// ── Fluxos (fork jhoow): presença com tipo e reação ─────────────────────────
+
+/** O endereço da conversa no canal — `null` quando a sessão não está no ar. */
+export async function enderecoDaConversa(supabase: SupabaseClient, organizationId: string, conversationId: string) {
+  const { data } = await supabase
+    .from("conversations")
+    .select(
+      `is_group, group_chat_id, contacts:contact_id(phone_number, wa_identity, wa_lid), ` +
+        `channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS}, status)`,
+    )
+    .eq("id", conversationId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  const conversa = data as unknown as ConversaParaPresenca | null;
+  const sessao = conversa?.channel_sessions;
+  if (!conversa || !sessao || sessao.status !== SESSAO_SAUDAVEL) return null;
+  const adapter = getAdapter(sessao.provider ?? DEFAULT_CHANNEL_PROVIDER);
+  const recipient = adapter.resolveRecipient({
+    isGroup: conversa.is_group,
+    groupChatId: conversa.group_chat_id,
+    phoneNumber: conversa.contacts?.phone_number,
+    waIdentity: conversa.contacts?.wa_identity,
+    waLid: conversa.contacts?.wa_lid,
+  });
+  return { adapter, sessionRef: resolveSessionRef(sessao), recipient };
+}
+
+/** "digitando…", "gravando…" ou apagar o indicador. Decorativo: o canal sem suporte não faz nada. */
+export async function sinalizarPresenca(
+  supabase: SupabaseClient,
+  input: SinalizarDigitandoInput & { presenca: "typing" | "recording" | "paused" },
+): Promise<void> {
+  const end = await enderecoDaConversa(supabase, input.organizationId, input.conversationId);
+  if (!end?.recipient || !end.adapter.signalPresence) return;
+  await end.adapter.signalPresence({
+    organizationId: input.organizationId,
+    sessionRef: end.sessionRef,
+    recipient: end.recipient,
+    presence: input.presenca,
+  });
+}
+
+/** Reage com `emoji` à mensagem do lead (`externalId` = `messages.external_id`). */
+export async function reagirAMensagem(
+  supabase: SupabaseClient,
+  input: SinalizarDigitandoInput & { externalId: string; emoji: string },
+): Promise<void> {
+  const end = await enderecoDaConversa(supabase, input.organizationId, input.conversationId);
+  if (!end || !end.adapter.reactToMessage) return;
+  await end.adapter.reactToMessage({
+    organizationId: input.organizationId,
+    sessionRef: end.sessionRef,
+    recipient: end.recipient,
+    externalId: input.externalId,
+    emoji: input.emoji,
+  });
+}
+
+/**
+ * O `external_id` da última mensagem que o cliente mandou nesta conversa.
+ *
+ * Há canal em que o "digitando…" não é da conversa, é da MENSAGEM que se está
+ * respondendo: sem esse id ele não tem o que sinalizar. Buscar aqui, e não no
+ * adapter, mantém o adapter burro (traduz formato, não lê banco de conversa) e
+ * a leitura escopada por organização num lugar só, o mesmo da conversa acima.
+ * A consulta só acontece depois de todos os "não há o que sinalizar", então
+ * canal sem presença não paga por ela; o canal que ignora o campo paga uma
+ * leitura pelo índice `(conversation_id, sent_at desc)`.
+ *
+ * Reação e mensagem de sistema ficam de fora: são registros do cliente, mas não
+ * uma mensagem que alguém responde — e o id delas não é o que se quer ler.
+ * `sent_at` (e não `created_at`) é a hora da mensagem, a mesma que o resto do
+ * código usa para achar "a última do cliente"; reentrega fora de ordem não troca
+ * a escolha.
+ */
+async function ultimaMensagemDoCliente(
+  supabase: SupabaseClient,
+  input: SinalizarDigitandoInput,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("messages")
+    .select("external_id")
+    .eq("organization_id", input.organizationId)
+    .eq("conversation_id", input.conversationId)
+    .eq("direction", "inbound")
+    .not("type", "in", "(reaction,system)")
+    .order("sent_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as { external_id: string | null } | null)?.external_id ?? null;
 }

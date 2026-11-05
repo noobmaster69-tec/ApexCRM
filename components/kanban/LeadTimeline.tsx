@@ -79,10 +79,21 @@ function Linha({ item, aoVivo }: { item: TimelineItemView; aoVivo?: boolean }) {
         {item.reason && <p className="mt-0.5 text-xs text-text-muted">{t(item.reason)}</p>}
         <p className="mt-0.5 text-[11px] text-text-muted">
           {nome} · {quando(item.performed_at, tagDoIdioma)}
+          {conexaoMcp(item) ? ` · ${t("via MCP: {nome}").replace("{nome}", conexaoMcp(item)!)}` : null}
         </p>
       </div>
     </li>
   );
+}
+
+/**
+ * A linha nascida de uma conexão MCP (migration 9023) diz por qual: o ator é
+ * a pessoa dona da conexão, e sem isto a timeline atribuiria a ela um gesto
+ * que foi de uma ferramenta de IA. Ver `lib/leads/activity-emitter.ts`.
+ */
+function conexaoMcp(item: TimelineItemView): string | null {
+  const nome = item.payload?.mcp_connection_name;
+  return typeof nome === "string" && nome.trim() !== "" ? nome : null;
 }
 
 /**

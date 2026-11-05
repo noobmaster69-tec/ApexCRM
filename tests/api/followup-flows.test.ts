@@ -65,7 +65,7 @@ const INVALID_GRAPH: FlowGraph = {
 
 type Row = Record<string, unknown>;
 
-function makeDb(pointers: Row[], versions: Row[], stages: Row[] = [], conexoes: Row[] = []) {
+function makeDb(pointers: Row[], versions: Row[], stages: Row[] = [], conexoes: Row[] = [], modelos: Row[] = []) {
   const tables: Record<string, Row[]> = {
     followup_flow_pointers: pointers,
     followup_flow_versions: versions,
@@ -77,6 +77,10 @@ function makeDb(pointers: Row[], versions: Row[], stages: Row[] = [], conexoes: 
     // O publish lê os providers das conexões: o plano B da IA só é exigido de
     // quem tem canal com janela de 24 h (revisão do #1729).
     channel_sessions: conexoes,
+    // O publish confere que o modelo citado existe NESTA org (seguimento do
+    // #3056). A linha leva `tabela` para cair na tabela que o motor lê.
+    message_templates: modelos.filter((m) => m.tabela === "message_templates"),
+    meta_templates: modelos.filter((m) => m.tabela === "meta_templates"),
   };
 
   function builder(table: string) {
@@ -252,14 +256,14 @@ function makeDb(pointers: Row[], versions: Row[], stages: Row[] = [], conexoes: 
   return { from: (table: string) => builder(table), rpc };
 }
 
-function session(effectiveRole: Role, db: ReturnType<typeof makeDb>) {
+function session(effectiveRole: Role, db: ReturnType<typeof makeDb>, idioma: AuthUser["idioma"] = "pt-BR") {
   const user: AuthUser = {
     id: USER_ID,
     email: "m@example.com",
     full_name: null,
     avatar_url: null,
     is_platform_admin: false,
-    idioma: "pt-BR" as const,
+    idioma,
     organizations: [{ organization_id: ORG_ID, organization_name: "Org", role: effectiveRole }],
   };
   vi.mocked(requireRole).mockImplementation(async (min: Role) => {
@@ -343,8 +347,11 @@ describe("GET /api/v1/ai/followup-flows — list", () => {
   it("viewer (any member) → 200, só pointers da própria org", async () => {
     const db = makeDb(
       [
-        { id: "33333333-3333-4333-8333-333333333333", organization_id: ORG_ID, name: "A", status: "draft", active_version_id: null, handoff_policy: "pause", updated_at: "2026-01-01" },
-        { id: "44444444-4444-4444-8444-444444444444", organization_id: OTHER_ORG_ID, name: "B", status: "draft", active_version_id: null, handoff_policy: "pause", updated_at: "2026-01-01" },
+        // `surface` explícito: a lista sem filtro passou a trazer só as superfícies
+        // do relógio (`SUPERFICIES_DO_RELOGIO`, desde os Fluxos), e linha sem
+        // `surface` some — o teste mediria o filtro, não o isolamento por org.
+        { id: "33333333-3333-4333-8333-333333333333", organization_id: ORG_ID, name: "A", status: "draft", active_version_id: null, handoff_policy: "pause", updated_at: "2026-01-01", surface: "followup" },
+        { id: "44444444-4444-4444-8444-444444444444", organization_id: OTHER_ORG_ID, name: "B", status: "draft", active_version_id: null, handoff_policy: "pause", updated_at: "2026-01-01", surface: "followup" },
       ],
       [],
     );
@@ -578,6 +585,72 @@ describe("POST /api/v1/ai/followup-flows/:id/publish", () => {
       expect(res.status).toBe(422);
       const body = (await res.json()) as { error: { details: { errors: Array<{ code: string }> } } };
       expect(body.error.details.errors.map((e) => e.code)).toEqual(["long_wait_needs_template"]);
+    });
+  });
+
+  describe("modelo de mensagem que não existe nesta conta (seguimento do #3056)", () => {
+    const PID = "33333333-3333-4333-8333-333333333333";
+    const MODELO = "55555555-5555-4555-8555-555555555555";
+    const comPassos = (...acoes: FlowNode[]): FlowGraph => {
+      const ids = ["t1", ...acoes.map((a) => a.id), "e1"];
+      return {
+        nodes: [trigger("t1"), ...acoes, end("e1")],
+        edges: ids.slice(1).map((alvo, i) => edge(`x${i}`, ids[i]!, alvo)),
+      };
+    };
+    const passoDeModelo: FlowNode = {
+      id: "m1", type: "action", label: "m1", position: pos, config: { mode: "template", template_id: MODELO },
+    };
+    const iaComPlanoB = (planoB = MODELO): FlowNode => ({
+      id: "ia1", type: "action", label: "ia1", position: pos,
+      config: { mode: "ai_message", prompt_hint: "oi", fallback_template_id: planoB },
+    });
+    const ponteiro = (g: FlowGraph) => [{ id: PID, organization_id: ORG_ID, status: "draft", draft_graph: g }];
+
+    it("modelo de OUTRA org → 422 modelo_inexistente, com a frase no idioma de quem publica", async () => {
+      const db = makeDb(ponteiro(comPassos(passoDeModelo)), [], [], [], [
+        { tabela: "message_templates", id: MODELO, organization_id: OTHER_ORG_ID },
+      ]);
+      session("manager", db, "es");
+      const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+      const res = await POST(req("POST"), ctx(PID));
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as { error: { details: { errors: Array<{ code: string; message: string }> } } };
+      expect(body.error.details.errors).toEqual([
+        {
+          node_id: "m1",
+          code: "modelo_inexistente",
+          message: "Elige una plantilla de mensaje: la que estaba aquí no existe en esta cuenta.",
+        },
+      ]);
+    });
+
+    it("plano B apontando para texto pronto → 422: o motor só lê o plano B em meta_templates", async () => {
+      const db = makeDb(ponteiro(comPassos(iaComPlanoB())), [], [], [], [
+        { tabela: "message_templates", id: MODELO, organization_id: ORG_ID },
+      ]);
+      session("manager", db);
+      const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+      const res = await POST(req("POST"), ctx(PID));
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as { error: { details: { errors: Array<{ code: string }> } } };
+      expect(body.error.details.errors.map((e) => e.code)).toEqual(["modelo_inexistente"]);
+    });
+
+    it("modelo da própria org publica — texto pronto no passo, modelo do canal no plano B", async () => {
+      const DO_CANAL = "66666666-6666-4666-8666-666666666666";
+      const db = makeDb(
+        ponteiro(comPassos(passoDeModelo, iaComPlanoB(DO_CANAL))),
+        [], [], [],
+        [
+          { tabela: "message_templates", id: MODELO, organization_id: ORG_ID },
+          { tabela: "meta_templates", id: DO_CANAL, organization_id: ORG_ID },
+        ],
+      );
+      session("manager", db);
+      const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+      const res = await POST(req("POST"), ctx(PID));
+      expect(res.status).toBe(200);
     });
   });
 
@@ -1139,3 +1212,78 @@ vi.mock("@/lib/impersonate/support", async (importOriginal) => ({
   requireSupportWrite: vi.fn(async () => null),
   authenticatedSessionId: vi.fn(async () => "f2200000-0000-4000-8000-000000000099"),
 }));
+
+// ---------------------------------------------------------------------------
+// Rodada 1 do editor de fluxos, item 3: publicar FLUXO com blocos desconectados
+// ---------------------------------------------------------------------------
+
+describe("POST /api/v1/ai/followup-flows/:id/publish — Fluxos com blocos desconectados", () => {
+  const PID = "33333333-3333-4333-8333-333333333333";
+  const mensagem = (id: string): FlowNode =>
+    ({ id, type: "mensagem", label: id, position: pos, config: { itens: [{ id: "a", tipo: "texto", texto: "oi" }] } }) as FlowNode;
+  /** t → m1 → Fim, e um bloco solto que o Início não alcança. */
+  const COM_SOLTO: FlowGraph = {
+    nodes: [trigger("t1"), mensagem("m1"), mensagem("solto"), end("e1")],
+    edges: [edge("x1", "t1", "m1"), edge("x2", "m1", "e1")],
+  };
+  /** Sem Início nenhum: erro que bloqueia, junto com o bloco solto. */
+  const SEM_INICIO: FlowGraph = { nodes: [mensagem("m1"), end("e1")], edges: [edge("x1", "m1", "e1")] };
+  const ponteiro = (draft_graph: FlowGraph) => [
+    { id: PID, organization_id: ORG_ID, status: "draft", surface: "fluxo", trigger_config: { kind: "manual" }, draft_graph },
+  ];
+  const corpoDoErro = async (res: Response) =>
+    (await res.json()) as { error: { code: string; details: { errors: Array<{ code: string; node_id: string | null; severity?: string }> } } };
+
+  it("⭐ sem aceitar_avisos → 422 publish_warnings com os avisos marcados, e nada publica", async () => {
+    const db = makeDb(ponteiro(COM_SOLTO), []);
+    session("manager", db);
+    const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+    const res = await POST(req("POST"), ctx(PID));
+    expect(res.status).toBe(422);
+    const body = await corpoDoErro(res);
+    expect(body.error.code).toBe("publish_warnings");
+    expect(body.error.details.errors).toEqual([
+      { node_id: "solto", code: "unreachable_node", message: expect.any(String), severity: "warning" },
+    ]);
+    const { data: versoes } = (await db.from("followup_flow_versions").select()) as { data: Row[] };
+    expect(versoes).toHaveLength(0);
+  });
+
+  it("⭐ com aceitar_avisos: true → publica e registra no audit quantos blocos estavam desconectados", async () => {
+    const db = makeDb(ponteiro(COM_SOLTO), []);
+    session("manager", db);
+    const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+    const res = await POST(req("POST", { aceitar_avisos: true }), ctx(PID));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { status: string } };
+    expect(body.data.status).toBe("active");
+    expect(vi.mocked(audit)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "followup_flow.published",
+        metadata: expect.objectContaining({ avisos_aceitos: 1, blocos_desconectados: 1 }),
+      }),
+    );
+  });
+
+  it("⭐ erro que bloqueia nunca publica, nem com aceitar_avisos", async () => {
+    const db = makeDb(ponteiro(SEM_INICIO), []);
+    session("manager", db);
+    const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+    const res = await POST(req("POST", { aceitar_avisos: true }), ctx(PID));
+    expect(res.status).toBe(422);
+    const body = await corpoDoErro(res);
+    expect(body.error.code).toBe("validation_failed");
+    expect(body.error.details.errors.map((e) => e.code)).toContain("no_trigger");
+    const { data: versoes } = (await db.from("followup_flow_versions").select()) as { data: Row[] };
+    expect(versoes).toHaveLength(0);
+  });
+
+  it("corpo fora do contrato → 422 (Zod), sem publicar", async () => {
+    const db = makeDb(ponteiro(COM_SOLTO), []);
+    session("manager", db);
+    const { POST } = await import("@/app/api/v1/ai/followup-flows/[id]/publish/route");
+    const res = await POST(req("POST", { aceitar_avisos: "sim", extra: 1 }), ctx(PID));
+    expect(res.status).toBe(422);
+    expect((await corpoDoErro(res)).error.code).toBe("validation_failed");
+  });
+});

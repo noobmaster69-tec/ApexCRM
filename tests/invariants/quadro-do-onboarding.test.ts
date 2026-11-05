@@ -56,7 +56,23 @@ describe("0156 · o quadro montado no onboarding", () => {
       sql(`select count(*)::text || '|' || count(*) filter (where agent_stage_hint is not null)::text
              from public.crm_stages where pipeline_id = '${pipeline}'::uuid;`),
     );
-    expect(linha).toBe("8|0");
+    // 8 do seed + a Etapa de entrada (9007), que também não tem destino.
+    expect(linha).toBe("9|0");
+  });
+
+  it("o funil semeado e o montado no onboarding chamam o card de Negócio (9080)", () => {
+    // O DEFAULT da coluna era o de loja, e nem o gatilho nem a função gravam
+    // `vocabulary`: numa clínica recém-instalada o quadro dizia "1 Pedido
+    // selecionado". O default neutro vale nos dois caminhos.
+    const vocab = (pipeline: string) =>
+      lastLine(
+        sql(`select concat_ws('|', vocabulary->>'lead', vocabulary->>'deal', vocabulary->>'won', vocabulary->>'lost')
+               from public.crm_pipelines where id = '${pipeline}'::uuid;`),
+      );
+    const { org, pipeline } = criarTenant("inv-9080-vocab");
+    expect(vocab(pipeline)).toBe("Contato|Negócio|Ganho|Perdido");
+    expect(aplicar(org, pipeline)).toContain('"ok": true');
+    expect(vocab(pipeline)).toBe("Contato|Negócio|Ganho|Perdido");
   });
 
   it("troca o quadro inteiro e ensina o destino de cada coluna", () => {
@@ -70,7 +86,8 @@ describe("0156 · o quadro montado no onboarding", () => {
             where p.id = '${pipeline}'::uuid group by p.name;`),
     );
     expect(estado).toBe(
-      "Agendamentos :: Novo contato/new, Já respondi/contacted, Consulta marcada/won, Não vai marcar/lost",
+      // A Etapa de entrada (9007) sobrevive à troca e fica à frente.
+      "Agendamentos :: Etapa de entrada/-, Novo contato/new, Já respondi/contacted, Consulta marcada/won, Não vai marcar/lost",
     );
   });
 
@@ -94,10 +111,10 @@ describe("0156 · o quadro montado no onboarding", () => {
     }
     expect(levantou, "o banco precisa recusar dois ganhos no mesmo funil").toBe(true);
 
-    // E o funil continua com as 8 colunas que tinha antes da tentativa.
+    // E o funil continua com as 9 colunas que tinha antes da tentativa (8 do seed + a entrada, 9007).
     expect(
       lastLine(sql(`select count(*)::text from public.crm_stages where pipeline_id='${pipeline}'::uuid;`)),
-    ).toBe("8");
+    ).toBe("9");
   });
 
   it("recusa funil de OUTRA organização", () => {
@@ -109,7 +126,7 @@ describe("0156 · o quadro montado no onboarding", () => {
     // E o funil de B ficou intacto.
     expect(
       lastLine(sql(`select count(*)::text from public.crm_stages where pipeline_id='${b.pipeline}'::uuid;`)),
-    ).toBe("8");
+    ).toBe("9");
   });
 
   it("recusa funil que já tem negócio — em vez de deixar o RESTRICT estourar", () => {

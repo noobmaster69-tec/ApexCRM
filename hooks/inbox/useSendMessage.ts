@@ -1,5 +1,6 @@
 "use client";
 import { useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { useRef } from "react";
 import { apiClient } from "@/lib/api/client";
 import { randomId } from "@/lib/random-id";
 import { showApiError } from "@/components/feedback/ApiErrorToast";
@@ -24,6 +25,10 @@ interface SendArgs {
   /** A mensagem citada — id da NOSSA linha; o handler traduz para o do canal. */
   reply_to_message_id?: string;
   metadata?: Record<string, unknown>;
+  /** Tradução de saída (9022): o que o atendente escreveu, no idioma dele; `body` é a tradução. */
+  content_original?: string;
+  content_locale?: string;
+  translated_to?: string;
 }
 
 interface MessagesPage {
@@ -31,12 +36,47 @@ interface MessagesPage {
   meta?: { cursor?: string | null; has_more?: boolean };
 }
 
+/** O mesmo envio (mesma conversa, mesmo conteúdo) tem a mesma identidade. */
+const identidadeDoEnvio = (input: SendArgs) => JSON.stringify(input);
+
+/**
+ * Por quanto tempo o mesmo texto depois de um erro ainda é "tentar de novo".
+ * Mais tarde que isto, "ok" ou "Bom dia!" é uma mensagem nova — e o recibo do
+ * servidor vale 24h, então reaproveitar a chave calaria a mensagem nova.
+ */
+const REAPROVEITA_CHAVE_MS = 2 * 60 * 1000;
+
 export function useSendMessage() {
   const qc = useQueryClient();
+  /**
+   * A chave de idempotência de cada envio que FALHOU há pouco.
+   *
+   * Depois de um erro de rede o texto volta ao campo; se a pessoa toca Enviar
+   * de novo com o mesmo texto, a chave é a mesma e o servidor devolve o recibo
+   * do primeiro envio em vez de mandar duas vezes (o primeiro pode ter saído).
+   * Texto editado é outra mensagem e ganha outra chave. Só em memória: nada do
+   * atendimento fica guardado no aparelho.
+   */
+  const chaves = useRef(new Map<string, { chave: string; falhouEm: number }>());
 
   return useMutation({
-    mutationFn: async (input: SendArgs) =>
-      apiClient.post<{ data: Message }>("/api/v1/messages", input),
+    mutationFn: async (input: SendArgs) => {
+      const identidade = identidadeDoEnvio(input);
+      const anterior = chaves.current.get(identidade);
+      // Só a chave de um envio que FALHOU há pouco. A de um envio ainda em voo
+      // não: o campo foi limpo no envio, então o mesmo texto de novo é a pessoa
+      // escrevendo outra vez, e não o mesmo toque repetido.
+      const idempotencyKey = anterior && Date.now() - anterior.falhouEm < REAPROVEITA_CHAVE_MS
+        ? anterior.chave
+        : randomId();
+      chaves.current.delete(identidade);
+      try {
+        return await apiClient.post<{ data: Message }>("/api/v1/messages", input, { idempotencyKey });
+      } catch (err) {
+        chaves.current.set(identidade, { chave: idempotencyKey, falhouEm: Date.now() });
+        throw err;
+      }
+    },
     onMutate: async (args) => {
       if (args.media_storage_path || args.media_url || args.type === "contact") return {};
 
@@ -58,6 +98,10 @@ export function useSendMessage() {
         error_code: null,
         error_message: null,
         body: args.body ?? null,
+        // A bolha otimista já diz "Enviado em inglês · Ver original".
+        content_original: args.content_original ?? null,
+        content_locale: args.content_locale ?? null,
+        translated_to: args.translated_to ?? null,
         media_url: args.media_url ?? null,
         media_mime: args.media_mime ?? null,
         media_size_bytes: null,
@@ -75,6 +119,8 @@ export function useSendMessage() {
         edited_at: null,
         revoked_at: null,
         created_at: new Date().toISOString(),
+        // Sem isto a regra de reenvio não sabe que a linha acabou de nascer.
+        updated_at: new Date().toISOString(),
       };
 
       qc.setQueryData<InfiniteData<MessagesPage>>(queryKey, (old) => {

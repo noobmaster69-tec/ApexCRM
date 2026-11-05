@@ -1,7 +1,7 @@
 import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
  * PATCH/DELETE /api/v1/pipelines/[id] — renomear, descrever, reordenar, eleger
- * padrão, arquivar e (só no caso limpo) excluir um funil.
+ * padrão, mover para outro CRM, arquivar e (só no caso limpo) excluir um funil.
  *
  * ⚠️ DELETE ARQUIVA POR PADRÃO. Três dependências cobram isso, e só uma delas o
  * banco defende sozinho: `crm_leads_pipeline_id_fkey` é `ON DELETE RESTRICT` (o
@@ -23,18 +23,21 @@ import { z } from "zod";
 import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
+import { FORMATO_DE_COR } from "@/lib/kanban/cores-de-etapa";
 import {
+  nomeOcupadoPorAtivo,
   podeExcluirDeVez,
   posicaoEntre,
   updatesDeMarcaExclusiva,
   updatesDePadrao,
   validarArquivamento,
+  validarMudancaDeCrm,
   validarNomeDeFunil,
   type FunilEditavel,
 } from "@/lib/pipelines/pipeline-editing";
 import { createClient } from "@/lib/supabase/server";
 
-import { conflitoDoBanco, corpo, lerDependencias, lerFunis } from "../_funis";
+import { conflitoDoBanco, corpo, crmVivoDaOrg, lerDependencias, lerFunis } from "../_funis";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
@@ -74,11 +77,22 @@ const bodySchema = z
      */
     is_archived: z.boolean().optional(),
     depois_de: z.string().min(1).nullable().optional(),
+    /**
+     * MOVER PARA OUTRO CRM (migration 9004). Só CRM vivo da mesma
+     * organização — a chave estrangeira composta recusa o de outra org, e a
+     * rota recusa o arquivado com frase. Nada mais muda no funil: etapas,
+     * negócios e o lugar de padrão vão junto.
+     */
+    crm_id: z.string().uuid().optional(),
+    /** A "cor da aba" do funil no seletor do quadro (9008); `null` tira a cor. */
+    color: z.string().regex(FORMATO_DE_COR).nullable().optional(),
   })
   .strict()
   .refine((b) => Object.keys(b).length > 0, { message: "Nada para alterar." });
 
 type PatchDoFunil = {
+  crm_id?: string;
+  color?: string | null;
   name?: string;
   description?: string | null;
   position?: number;
@@ -189,7 +203,24 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
   }
 
   const patchDoAlvo: PatchDoFunil = {};
+  if (pedido.crm_id !== undefined && pedido.crm_id !== alvo.crm_id) {
+    // O principal não muda de CRM (9007): o de origem ficaria sem Etapa de
+    // entrada, e o de destino já tem o dele.
+    const daMudanca = validarMudancaDeCrm(alvo, pedido.crm_id);
+    if (!daMudanca.ok) return fail("state_conflict", daMudanca.erro, 409, { requestId });
+    try {
+      if (!(await crmVivoDaOrg(supabase, orgId, pedido.crm_id))) {
+        return fail("unprocessable_entity", t("CRM não encontrado. Escolha um CRM ativo da organização."), 422, {
+          requestId,
+        });
+      }
+    } catch (err) {
+      return fail("internal_error", (err as Error).message, 500, { requestId });
+    }
+    patchDoAlvo.crm_id = pedido.crm_id;
+  }
   if (pedido.name !== undefined) patchDoAlvo.name = pedido.name.trim();
+  if (pedido.color !== undefined) patchDoAlvo.color = pedido.color;
   if (pedido.description !== undefined) {
     patchDoAlvo.description = pedido.description?.trim() || null;
   }
@@ -200,7 +231,29 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
   // arquivado — pedir de novo em quem já está fora é pedido já atendido, e uma
   // escrita vazia viraria linha de auditoria sem fato nenhum por trás.
   const tiraDoArquivo = pedido.is_archived === false && alvo.is_archived;
-  if (tiraDoArquivo) patchDoAlvo.is_archived = false;
+  if (tiraDoArquivo) {
+    patchDoAlvo.is_archived = false;
+
+    // #2559 — TIRAR DO ARQUIVO TAMBÉM CONFERE O NOME. O pedido misto
+    // (desarquivar + renomear) é recusado lá em cima de propósito, então este é
+    // o ÚNICO ponto onde a volta do funil poderia colidir: se alguém criou outro
+    // funil ATIVO com o mesmo nome enquanto ele estava arquivado, o update
+    // simples devolveria dois funis iguais na lista, sem aviso e sem como
+    // renomear no mesmo passo. Recusa com 409 e o conselho — mesma família do
+    // 409 do pedido misto; a renomeação automática sairia de baixo de quem.
+    const ocupado = nomeOcupadoPorAtivo(funis, pipelineId);
+    if (ocupado) {
+      return fail(
+        "state_conflict",
+        t("Já existe um funil ativo chamado «{nome}». Renomeie um dos dois antes de tirar este funil do arquivo.").replace(
+          "{nome}",
+          ocupado,
+        ),
+        409,
+        { requestId },
+      );
+    }
+  }
 
   if (pedido.depois_de !== undefined) {
     // Só os ativos compõem a régua: arquivado não ocupa lugar na lista.
@@ -274,7 +327,11 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
       // Tirar do arquivo tem código PRÓPRIO, espelhando o `pipeline.archived`
       // que o DELETE emite: quem audita quer saber quem trouxe o funil de volta,
       // e `pipeline.updated` esconderia isso entre os renames.
-      action: tiraDoArquivo ? "pipeline.unarchived" : "pipeline.updated",
+      action: tiraDoArquivo
+        ? "pipeline.unarchived"
+        : patchDoAlvo.crm_id !== undefined
+          ? "pipeline.moved_crm"
+          : "pipeline.updated",
       actorUserId: authz.user.id,
       organizationId: orgId,
       resourceType: "crm_pipeline",
@@ -329,7 +386,13 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx): Promise<Response>
     // A CONTAGEM VAI EM `details`, não só dentro da frase: a tela mostra "este
     // funil tem N negócios" sem precisar extrair o número da mensagem com regex —
     // segunda régua que quebraria na primeira vez que alguém melhorasse o texto.
-    return fail("unprocessable_entity", veredito.erro, 422, {
+    //
+    // `t()` + `replace("{nome}")` É O QUE DÁ IDIOMA À RECUSA NOVA DA #2559:
+    // `validarArquivamento` devolve o `{nome}` por preencher justamente para a
+    // frase casar a chave do dicionário. As outras recusas já vêm com o nome
+    // colado, não são chave de nada e caem no fallback do `traduzir` — que
+    // devolve o texto como está, sem mudar uma letra.
+    return fail("unprocessable_entity", t(veredito.erro).replace("{nome}", alvo.name), 422, {
       requestId,
       details: {
         negocios: deps.negocios,

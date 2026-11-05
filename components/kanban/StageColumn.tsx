@@ -1,6 +1,6 @@
 "use client";
-import { Droppable } from "@hello-pangea/dnd";
-import { useRef, useState, type CSSProperties } from "react";
+import { Droppable, type DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
+import { useRef, type CSSProperties } from "react";
 import { useT } from "@/hooks/i18n/useT";
 import { cn } from "@/lib/utils";
 import type { Lead } from "@/lib/types/leads";
@@ -8,6 +8,7 @@ import type { Stage } from "@/lib/kanban/types";
 import { buildCardInput } from "@/lib/kanban/card-state";
 import { intervaloDaColuna } from "@/lib/kanban/selecao";
 import { formatSomaPorMoeda, formatValorDoNegocio, MOEDA_PADRAO, somaPorMoeda } from "@/lib/money";
+import { Lock } from "@/lib/ui/icons";
 import { KanbanCard, type GestoDeSelecao } from "./KanbanCard";
 
 interface StageColumnProps {
@@ -34,9 +35,29 @@ interface StageColumnProps {
   onSelectMany?: (leadIds: string[], marcar: boolean) => void;
   /** Abrir o dossiê — atravessa o board até o card, como `pulses`. */
   onOpen?: (leadId: string) => void;
-  /** `manager`+ — mesmo corte de papel da rota que renomeia a etapa. */
-  podeRenomear?: boolean;
-  onRenomear?: (nome: string) => void;
+  /**
+   * `manager`+ — mesmo corte de papel das rotas de etapa. Com ele, clicar no
+   * título abre o modal de edição (nome, cor, ganho/perda, excluir).
+   */
+  podeEditar?: boolean;
+  onEditar?: () => void;
+  /**
+   * A alça de arrastar a COLUNA, vinda do `Draggable` que o quadro põe em volta
+   * dela. Fica no cabeçalho: é por ele que se pega a coluna, como no Kommo.
+   * Ausente (Etapa de entrada, quem não é manager, testes) = coluna parada.
+   */
+  alcaDeArraste?: DraggableProvidedDragHandleProps | null;
+  /** "Mover para…" do menu do card — atravessa a coluna como `onOpen`. */
+  etapas?: Stage[];
+  onMoverPara?: (lead: Lead, stageId: string) => void;
+  /** Densidade dos cards (issue #3461, item 2) — atravessa como `pulses`. */
+  denso?: boolean;
+  /**
+   * Quadro de um funil ARQUIVADO (#1298): abre para OLHAR, e nada aqui grava.
+   * Sem arraste, sem menu de ações de card, sem seleção (a barra em lote é
+   * escrita) e sem abrir o dossiê, que tem ações próprias.
+   */
+  somenteLeitura?: boolean;
 }
 
 export function StageColumn({
@@ -51,8 +72,13 @@ export function StageColumn({
   pulses,
   onSelectMany,
   onOpen,
-  podeRenomear = false,
-  onRenomear,
+  podeEditar = false,
+  onEditar,
+  alcaDeArraste,
+  etapas,
+  onMoverPara,
+  denso = false,
+  somenteLeitura = false,
 }: StageColumnProps) {
   const t = useT();
   // O TOTAL É POR MOEDA (#1531). Antes ele somava todos os `value_cents` e
@@ -95,7 +121,7 @@ export function StageColumn({
   //
   // Também por moeda, com a mesma função de moeda e a mesma `primeira` do total:
   // mesmas moedas, na mesma ordem. Arredonda por negócio, como antes.
-  const probDaColuna = stage.is_won ? 100 : stage.is_lost ? 0 : stage.win_probability ?? null;
+  const probDaColuna = stage.is_won ? 100 : stage.is_lost ? 0 : (stage.win_probability ?? null);
   const ponderados =
     probDaColuna === null
       ? null
@@ -132,10 +158,28 @@ export function StageColumn({
   const accentStyle: CSSProperties | undefined = stage.color
     ? { backgroundColor: stage.color }
     : undefined;
+  // A Etapa de entrada (9007) não se edita nem se arrasta — o servidor recusa,
+  // e a tela não oferece o que ele recusaria.
+  const editavel = podeEditar && !!onEditar && !stage.is_entry;
 
   return (
     <div
-      className="bg-surface-muted/40 flex min-h-full w-80 shrink-0 flex-col rounded-lg border border-border"
+      /*
+        `w-[85vw] max-w-80 snap-center md:w-80` — a coluna cabe na tela do
+        celular, e uma por vez.
+
+        Com `w-80` fixo (320px) numa tela de 360px a coluna ocupava 89% da
+        largura útil e a de ao lado aparecia como uma fatia de poucos pixels: um
+        quadro que parece CORTADO em vez de rolável, sem pista de que há mais
+        etapa adiante. 85vw deixa uma sobra, que é onde a coluna seguinte se
+        anuncia — e `snap-center` faz a rolagem parar nela em vez de deixar o
+        dedo no meio de duas.
+
+        `max-w-80` segura o crescimento no tablet: 85% de 1023px seriam 870px, e
+        coluna de etapa não vira painel. De `md` para cima volta o `w-80` de
+        sempre, onde a graça é justamente ver várias etapas ao mesmo tempo.
+      */
+      className="bg-surface-elevated/40 flex min-h-full w-[85vw] max-w-80 shrink-0 snap-center flex-col rounded-lg border border-border md:w-80"
       data-etapa-do-quadro={stage.id}
     >
       {/* Cabeçalho e total PRESOS no alto do quadro enquanto os cards rolam: com
@@ -143,8 +187,18 @@ export function StageColumn({
           opaco (`bg-background`) é o que impede os cards de aparecerem por baixo;
           por dentro, a mesma camada translúcida da coluna, para o tom não mudar. */}
       <div className="sticky top-0 z-10 rounded-t-lg bg-background" data-cabecalho-da-etapa>
-        <div className="bg-surface-muted/40 rounded-t-lg">
-          <div className="group/etapa flex items-center gap-2 border-b border-border px-3 py-2.5">
+        <div className="bg-surface-elevated/40 rounded-t-lg">
+          {/* A COR É A FAIXA DE BAIXO do cabeçalho, como no Kommo: é o que dá para
+              ler de longe num quadro com dez colunas. Sombra INTERNA, e não borda
+              mais grossa: a borda de 3px deixava o cabeçalho colorido 2px mais alto
+              que o vizinho (medido: 47 contra 45), e os cabeçalhos presos no alto
+              do quadro ficavam em degrau. */}
+          <div
+            className="group/etapa flex items-center gap-2 border-b border-border px-3 py-2.5"
+            style={stage.color ? { boxShadow: `inset 0 -3px 0 ${stage.color}` } : undefined}
+            data-testid="cabecalho-da-etapa"
+            {...(alcaDeArraste ?? {})}
+          >
             {/* "Selecionar a etapa inteira" é o gesto que faz a ação em lote valer a
             pena: sem ele, mover trinta cards deixa de ser trinta arrastes e vira
             trinta cliques com modificador. Fica no cabeçalho porque é ali que a
@@ -152,42 +206,68 @@ export function StageColumn({
             Indeterminado quando a seleção é parcial: "alguns" e "nenhum" não
             podem ter a mesma aparência num controle que o próximo clique
             inverte. */}
-            <input
-              type="checkbox"
-              checked={todosSelecionados}
-              ref={(el) => {
-                if (el) el.indeterminate = selecionadosAqui > 0 && !todosSelecionados;
-              }}
-              disabled={idsVisiveis.length === 0}
-              onChange={alternarEtapa}
-              aria-label={
-                todosSelecionados
-                  ? `${t("Desmarcar todos em")} ${stage.name}`
-                  : `${t("Selecionar todos em")} ${stage.name}`
-              }
-              className={cn(
-                "h-4 w-4 shrink-0 cursor-pointer accent-accent transition-opacity",
-                "focus:opacity-100 disabled:cursor-default",
-                selecionadosAqui > 0 ? "opacity-100" : "opacity-0 group-hover/etapa:opacity-100",
-              )}
-            />
+            {!somenteLeitura && (
+              <input
+                type="checkbox"
+                checked={todosSelecionados}
+                ref={(el) => {
+                  if (el) el.indeterminate = selecionadosAqui > 0 && !todosSelecionados;
+                }}
+                disabled={idsVisiveis.length === 0}
+                onChange={alternarEtapa}
+                aria-label={
+                  todosSelecionados
+                    ? `${t("Desmarcar todos em")} ${stage.name}`
+                    : `${t("Selecionar todos em")} ${stage.name}`
+                }
+                className={cn(
+                  "h-4 w-4 shrink-0 cursor-pointer accent-accent transition-opacity",
+                  "focus:opacity-100 disabled:cursor-default",
+                  // `pointer-coarse:opacity-100` pelo mesmo motivo da caixa do
+                  // card (ver `components/kanban/KanbanCard.tsx`): no toque o
+                  // hover nunca acontece, e "selecionar a etapa inteira" é o gesto
+                  // que faz a ação em lote valer a pena. Sem ele, mover trinta
+                  // cards no celular eram trinta arrastes.
+                  selecionadosAqui > 0
+                    ? "opacity-100"
+                    : "opacity-0 group-hover/etapa:opacity-100 pointer-coarse:opacity-100",
+                )}
+              />
+            )}
             <span
               className={cn("h-2 w-2 rounded-full", !stage.color && "bg-text-muted/40")}
               style={accentStyle}
               aria-hidden
             />
-            {podeRenomear && onRenomear ? (
-              // `key` pelo nome: remonta (e descarta o rascunho) quando o nome
-              // GRAVADO muda — mesmo contrato de `NomeDaEtapa` em Configurações,
-              // para uma edição feita em outra aba não ficar escondida atrás de
-              // um rascunho velho aqui.
-              // Dentro do <h2>: a coluna segue sendo título para quem navega
-              // por leitor de tela, com ou sem permissão de renomear.
+            {/* Dentro do <h2>: a coluna segue sendo título para quem navega por
+                leitor de tela, com ou sem permissão de editar. */}
+            {editavel ? (
               <h2 className="flex min-w-0 flex-1">
-                <NomeDaEtapaNoQuadro key={stage.name} nome={stage.name} onConfirmar={onRenomear} />
+                <button
+                  type="button"
+                  onClick={onEditar}
+                  title={t("Editar etapa")}
+                  aria-label={`${t("Editar etapa")} «${stage.name}»`}
+                  data-testid="nome-etapa-quadro"
+                  className="min-w-0 flex-1 truncate rounded-sm px-1 py-0.5 text-left text-sm font-semibold text-text hover:bg-surface focus-visible:bg-surface"
+                >
+                  {stage.name}
+                </button>
               </h2>
             ) : (
-              <h2 className="flex-1 truncate text-sm font-semibold text-text">{stage.name}</h2>
+              // `py-0.5` é o mesmo respiro do botão das colunas editáveis: sem ele a
+              // Etapa de entrada media 41,5px de cabeçalho contra 45 das vizinhas.
+              <h2 className="flex min-w-0 flex-1 items-center gap-1 truncate py-0.5 text-sm font-semibold text-text">
+                <span className="truncate">{stage.name}</span>
+                {stage.is_entry && (
+                  <Lock
+                    size={12}
+                    className="shrink-0 text-text-muted"
+                    aria-label={t("Etapa de entrada: fixa, é onde todo contato novo chega")}
+                    data-testid="cadeado-da-entrada"
+                  />
+                )}
+              </h2>
             )}
             <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] font-medium text-text-muted tabular-nums">
               {selecionadosAqui > 0 ? `${selecionadosAqui}/${leads.length}` : leads.length}
@@ -234,8 +314,12 @@ export function StageColumn({
                 isSelected={selectedLeadIds?.has(lead.id)}
                 isSelecting={(selectedLeadIds?.size ?? 0) > 0}
                 pulseCount={pulses?.get(lead.id) ?? 0}
-                onSelect={aoSelecionar}
-                onOpen={onOpen}
+                onSelect={somenteLeitura ? undefined : aoSelecionar}
+                onOpen={somenteLeitura ? undefined : onOpen}
+                etapas={etapas}
+                onMoverPara={onMoverPara}
+                denso={denso}
+                somenteLeitura={somenteLeitura}
               />
             ))}
             {provided.placeholder}
@@ -248,60 +332,5 @@ export function StageColumn({
         )}
       </Droppable>
     </div>
-  );
-}
-
-/**
- * O nome da etapa, editado no lugar — direto no cabeçalho da coluna.
- *
- * Mesmo contrato de `NomeDaEtapa` (Configurações › Funis, que chama a MESMA
- * rota `PATCH /api/v1/pipelines/:id/stages/:stageId`): salva ao CONFIRMAR
- * (Enter ou sair do campo), nunca a cada tecla — um PATCH por caractere
- * dispararia a validação de nome duplicado no meio da digitação. O rascunho é
- * local; o `key={stage.name}` de quem chama remonta o campo quando o nome
- * GRAVADO muda, então uma edição feita em outra aba não fica escondida atrás
- * de um rascunho velho.
- */
-function NomeDaEtapaNoQuadro({
-  nome,
-  onConfirmar,
-}: {
-  nome: string;
-  onConfirmar: (nome: string) => void;
-}) {
-  const t = useT();
-  const [rascunho, setRascunho] = useState(nome);
-  // O Escape desfoca, e o desfoque chama `confirmar` na MESMA tecla: o
-  // `rascunho` que ele lê ainda é o texto digitado, e sem esta marca o Escape
-  // salvava o que devia desfazer (medido em renomear-etapa-no-quadro.test.tsx).
-  const cancelado = useRef(false);
-
-  function confirmar() {
-    const limpo = rascunho.trim();
-    if (cancelado.current || !limpo || limpo === nome) {
-      cancelado.current = false;
-      setRascunho(nome);
-      return;
-    }
-    onConfirmar(limpo);
-  }
-
-  return (
-    <input
-      value={rascunho}
-      maxLength={80}
-      aria-label={`${t("Nome da etapa")} «${nome}»`}
-      data-testid="nome-etapa-quadro"
-      onChange={(e) => setRascunho(e.target.value)}
-      onBlur={confirmar}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-        if (e.key === "Escape") {
-          cancelado.current = true;
-          e.currentTarget.blur();
-        }
-      }}
-      className="min-w-0 flex-1 truncate rounded-sm bg-transparent px-1 py-0.5 text-sm font-semibold text-text outline-hidden hover:bg-surface focus:bg-surface"
-    />
   );
 }

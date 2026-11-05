@@ -1,9 +1,14 @@
 import type { FlowGraph, FlowEdge, FlowNode, NodeType } from './graph-schema';
-import type { FollowupFlowSurface } from './api-schemas';
+import type { FollowupFlowSurface, TriggerConfig } from './api-schemas';
 import { branchIdForCondition, nodeBranches } from './graph-schema';
 import { rotuloDoRamo } from './rotulo-do-ramo';
 import type { NomesDeValor } from './vocabulario';
+import type { EtapaCitada } from './etapas-citadas';
+import type { ModelosDaConta } from './modelos-citados';
+import { recusaDeMotivoForaDoVocabulario } from '../leads/motivo-da-perda';
 import { capabilitiesOf, transportaMensagem, type ChannelProvider } from '../channels/capabilities';
+import { inicioPrincipal } from '../fluxos/inicio-unico';
+import { CUSTO_NO_MOTOR, TETO_DE_PASSOS_DO_MOTOR } from './custo-no-motor';
 
 /**
  * Structural publish validator for follow-up flow graphs.
@@ -30,11 +35,31 @@ export const PUBLISH_ERROR_CODES = [
   'immune_wait_too_short',
   'cycle_without_wait',
   'max_steps_exceeded',
+  // #2965 — o teto do MOTOR (`steps_taken`/`MAX_STEPS`, ver `custo-no-motor.ts`):
+  // o caminho linear que ele não conseguiria terminar.
+  'max_engine_steps_exceeded',
   'no_fora_da_superficie',
   'interno_com_envio',
   'roteiro_ramificado',
   'campo_repetido',
   'roteiro_em_ciclo',
+  // Fork jhoow: a superfície tem teto de nós próprio (`LIMITE_DE_NOS_DA_SUPERFICIE`).
+  'grafo_grande_demais',
+  // Fluxos: bloco Etiquetas que cita etiqueta excluída da conta. Só o EDITOR
+  // emite (a conta não guarda registro do que foi excluído); sempre aviso.
+  'etiqueta_excluida',
+  // #2065 — configuração dos dois nós de ação que não falam com o cliente.
+  'etapa_destino_ausente',
+  'etapa_destino_arquivada',
+  'motivo_da_perda_ausente',
+  'motivo_da_perda_invalido',
+  'tag_ausente',
+  // Seguimento do #3056 — o modelo de mensagem do passo não existe nesta conta
+  // (importado de outra, ou apagado): o motor lançaria a cada envio.
+  'modelo_inexistente',
+  // Regra de data (item 14): sem o campo do negócio ela não tem o que comparar
+  // e responderia `false` para sempre, sem dizer por quê.
+  'campo_de_data_ausente',
 ] as const;
 export type PublishErrorCode = (typeof PUBLISH_ERROR_CODES)[number];
 
@@ -44,11 +69,77 @@ export type PublishValidationError = {
   message: string;
   /** Qual saída do nó ficou descoberta — o editor ancora o aviso na bolinha certa, não no nó inteiro. */
   branch_id?: string;
+  /**
+   * `warning`: AVISO que a pessoa pode aceitar e publicar mesmo assim (só em
+   * Fluxos — ver `marcarAvisosDoFluxo`). Ausente = erro, que sempre bloqueia.
+   */
+  severity?: 'warning';
 };
 
+/**
+ * Os blocos que a tela lista como DESCONECTADOS (e o audit conta): o solto, o
+ * que tem saída sem seta e o bloco onde o caminho para (sem seta nenhuma). O
+ * `no_end_path` também marca quem vem ANTES dele na cadeia — esses estão
+ * ligados e não entram na lista. Na ordem dos blocos do grafo.
+ */
+export function blocosDesconectados(
+  avisos: readonly PublishValidationError[],
+  graph: Pick<FlowGraph, 'nodes' | 'edges'>,
+): Array<{ node: FlowNode; avisos: PublishValidationError[] }> {
+  const comSaida = new Set(graph.edges.map((e) => e.source));
+  return graph.nodes.flatMap((node) => {
+    const doBloco = avisos.filter(
+      (a) => a.node_id === node.id && (a.code !== 'no_end_path' || !comSaida.has(node.id)),
+    );
+    return doBloco.length > 0 ? [{ node, avisos: doBloco }] : [];
+  });
+}
+
+/** Avisos aceitáveis × erros que bloqueiam, na ordem em que vieram. */
+export function separarAvisos(errors: readonly PublishValidationError[]): {
+  bloqueantes: PublishValidationError[];
+  avisos: PublishValidationError[];
+} {
+  return {
+    bloqueantes: errors.filter((e) => e.severity !== 'warning'),
+    avisos: errors.filter((e) => e.severity === 'warning'),
+  };
+}
+
+/**
+ * AVISOS DE SEGURANÇA DA PUBLICAÇÃO — o que não reprova, mas quem publica
+ * precisa ler antes de clicar.
+ *
+ * Por que aviso e não erro: estes três são decisões legítimas em algum fluxo
+ * (um toque único de "10 minutos depois" não quer teto de silêncio), e virar
+ * erro duro REPROVARIA o re-publish de fluxos de silêncio que já existem em
+ * outras instalações. Reprovar o que já está publicado e funcionando é quebrar
+ * dado alheio para dar uma lição.
+ */
+export const PUBLISH_WARNING_CODES = [
+  /** Fluxo de silêncio sem teto: alcança todo contato calado além do mínimo, de uma vez, ao ser ligado. */
+  'silencio_sem_teto',
+  /** Fluxo de silêncio sem teto de repetições: a pausa só espaça, e quem nunca responde recomeça para sempre. */
+  'silencio_sem_limite_de_repeticoes',
+  /** Fluxo de silêncio que alcança quem a EQUIPE não respondeu. */
+  'silencio_alcanca_nao_atendido',
+] as const;
+export type PublishWarningCode = (typeof PUBLISH_WARNING_CODES)[number];
+
+export type PublishValidationWarning = {
+  code: PublishWarningCode;
+  message: string;
+};
+
+/**
+ * `warnings` é OPCIONAL nos dois braços de propósito: todo consumidor atual lê
+ * `ok` e, no `false`, `errors`. Acrescentar campo opcional não quebra nenhum —
+ * e o braço `ok: true` passa a poder carregar recado, que antes não tinha onde
+ * caber.
+ */
 export type PublishValidationResult =
-  | { ok: true }
-  | { ok: false; errors: PublishValidationError[] };
+  | { ok: true; warnings?: PublishValidationWarning[] }
+  | { ok: false; errors: PublishValidationError[]; warnings?: PublishValidationWarning[] };
 
 /**
  * O que só o banco sabe, lido por quem chama (a rota de publish). Ausente, a
@@ -56,7 +147,7 @@ export type PublishValidationResult =
  */
 export interface ContextoDoPublish {
   /** Etapas da organização por `stage_id`, com o nome como a tela mostra («Etapa · Funil»). */
-  etapas?: ReadonlyMap<string, { nome: string; arquivada: boolean }>;
+  etapas?: ReadonlyMap<string, EtapaCitada>;
   /** Superfície do pointer. Ausente = follow-up (o que a coluna tem por padrão). */
   surface?: FollowupFlowSurface;
   /**
@@ -67,25 +158,99 @@ export interface ContextoDoPublish {
    */
   roteiro?: RoteiroDoPublish;
   /**
-   * Alguma conexão da organização só aceita modelo APROVADO com a janela de 24 h
-   * fechada? Só aí o plano B (`fallback_template_id`) de uma mensagem por IA
-   * depois de 24 h de espera tem o que fazer — em runtime ele só sai com a janela
-   * fechada (`janelaFechada` em followup-turn.ts). Num canal sem janela, exigi-lo
-   * travaria o publish: o seletor do plano B só oferece modelos aprovados, e esse
-   * canal não os tem. Ausente = exige (o comportamento de antes).
+   * Alguma conexão da organização EXIGE modelo aprovado com a janela de 24 h
+   * fechada — canal que tem a regra da janela E tem catálogo de definições
+   * aprovadas a oferecer (`algumCanalExigeModeloForaDaJanela`, #3109)? Só aí o
+   * plano B (`fallback_template_id`) de uma mensagem por IA depois de 24 h de
+   * espera tem o que fazer — em runtime ele só sai com a janela fechada
+   * (`janelaFechada` em followup-turn.ts). Num canal sem janela, ou num canal
+   * que fecha a janela mas não tem modelo aprovado nenhum (o canal social de
+   * Instagram/Facebook), exigi-lo travaria o publish sem oferecer saída: o
+   * seletor do plano B só oferece modelos aprovados. Ausente = exige (o
+   * comportamento de antes).
    */
   exigeModeloForaDaJanela?: boolean;
+  /**
+   * O gatilho que vai armar este fluxo. Só os AVISOS o leem — nenhuma recusa
+   * depende dele —, e ausente significa "não há o que avisar sobre o gatilho".
+   */
+  trigger?: TriggerConfig;
+  /**
+   * Dos modelos que o grafo cita (`template_id`/`fallback_template_id`), os que
+   * existem na organização (`carregaModelosCitados`). Ausente = não confere.
+   */
+  modelos?: ModelosDaConta;
+}
+
+/** Chave do dicionário (a rota traduz): a frase não cita id, que a pessoa não lê. */
+export const MENSAGEM_MODELO_INEXISTENTE =
+  'Escolha um modelo de mensagem: o que estava aqui não existe nesta conta.';
+
+/**
+ * Os avisos que o gatilho de silêncio rende. Nenhum reprova; todos são coisas
+ * medidas em instalação real que quem publica não tinha como ver na tela.
+ */
+export function avisosDoGatilho(trigger: TriggerConfig | undefined): PublishValidationWarning[] {
+  if (!trigger || trigger.kind !== 'silence') return [];
+  const avisos: PublishValidationWarning[] = [];
+  const p = trigger.params;
+
+  if (!p.max_silence_minutes) {
+    avisos.push({
+      code: 'silencio_sem_teto',
+      message:
+        'Sem “silêncio máximo”, o fluxo alcança TODO contato calado há mais que o mínimo — inclusive quem sumiu há meses — e começa para todos eles na primeira varredura, um minuto depois de publicar.',
+    });
+  }
+  if (!p.max_enrollments_por_contato) {
+    avisos.push({
+      code: 'silencio_sem_limite_de_repeticoes',
+      message:
+        'Sem limite de repetições, a pausa só ESPAÇA os reinícios: quem nunca responde volta a receber o fluxo a cada pausa, indefinidamente.',
+    });
+  }
+  if (!p.exige_resposta_da_equipe) {
+    avisos.push({
+      code: 'silencio_alcanca_nao_atendido',
+      message:
+        'O silêncio conta da última mensagem do CLIENTE, e mensagem da equipe não zera essa conta: quem escreveu e não foi atendido também entra no fluxo. Ligue “Só começar se a equipe já respondeu a última mensagem do cliente” se o fluxo é para quem sumiu, não para quem está esperando.',
+    });
+  }
+  return avisos;
 }
 
 /**
- * `true` quando algum dos providers das conexões da organização recusa texto
- * livre fora da janela. Provider que esta imagem não conhece (ou que não manda
- * mensagem) não conta: por ele não sai follow-up nenhum.
+ * `true` quando alguma conexão da organização EXIGE modelo aprovado fora da
+ * janela de 24 h — a única situação em que o plano B (`fallback_template_id`) de
+ * uma mensagem por IA depois de 24 h tem o que fazer.
+ *
+ * ─── Não basta o canal ter janela (#3109) ─────────────────────────────────
+ *
+ * A versão anterior perguntava só `!freeformOutsideWindow`. O canal social de
+ * Instagram/Facebook fecha a janela (`freeformOutsideWindow: false`, MEDIDO: a
+ * Meta recusa a ENTREGA com 131047) e mesmo assim NÃO tem catálogo de definições
+ * aprovadas (`requiresTemplates: false` — não há WABA por trás dele). Nessa conta
+ * o seletor do plano B nasce vazio: não existe modelo aprovado a escolher, e a
+ * exigência fica impossível de cumprir. Como a conta era da ORGANIZAÇÃO INTEIRA,
+ * uma conexão social reprovava o publish de um fluxo que só roda no WhatsApp por
+ * QR (canal sem janela) — e nem com plano B nem sem ele havia configuração
+ * válida para publicar.
+ *
+ * Então as duas perguntas entram juntas, e a segunda é a que faltava: o canal tem
+ * a REGRA da janela E tem DEFINIÇÕES aprovadas para oferecer? Sem catálogo, o
+ * plano B não é exigência — é impossibilidade, e recusar a publicação não
+ * destrava nenhuma configuração: quem trata o que acontece com a mensagem livre
+ * fora da janela num contato de canal social é o envio, não o publish.
+ *
+ * Provider que esta imagem não conhece (ou que não manda mensagem) não conta: por
+ * ele não sai follow-up nenhum.
  */
 export function algumCanalExigeModeloForaDaJanela(providers: readonly (string | null)[]): boolean {
-  return providers.some(
-    (p) => transportaMensagem(p) && !capabilitiesOf(p as ChannelProvider).freeformOutsideWindow
-  );
+  return providers.some((p) => {
+    if (!transportaMensagem(p)) return false;
+    const caps = capabilitiesOf(p as ChannelProvider);
+    return !caps.freeformOutsideWindow && caps.requiresTemplates;
+  });
 }
 
 export interface RoteiroDoPublish {
@@ -147,9 +312,40 @@ function cicloDoEncadeamento(
  * recusava em silêncio; a recusa aqui é o erro que a pessoa lê no editor.
  */
 export const NOS_DA_SUPERFICIE: Record<FollowupFlowSurface, readonly NodeType[]> = {
-  followup: ['trigger', 'wait', 'condition', 'ai_classify', 'match_reply', 'repeat', 'action', 'internal_task', 'end'],
-  crm_automation: ['trigger', 'wait', 'condition', 'ai_classify', 'match_reply', 'repeat', 'action', 'internal_task', 'end'],
+  followup: ['trigger', 'wait', 'condition', 'ai_classify', 'match_reply', 'repeat', 'action', 'internal_task', 'move_lead', 'edit_lead_tag', 'end'],
+  crm_automation: ['trigger', 'wait', 'condition', 'ai_classify', 'match_reply', 'repeat', 'action', 'internal_task', 'move_lead', 'edit_lead_tag', 'end'],
   atendimento: ['trigger', 'collect', 'skill', 'end'],
+  // Fork jhoow — FLUXOS. Cada fase acrescenta aqui os blocos cujo executor ela
+  // entrega (`lib/fluxos/motor.ts`). Fase B: Mensagem, Etiquetas, Aguardar.
+  // Fase C: Intervalo, Condicional, Distribuidor, Conexão, Kanban, Notificação.
+  // Fase D: Pixel e Bloco de IA.
+  fluxo: [
+    'trigger',
+    'mensagem',
+    'etiquetas',
+    'aguardar_resposta',
+    'intervalo',
+    'condicional',
+    'distribuidor',
+    'conexao_fluxo',
+    'kanban',
+    'notificacao',
+    'pixel',
+    'bloco_ia',
+    'end',
+  ],
+};
+
+/**
+ * Teto de nós na PUBLICAÇÃO, por superfície. O formato do grafo aceita até
+ * `MAX_NOS_DO_GRAFO` (o fluxo de venda passa de 100 blocos); o follow-up segue
+ * no teto de sempre, que é decisão de produto dele e não do formato.
+ */
+export const LIMITE_DE_NOS_DA_SUPERFICIE: Record<FollowupFlowSurface, number> = {
+  followup: 60,
+  crm_automation: 60,
+  atendimento: 60,
+  fluxo: 250,
 };
 
 /**
@@ -193,6 +389,13 @@ function validarSuperficie(
   roteiro?: RoteiroDoPublish,
 ): void {
   const permitidos = new Set<NodeType>(NOS_DA_SUPERFICIE[surface]);
+  if (graph.nodes.length > LIMITE_DE_NOS_DA_SUPERFICIE[surface]) {
+    errors.push({
+      node_id: null,
+      code: 'grafo_grande_demais',
+      message: `Este tipo de fluxo aceita até ${LIMITE_DE_NOS_DA_SUPERFICIE[surface]} caixas.`,
+    });
+  }
   for (const n of [...graph.nodes].sort(byId)) {
     if (!permitidos.has(n.type)) {
       errors.push({
@@ -201,7 +404,9 @@ function validarSuperficie(
         message:
           surface === 'atendimento'
             ? `A caixa "${n.label}" não é de roteiro de atendimento — use Pergunta, Skill e Fim.`
-            : `A caixa "${n.label}" é de roteiro de atendimento e não roda num follow-up.`,
+            : surface === 'fluxo'
+              ? `O bloco "${n.label}" ainda não roda em Fluxos.`
+              : `A caixa "${n.label}" não roda num follow-up.`,
       });
     }
   }
@@ -257,6 +462,63 @@ function validarSuperficie(
 const LONG_WAIT_THRESHOLD_MS = 86_400_000; // 24h
 const MIN_CYCLE_WAIT_MS = 300_000; // 5min
 const MAX_PATH_STEPS = 30;
+/**
+ * O QUE o teto de passos conta (#2896): o que o CLIENTE sente, não o que a tela
+ * desenha.
+ *
+ * O teto existe para limitar o tamanho da cadência — quantas vezes o cliente é
+ * tocado e quanto ele espera entre os toques. Contar TODO nó do caminho com o
+ * mesmo peso fazia a medida mentir: o fluxo de retomada do reporter (gatilho,
+ * filtro de entrada, 7 × mensagem + condição + tag, 7 esperas, mover para
+ * Perdido e fim) soma 32 nós e era recusado, embora só 14 deles — 7 mensagens e
+ * 7 esperas — cheguem ao cliente. Os outros 18 (gatilho, condição, tag, mover,
+ * fim) são trabalho interno e não somam toque nenhum; do jeito antigo QUALQUER
+ * cadência que registrasse algo por toque estourava com 6 ou 7 toques, e a
+ * única saída era cortar toque.
+ *
+ * Então conta quem produz algo que o cliente lê (mensagem, pergunta, o turno em
+ * que a skill entra no contexto do agente) ou quem o faz esperar (`wait`, e as
+ * caixas que ficam esperando a resposta com prazo — `ai_classify` e
+ * `match_reply`, que `isSufficientWaitNode` já trata como espera). Roteamento
+ * (`condition`, `repeat`) e ação interna (`internal_task`, `move_lead`,
+ * `edit_lead_tag`) não contam: não mudam nada do que o cliente sente, que é a
+ * única coisa que o teto prometeu medir.
+ *
+ * O `Record` é exaustivo DE PROPÓSITO: um tipo de nó novo quebra o typecheck
+ * até alguém dizer se ele conta. Com um `Set` de contados, o tipo novo cairia
+ * fora da conta sem ninguém notar — que é exatamente como o teto passou a
+ * mentir.
+ */
+export const CONTA_NO_TETO: Record<NodeType, boolean> = {
+  // Fala com o cliente.
+  action: true, // mensagem: texto, IA ou modelo
+  collect: true, // pergunta do roteiro de atendimento
+  skill: true, // o turno em que a skill entra no contexto do agente
+  // Faz o cliente esperar.
+  wait: true,
+  ai_classify: true, // parado esperando a resposta classificar (grace)
+  match_reply: true, // parado esperando a resposta casar o texto (grace)
+  // Controle e trabalho interno: não chegam ao cliente.
+  trigger: false, // entrada do fluxo
+  condition: false, // decide o caminho
+  repeat: false, // conta as voltas
+  internal_task: false, // lembrete para a equipe
+  move_lead: false, // move o card no funil
+  edit_lead_tag: false, // grava tag no lead
+  end: false, // desfecho
+  // Blocos do construtor de FLUXOS (fork jhoow).
+  mensagem: true, // fala com o cliente
+  aguardar_resposta: true, // parado esperando o lead responder
+  intervalo: true, // faz o cliente esperar
+  etiquetas: false,
+  notificacao: false, // avisa a equipe
+  condicional: false,
+  distribuidor: false,
+  conexao_fluxo: false,
+  pixel: false,
+  bloco_ia: false, // gera/classifica; quem fala é a Mensagem
+  kanban: false,
+};
 
 function waitMs(config: Extract<FlowNode, { type: 'wait' }>['config']): number {
   return config.mode === 'fixed' ? config.duration_ms : config.max_ms;
@@ -265,6 +527,17 @@ function waitMs(config: Extract<FlowNode, { type: 'wait' }>['config']): number {
 /** A wait node whose duration meets the 5min floor required to break a cycle. */
 function isSufficientWaitNode(node: FlowNode): boolean {
   if (node.type === 'match_reply') return node.config.grace_timeout_ms >= MIN_CYCLE_WAIT_MS;
+  // Fluxos (fork jhoow): o menu que volta ("responda 1, 2 ou 3") passa pelo
+  // Aguardar resposta, que só anda quando o LEAD fala — o ciclo não gira sozinho.
+  // O Intervalo quebra o ciclo quando espera ao menos o piso, ou espera um
+  // horário/data (não giram em sequência no mesmo instante).
+  if (node.type === 'aguardar_resposta') return true;
+  if (node.type === 'intervalo') {
+    const c = node.config;
+    if (c.modo !== 'duracao') return true;
+    const ms = c.valor * { segundos: 1_000, minutos: 60_000, horas: 3_600_000, dias: 86_400_000 }[c.unidade];
+    return ms >= MIN_CYCLE_WAIT_MS;
+  }
   if (node.type !== 'wait') return false;
   return node.config.mode === 'fixed'
     ? node.config.duration_ms >= MIN_CYCLE_WAIT_MS
@@ -369,6 +642,9 @@ function isCycleComponent(component: string[], outEdges: Map<string, FlowEdge[]>
  * "cycles count 1 iteration"). Polynomial (O(V+E)): no per-path enumeration,
  * so branching/reconverging DAGs can't blow it up.
  *
+ * O passo contado é o que o CLIENTE sente (`CONTA_NO_TETO`, #2896) — mensagem,
+ * pergunta, espera — e nunca o nó interno que só registra estado.
+ *
  * ponytail: dentro de um SCC multi-ramo o total soma TODOS os waits/nós do
  * componente — upper bound conservador (nunca aceita grafo ruim; pode gerar
  * 422 a mais num SCC com sub-loops independentes). Máximo exato por caminho
@@ -396,7 +672,14 @@ function analyzeCondensedPaths(
       return node && node.type === 'wait' ? sum + waitMs(node.config) : sum;
     }, 0)
   );
-  const stepWeight = components.map((comp) => comp.length);
+  // O passo do teto é o que o cliente sente: mensagem, pergunta, espera. Um nó
+  // interno (condição, tag, mover, fim) não conta — ver `CONTA_NO_TETO` (#2896).
+  const stepWeight = components.map((comp) =>
+    comp.reduce((sum, id) => {
+      const node = nodesById.get(id);
+      return node !== undefined && CONTA_NO_TETO[node.type] ? sum + 1 : sum;
+    }, 0)
+  );
 
   const condOut = new Map<number, Set<number>>();
   for (const edgeList of outEdges.values()) {
@@ -454,6 +737,159 @@ function byId(a: { id: string }, b: { id: string }): number {
   return a.id.localeCompare(b.id);
 }
 
+/**
+ * Trava da multiplicação das voltas de um ciclo com `repeat` (#2977). O número
+ * EXATO não muda veredito nenhum — qualquer coisa acima do teto do motor já
+ * recusa — e sem a trava um desenho patológico (muitos `repeat` dentro do MESMO
+ * ciclo) poria `Infinity` na mensagem do 422 em vez de um número que a pessoa lê.
+ */
+const TETO_DAS_VOLTAS = 1_000_000;
+
+export interface CustoNoMotorDoFluxo {
+  /** Ticks que o motor gasta no caminho mais caro a partir do gatilho. */
+  total: number;
+  /** O ciclo com `repeat` que mais pesa no caminho MAIS CARO — o que a recusa nomeia. `null` se esse caminho não passa por `repeat`. */
+  cicloDeRepeat: { node_id: string; voltas: number; peso: number } | null;
+}
+
+/**
+ * O custo, em ticks do MOTOR (ver `custo-no-motor.ts`), do caminho mais caro a
+ * partir do gatilho — o que o `steps_taken` gasta até o fim do fluxo (#2965).
+ *
+ * O ciclo entra nesta soma, e entra de duas formas (#2977):
+ *
+ * - cada componente de ciclo vale no MÍNIMO uma volta completa (o piso: uma
+ *   volta que o lead faz) e a soma SEGUE pelos sucessores do ciclo. Antes, a
+ *   aresta que entrava num ciclo era descartada e tudo o que só se alcançava
+ *   DEPOIS dele nunca era somado — o mantenedor mediu isso na issue: `repeat` +
+ *   cauda linear de 86 ticks publicava, porque o custo linear dava 1;
+ * - o ciclo que tem `repeat` vale as voltas que ele permite. O motor lê o número
+ *   de voltas da resposta do lead (`node-handlers.ts`, caso `repeat`), limitado
+ *   por `max_count`, e o teto do motor tem de aguentar o PIOR caso: `max_count`
+ *   voltas vezes o peso do ciclo, mais UMA passada pelo próprio `repeat` — a que
+ *   acha `taken >= total` e sai pela saída `done`. Dois `repeat` no mesmo ciclo
+ *   (aninhados) MULTIPLICAM as voltas entre si; nunca somam.
+ *
+ * O peso de uma volta é a soma dos nós do componente — upper bound, a mesma
+ * doutrina conservadora do `ponytail` de `analyzeCondensedPaths`: nunca aceita um
+ * grafo que morre; pode recusar um a mais.
+ *
+ * Ciclo SEM `repeat` continua valendo só o piso: quantas voltas ele dá não está
+ * declarado em lugar nenhum (depende da resposta), e o teto prefere não inventar
+ * número.
+ */
+export function custoNoMotorDoFluxo(graph: FlowGraph): CustoNoMotorDoFluxo {
+  const semCiclo: CustoNoMotorDoFluxo = { total: 0, cicloDeRepeat: null };
+  const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const outEdges = buildOutEdges(graph.edges);
+  const trigger = graph.nodes.find((n) => n.type === 'trigger');
+  if (!trigger) return semCiclo;
+
+  const components = stronglyConnectedComponents(
+    graph.nodes.map((n) => n.id),
+    outEdges
+  );
+  const componentIndexById = new Map<string, number>();
+  components.forEach((comp, idx) => comp.forEach((id) => componentIndexById.set(id, idx)));
+
+  const emCiclo = components.map((comp) => isCycleComponent(comp, outEdges));
+
+  /** O que uma volta pelo componente custa: todos os nós dele, contados uma vez. */
+  const peso = components.map((comp) =>
+    comp.reduce((sum, id) => {
+      const node = nodesById.get(id);
+      return sum + (node ? CUSTO_NO_MOTOR[node.type] : 0);
+    }, 0)
+  );
+
+  const voltas = components.map((comp, idx) => {
+    if (!emCiclo[idx]) return 1;
+    let voltasDeclaradas = 1;
+    for (const id of comp) {
+      const node = nodesById.get(id);
+      if (node?.type === 'repeat') {
+        voltasDeclaradas = Math.min(voltasDeclaradas * node.config.max_count, TETO_DAS_VOLTAS);
+      }
+    }
+    return voltasDeclaradas;
+  });
+
+  /**
+   * A passada EXTRA do `repeat`: além das `max_count` voltas pelo corpo, ele
+   * ainda decide uma vez que `taken >= total` e segue pela saída `done`.
+   */
+  const passadaDoRepeat = components.map((comp, idx) => {
+    if (!emCiclo[idx]) return 0;
+    return comp.reduce((sum, id) => {
+      const node = nodesById.get(id);
+      return node?.type === 'repeat' ? sum + CUSTO_NO_MOTOR.repeat : sum;
+    }, 0);
+  });
+
+  const custoDoComponente = components.map((_, idx) => peso[idx]! * voltas[idx]! + passadaDoRepeat[idx]!);
+
+  const detalheDoCiclo = components.map((comp, idx) => {
+    if (!emCiclo[idx]) return null;
+    const repeatId = comp.filter((id) => nodesById.get(id)?.type === 'repeat').sort()[0];
+    if (repeatId === undefined) return null;
+    return { node_id: repeatId, voltas: voltas[idx]!, peso: peso[idx]! };
+  });
+
+  const condOut = new Map<number, Set<number>>();
+  for (const edgeList of outEdges.values()) {
+    for (const edge of edgeList) {
+      const cu = componentIndexById.get(edge.source);
+      const cv = componentIndexById.get(edge.target);
+      if (cu === undefined || cv === undefined || cu === cv) continue;
+      const succs = condOut.get(cu);
+      if (succs) succs.add(cv);
+      else condOut.set(cu, new Set([cv]));
+    }
+  }
+
+  const startComp = componentIndexById.get(trigger.id);
+  if (startComp === undefined) return semCiclo;
+  // Gatilho DENTRO de um ciclo: o motor não produz esse desenho (o gatilho é a
+  // entrada) e somar voltas por ele não diria nada. Fica fora, como no #2965.
+  if (emCiclo[startComp]) return semCiclo;
+
+  const chegaEm = new Map<number, number>([[startComp, 0]]);
+  // O ciclo com `repeat` que mais pesa no caminho MAIS CARO até cada componente:
+  // a recusa cita o repeat do caminho que estoura, não o de um ramo paralelo.
+  const cicloNoCaminho = new Map<number, CustoNoMotorDoFluxo['cicloDeRepeat']>([[startComp, null]]);
+  let total = 0;
+  let cicloDeRepeat: CustoNoMotorDoFluxo['cicloDeRepeat'] = null;
+
+  // `components[]` está em ordem reversa de topologia (fim do Tarjan): varrer de
+  // trás para frente visita todo componente ANTES dos seus sucessores.
+  for (let idx = components.length - 1; idx >= 0; idx--) {
+    const chegou = chegaEm.get(idx);
+    if (chegou === undefined) continue; // não é alcançável a partir do gatilho
+    const custoAqui = chegou + custoDoComponente[idx]!;
+
+    const herdado = cicloNoCaminho.get(idx) ?? null;
+    const detalhe = detalheDoCiclo[idx];
+    const cicloAqui =
+      detalhe && (herdado === null || detalhe.peso * detalhe.voltas > herdado.peso * herdado.voltas)
+        ? detalhe
+        : herdado;
+
+    if (custoAqui > total) {
+      total = custoAqui;
+      cicloDeRepeat = cicloAqui;
+    }
+
+    for (const succ of condOut.get(idx) ?? []) {
+      if (custoAqui > (chegaEm.get(succ) ?? -Infinity)) {
+        chegaEm.set(succ, custoAqui);
+        cicloNoCaminho.set(succ, cicloAqui);
+      }
+    }
+  }
+
+  return { total, cicloDeRepeat };
+}
+
 
 /**
  * Toda saída declarada do nó precisa levar a algum lugar, e a mensagem nomeia
@@ -489,6 +925,92 @@ function cobrirRamos(
 }
 
 /**
+ * #2065 — nó `move_lead` sem etapa de destino, ou com uma etapa que não existe
+ * mais / está arquivada. Mesma régua da `conferirRegras` logo abaixo (e o mesmo
+ * `ContextoDoPublish.etapas`, lido por quem publica): o que só o banco sabe chega
+ * injetado, nunca adivinhado. Sem `contexto.etapas` a conferência não roda — ela
+ * recusa o que é visível, não o que é incerto.
+ *
+ * Etapa de perda exige motivo da perda no próprio bloco: sem ele o motor seria
+ * recusado com 422 (`lost_reason_required`) e o fluxo seguiria como se o card
+ * tivesse andado. Etapa que NÃO é de perda publica sem motivo — e aceita o
+ * motivo mesmo assim, para não reprovar rascunho que trocou de destino.
+ */
+function conferirEtapaDestino(
+  node: Extract<FlowNode, { type: 'move_lead' }>,
+  contexto: ContextoDoPublish,
+  errors: PublishValidationError[]
+): void {
+  const destino = node.config.stage_id.trim();
+  const ancora = { node_id: node.id };
+  if (destino === '') {
+    errors.push({
+      ...ancora,
+      code: 'etapa_destino_ausente',
+      message: `A caixa "${node.label}" não tem etapa de destino — escolha para onde o card vai.`,
+    });
+    return;
+  }
+  if (contexto.etapas === undefined) return;
+  const etapa = contexto.etapas.get(destino);
+  if (etapa === undefined) {
+    errors.push({
+      ...ancora,
+      code: 'etapa_destino_ausente',
+      message: `A caixa "${node.label}" aponta para uma etapa que não existe mais — escolha a etapa na lista.`,
+    });
+    return;
+  }
+  if (etapa.arquivada) {
+    errors.push({
+      ...ancora,
+      code: 'etapa_destino_arquivada',
+      message: `A caixa "${node.label}" move para a etapa arquivada "${etapa.nome}" — escolha uma etapa ativa.`,
+    });
+  }
+  if (!etapa.isPerda) return;
+  const motivo = (node.config.lost_reason ?? '').trim();
+  if (motivo === '') {
+    errors.push({
+      ...ancora,
+      code: 'motivo_da_perda_ausente',
+      message: `A caixa "${node.label}" move para a etapa de perda "${etapa.nome}" — escolha o motivo da perda no bloco antes de publicar.`,
+    });
+    return;
+  }
+  const foraDoVocabulario = recusaDeMotivoForaDoVocabulario({
+    motivo,
+    settingsDoFunil: etapa.settingsDoFunil,
+  });
+  if (foraDoVocabulario) {
+    errors.push({
+      ...ancora,
+      code: 'motivo_da_perda_invalido',
+      message: `A caixa "${node.label}" tem um motivo de perda que não está na lista deste funil — escolha um dos motivos configurados.`,
+    });
+  }
+}
+
+/**
+ * #2065 — nó `edit_lead_tag` sem tag (lista vazia ou com tag em branco). O
+ * schema aceita, porque o rascunho tem de salvar trabalho pela metade; publicado,
+ * um nó que não grava nada é mentira de interface.
+ */
+function conferirTags(
+  node: Extract<FlowNode, { type: 'edit_lead_tag' }>,
+  errors: PublishValidationError[]
+): void {
+  const tags = node.config.tags.map((t) => t.trim());
+  if (tags.length === 0 || tags.some((t) => t === '')) {
+    errors.push({
+      node_id: node.id,
+      code: 'tag_ausente',
+      message: `A caixa "${node.label}" não tem tag para gravar — escreva ao menos uma tag.`,
+    });
+  }
+}
+
+/**
  * Uma regra de condição que não pode decidir nada. O rascunho aceita todas estas
  * formas — trabalho pela metade precisa salvar —, mas publicada cada uma é uma
  * saída que nunca é tomada ou que é tomada sempre, com cara de regra pronta:
@@ -512,6 +1034,32 @@ function conferirRegras(
       ...(node.config.branching === 'per_check' && check.id !== undefined ? { branch_id: check.id } : {}),
     };
     const valor = String(check.value).trim();
+
+    // A regra de DATA é conferida antes: o "valor" dela é um prazo em dias, e
+    // `0` — o caso mais comum, "hoje ou já passou" — não pode cair no
+    // `empty_check_value` nem no `check_value_not_number`.
+    if (check.field === 'lead_date') {
+      const chave = (check.key ?? '').trim();
+      if (chave === '') {
+        errors.push({
+          ...ancora,
+          code: 'campo_de_data_ausente',
+          message: `${regra}: escolha o campo do negócio que guarda a data.`,
+        });
+        return;
+      }
+      // `valor` vazio NAO pode virar 0: `Number("")` e 0, e um prazo em branco
+      // publicaria como "inclui hoje" sem ninguem ver. Achado pela prova de tela.
+      const dias = valor === "" ? Number.NaN : Number(valor);
+      if (!Number.isInteger(dias) || dias < 0) {
+        errors.push({
+          ...ancora,
+          code: 'check_value_not_number',
+          message: `${regra}: o prazo em dias é um número de 0 para cima (0 inclui hoje).`,
+        });
+      }
+      return;
+    }
 
     if (valor === '') {
       errors.push({ ...ancora, code: 'empty_check_value', message: `${regra} sem valor: preencha ou remova a regra.` });
@@ -557,6 +1105,43 @@ function conferirRegras(
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Seta que falta: quem a pessoa desconectou, de propósito ou não. */
+const SETA_FALTANDO = new Set<PublishErrorCode>(['unreachable_node', 'missing_branch_edge', 'missing_always_fallback']);
+
+/**
+ * FLUXOS (rodada 1 do editor, item 3): o que é só SETA FALTANDO vira aviso, que
+ * a pessoa confirma e publica mesmo assim — ela desconecta blocos de propósito
+ * para testar. É seguro porque o motor (`lib/fluxos/motor.ts`) começa no Início
+ * e só anda por seta:
+ *  - `unreachable_node`: o bloco solto nunca roda;
+ *  - saída nomeada solta (`missing_branch_edge`/`missing_always_fallback`) e
+ *    `no_end_path` de quem chega a um bloco com saída sem seta: o contato que
+ *    cai ali tem a inscrição encerrada como concluída (`sem_saida`) — não trava,
+ *    não repete, não fica preso.
+ * `no_end_path` de quem só gira num laço fechado, sem saída solta nenhuma, NÃO
+ * é seta faltando: segue erro. Todo o resto (gatilho, ciclo sem espera, bloco
+ * fora da superfície, teto de blocos, "somente interno") segue bloqueando.
+ */
+function marcarAvisosDoFluxo(
+  nodes: FlowNode[],
+  outEdges: Map<string, FlowEdge[]>,
+  inEdges: Map<string, FlowEdge[]>,
+  errors: PublishValidationError[],
+): void {
+  const semSeta = nodes.filter(
+    (n) =>
+      n.type !== 'end' &&
+      nodeBranches(n).some(
+        (b) => !(outEdges.get(n.id) ?? []).some((e) => branchIdForCondition(n, e.condition) === b.id),
+      ),
+  );
+  const chegaNumBlocoSemSeta = bfsReachable(semSeta.map((n) => n.id), inEdges);
+  for (const e of errors) {
+    if (SETA_FALTANDO.has(e.code) || (e.code === 'no_end_path' && e.node_id !== null && chegaNumBlocoSemSeta.has(e.node_id)))
+      e.severity = 'warning';
+  }
+}
+
 export function validateFlowForPublish(
   graph: FlowGraph,
   contexto: ContextoDoPublish = {}
@@ -580,20 +1165,26 @@ export function validateFlowForPublish(
       message: 'O fluxo precisa de exatamente um nó trigger.',
     });
   }
+  // FLUXOS: o Início que vale é o que tem seta saindo (`inicioPrincipal`) — é
+  // por ele que o disparo começa. O duplicado de fluxo legado vira AVISO: não
+  // roda, e a pessoa decide se apaga.
+  const startTrigger = surface === 'fluxo' ? (inicioPrincipal(graph) ?? undefined) : triggers[0];
   if (triggers.length > 1) {
-    for (const extra of triggers.slice(1)) {
+    for (const extra of triggers.filter((n) => n !== startTrigger)) {
       errors.push({
         node_id: extra.id,
         code: 'multiple_triggers',
         message: `Nó trigger duplicado: "${extra.id}".`,
+        ...(surface === 'fluxo' ? { severity: 'warning' as const } : {}),
       });
     }
   }
 
-  const startTrigger = triggers[0];
   if (startTrigger) {
     const reachable = bfsReachable([startTrigger.id], outEdges);
     for (const node of [...nodes].sort(byId)) {
+      // O Início duplicado já tem o seu aviso; "solto" ali seria o mesmo aviso duas vezes.
+      if (surface === 'fluxo' && node.type === 'trigger') continue;
       if (!reachable.has(node.id)) {
         errors.push({
           node_id: node.id,
@@ -603,7 +1194,11 @@ export function validateFlowForPublish(
       }
     }
 
-    const endNodes = nodes.filter((n) => n.type === 'end');
+    // Conexão de fluxo SEM volta também é fim (fork jhoow): o contato segue no
+    // outro fluxo e este termina ali.
+    const endNodes = nodes.filter(
+      (n) => n.type === 'end' || (n.type === 'conexao_fluxo' && !n.config.retornar),
+    );
     const canReachEnd = bfsReachable(endNodes.map((n) => n.id), inEdges);
     for (const node of [...nodes].sort(byId)) {
       if (reachable.has(node.id) && !canReachEnd.has(node.id)) {
@@ -629,12 +1224,52 @@ export function validateFlowForPublish(
         message: `Nó "${id}" acumula ≥24h de espera e precisa de fallback_template_id.`,
       });
     }
-    if (maxStepsExceeded) {
+    // O teto de passos é do RELÓGIO do follow-up (cada passo é um tique de
+    // minuto). O fluxo anda pelo worker, com o próprio teto por job e
+    // continuação (`lib/fluxos/motor.ts`): um fluxo de venda tem 100+ blocos.
+    if (maxStepsExceeded && surface !== 'fluxo') {
       errors.push({
         node_id: null,
         code: 'max_steps_exceeded',
-        message: `O caminho mais longo a partir do trigger excede ${MAX_PATH_STEPS} passos.`,
+        message: `O caminho mais longo a partir do trigger passa de ${MAX_PATH_STEPS} passos que o cliente sente (mensagem, pergunta, skill e espera) — tire um toque da cadência.`,
       });
+    }
+
+    // A SEGUNDA ponta do teto (#2965): o do MOTOR. O caminho LINEAR que custa mais
+    // ticks do que o relógio consegue dar publicava e morria no meio — a inscrição
+    // fechava com `cancel_reason = 'max_steps'` sem gravar as últimas caixas nem
+    // chegar ao fim (medido pelo mantenedor: 14 toques × mensagem+tag+tag+espera
+    // somam 86 ticks e o teto do motor é 80).
+    //
+    // A #2977 fechou a fronteira que este PR tinha deixado: o custo de um ciclo
+    // de `repeat` não é "depende das voltas do lead" — é `max_count` vezes o peso
+    // do ciclo, e o teto do motor tem de aguentar o pior caso (o número de voltas
+    // sai da resposta do lead, `node-handlers.ts`, e o publish não manda nele).
+    // A soma também SEGUE pelos sucessores do ciclo, então a cauda que só se
+    // alcança depois do `repeat` volta a contar.
+    // O roteiro de atendimento continua fora: quem o conduz é o motor do TURNO
+    // (`atendimento.ts`, com o teto próprio), não o relógio.
+    if (surface !== 'atendimento') {
+      const { total: custoNoMotor, cicloDeRepeat } = custoNoMotorDoFluxo(graph);
+      if (custoNoMotor > TETO_DE_PASSOS_DO_MOTOR) {
+        // A caixa é nomeada pelo RÓTULO que a pessoa vê no editor, não pelo id
+        // interno (`repeat-3`). E só cita o repeat que está no caminho que estoura
+        // e dá mais de uma volta: com 1 volta, "reduza as voltas" é um conselho
+        // impossível — quem estoura é a cadência.
+        const repeatQuePesa = cicloDeRepeat && cicloDeRepeat.voltas > 1 ? cicloDeRepeat : null;
+        const rotuloDoRepeat = repeatQuePesa
+          ? graph.nodes.find((n) => n.id === repeatQuePesa.node_id)?.label ?? repeatQuePesa.node_id
+          : null;
+        errors.push({
+          node_id: null,
+          code: 'max_engine_steps_exceeded',
+          message: `O caminho mais longo deste fluxo custa ${custoNoMotor} passos no motor (o relógio conta cada tick: gatilho, mensagem, espera e registro) e ele desiste da inscrição depois de ${TETO_DE_PASSOS_DO_MOTOR} — a retomada morreria no meio, sem chegar ao fim.${
+            repeatQuePesa
+              ? ` O trecho que a caixa "${rotuloDoRepeat}" repete custa ${repeatQuePesa.peso} passos por volta e ela permite até ${repeatQuePesa.voltas} voltas — reduza as voltas ou tire um toque de dentro do repetir.`
+              : ' Encurte a cadência.'
+          }`,
+        });
+      }
     }
   }
 
@@ -668,6 +1303,38 @@ export function validateFlowForPublish(
 
   for (const node of [...nodes].sort(byId)) {
     if (node.type === 'condition') conferirRegras(node, contexto, errors);
+  }
+
+  // Blocos de FLUXO com saídas nomeadas (fork jhoow): toda saída leva a algum
+  // lugar — um lead que caísse numa saída solta ficaria preso no bloco.
+  for (const node of [...nodes].sort(byId)) {
+    if (
+      node.type !== 'aguardar_resposta' &&
+      node.type !== 'condicional' &&
+      node.type !== 'distribuidor' &&
+      node.type !== 'conexao_fluxo' &&
+      node.type !== 'bloco_ia'
+    )
+      continue;
+    cobrirRamos(node, outEdges.get(node.id) ?? [], errors, nomes);
+  }
+  // #2065 — os nós de ação nascem sem destino (o rascunho valida só a forma) e
+  // é AQUI que a escolha passa a ser obrigatória: publicar um nó que não move
+  // nem grava nada seria dizer à pessoa que o fluxo faz o que ele não faz.
+  for (const node of [...nodes].sort(byId)) {
+    if (node.type === 'move_lead') conferirEtapaDestino(node, contexto, errors);
+    if (node.type === 'edit_lead_tag') conferirTags(node, errors);
+    if (node.type === 'action' && contexto.modelos !== undefined) {
+      const { prontos, doCanal } = contexto.modelos;
+      const cfg = node.config;
+      const faltando =
+        cfg.mode === 'template'
+          ? !!cfg.template_id && !prontos.has(cfg.template_id) && !doCanal.has(cfg.template_id)
+          : cfg.mode === 'ai_message' && !!cfg.fallback_template_id && !doCanal.has(cfg.fallback_template_id);
+      if (faltando) {
+        errors.push({ node_id: node.id, code: 'modelo_inexistente', message: MENSAGEM_MODELO_INEXISTENTE });
+      }
+    }
   }
 
   for (const node of [...nodes].sort(byId)) {
@@ -752,7 +1419,12 @@ export function validateFlowForPublish(
     });
   }
 
-  if (errors.length === 0) return { ok: true };
+  const warnings = avisosDoGatilho(contexto.trigger);
+
+  if (errors.length === 0) {
+    return warnings.length > 0 ? { ok: true, warnings } : { ok: true };
+  }
+  if (surface === 'fluxo') marcarAvisosDoFluxo(nodes, outEdges, inEdges, errors);
 
   errors.sort((a, b) => {
     const rankDiff = PUBLISH_ERROR_CODES.indexOf(a.code) - PUBLISH_ERROR_CODES.indexOf(b.code);
@@ -760,5 +1432,5 @@ export function validateFlowForPublish(
     return (a.node_id ?? '').localeCompare(b.node_id ?? '');
   });
 
-  return { ok: false, errors };
+  return warnings.length > 0 ? { ok: false, errors, warnings } : { ok: false, errors };
 }

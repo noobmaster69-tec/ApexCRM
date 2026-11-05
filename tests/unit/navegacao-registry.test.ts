@@ -1,12 +1,15 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import type { ModuloOpcional } from "@/lib/instalacao/modulos";
+import type { CapacidadeDaOrganizacao } from "@/lib/organizacao/capacidades";
 import {
   NAV_DESTINATIONS,
   NAV_GROUPS,
   canSee,
   hubSections,
-  searchable,
   sidebarGroups,
 } from "@/lib/navigation/registry";
 
@@ -82,66 +85,33 @@ describe("sidebarGroups", () => {
     expect(ordem).toEqual(esperada);
   });
 
-  it("só inclui destino marcado como sidebar", () => {
+  it("lista TODO destino visível do grupo — fork jhoow (P5), sem hub no menu", () => {
     const hrefs = sidebarGroups(true, null).flatMap((g) => g.items.map((i) => i.href));
-    // Conhecimento existe no registro, mas é do hub — não do sidebar.
-    expect(hrefs).not.toContain("/app/ai/knowledge/sources");
+    // Conhecimento era só do hub; agora está no menu, e quem esconde é a
+    // preferência de menu da pessoa.
+    expect(hrefs).toContain("/app/ai/knowledge/sources");
     expect(hrefs).toContain("/app/ai/agents");
+    // O grupo do rodapé continua sendo só o link de Configurações.
+    expect(sidebarGroups(true, null).find((g) => g.group.id === "organizacao")?.items).toEqual([]);
   });
 
-  it("Etapas do funil é CRM, não Configurações — o achado que originou esta mudança", () => {
-    // ⚠️ ESTA ASSERÇÃO MUDOU DE SUPERFÍCIE, e a propriedade guardada é a mesma.
-    // Ela cobrava presença no SIDEBAR, que era só o jeito de a tela deixar de
-    // ser "um card perdido em Configurações". Com o hub do CRM (`/app/crm`),
-    // ela mora atrás de "Ver tudo em CRM" — continua sendo CRM, continua fora
-    // de Configurações, e o caminho tem um clique a mais porque desenhar as
-    // colunas do funil é trabalho de montagem, não de todo dia.
-    //
-    // O que NÃO pode voltar é o destino trocar de grupo: é isso que a primeira
-    // asserção prende, e ela não depende de onde o item é desenhado.
-    expect(dest("/app/settings/tenant/pipelines").group).toBe("crm");
-    const hub = hubSections("crm", true, null).flatMap((s) => s.items.map((i) => i.href));
-    expect(hub).toContain("/app/settings/tenant/pipelines");
+  it("Etapas do funil fica em Operações, não em Configurações (fork jhoow: grupo CRM desmontado)", () => {
+    // A propriedade guardada continua: o desenho do funil é trabalho de
+    // montagem da operação, nunca um card perdido em Configurações.
+    expect(dest("/app/settings/tenant/pipelines").group).toBe("operacoes");
+    const op = sidebarGroups(true, null).find((g) => g.group.id === "operacoes");
+    expect(op?.items.map((i) => i.href)).toContain("/app/settings/tenant/pipelines");
   });
 
-  it("o CRM tem hub, e o sidebar dele fica só com o uso diário", () => {
-    // A decisão que devolveu a dobra em 900px (e2e `navegacao.spec.ts`): quando
-    // Tarefas virou o quinto destino de CRM, o menu passou a rolar por 13px.
-    // O conserto foi o hub — o desenho que o grupo IA já usava —, não mais
-    // densidade raspada do `Sidebar.tsx`.
-    //
-    // A lista é EXATA de propósito. `toContain` deixaria um sexto item entrar
-    // calado no sidebar e reabrir a mesma corrida por pixel.
-    //
-    // Comandas NÃO entra: ela chegou pedindo a quarta linha, e o e2e mediu o
-    // menu rolando em 1280×900 — a mesma corrida por pixel que o hub existe
-    // para encerrar. Ela mora dentro do hub, em "O dia a dia da venda", que é
-    // onde o grupo com hub recebe tela nova (ver o comentário no destino, em
-    // lib/navigation/catalogo.ts).
-
-    // `/app/prospecting` NÃO está aqui, e a ausência é decisão, não esquecimento:
-    // a tela existe e é alcançável pelo hub e pelo ⌘K, mas o menu já está no
-    // limite — com ela seriam 20 portas e o e2e reprova por scroll em 900px. A
-    // razão e a condição que encerram a exceção estão ao lado do item, em
-    // `lib/navigation/catalogo.ts`.
-    const crm = sidebarGroups(true, null).find((g) => g.group.id === "crm");
-    expect(crm?.items.map((i) => i.href)).toEqual([
-      "/app/kanban",
-      "/app/contacts",
-      "/app/tasks",
-      // "/app/calls" (telefonia por SIP) NÃO entra aqui, e a ausência é a
-      // decisão: o módulo é OPCIONAL e nasce desligado (doc 27), então a porta
-      // no sidebar custaria um item a TODA instalação — e o vigésimo item é o
-      // que faz o menu rolar em 900px, que é a corrida por pixel que este
-      // teste existe para vigiar. A tela vive no hub do grupo e no ⌘K. Volta
-      // para cá no dia em que o app souber que o módulo está ligado (hoje isso
-      // é profile do compose, não estado que o aplicativo conheça).
-    ]);
-    // E continua alcançável: o hub é a porta dela.
-    expect(
-      hubSections("crm", true, null).flatMap((s) => s.items.map((i) => i.href)),
-    ).toContain("/app/comandas");
-    expect(NAV_GROUPS.find((g) => g.id === "crm")?.hub?.href).toBe("/app/crm");
+  it("grupo CRM desmontado: CRMs e Contatos em Atendimento; Campanhas e Tarefas em Operações (fork jhoow)", () => {
+    const grupos = sidebarGroups(true, null);
+    expect(grupos.map((g) => g.group.id)).not.toContain("crm");
+    expect(NAV_GROUPS.map((g) => g.id)).not.toContain("crm");
+    const atendimento = grupos.find((g) => g.group.id === "atendimento")!.items.map((i) => i.href);
+    expect(atendimento[0]).toBe("/app/inbox");
+    expect(atendimento).toEqual(expect.arrayContaining(["/app/crms", "/app/contacts"]));
+    const operacoes = grupos.find((g) => g.group.id === "operacoes")!.items.map((i) => i.href);
+    expect(operacoes).toEqual(expect.arrayContaining(["/app/campaigns", "/app/tasks", "/app/comandas"]));
   });
 
   it("omite o grupo inteiro quando o papel não vê nenhum item dele", () => {
@@ -151,52 +121,25 @@ describe("sidebarGroups", () => {
     expect(ids).toContain("atendimento");
   });
 
-  it("a ordem dentro do grupo de IA é a do uso real: agentes, follow-ups, casos", () => {
-    // Provedores e Execuções NÃO entram aqui, e a razão é medida: pô-las na
-    // sidebar estourou a dobra em 900px (e2e `navegacao.spec.ts`). Elas seguem
-    // o padrão das outras nove telas do grupo — alcançáveis pelo hub "Ver tudo
-    // em IA", que é o desenho existente para tela de configuração.
+  it("a ordem dentro do grupo de IA começa pelo uso real: agentes, follow-ups, casos", () => {
+    // Fork jhoow (P5): o resto da IA (Roteadores, Provedores, Execuções…) vem
+    // logo abaixo, no menu, em vez de atrás de "Ver tudo em IA".
     const ia = sidebarGroups(true, null).find((g) => g.group.id === "ia");
-    // Casos entrou no lugar de Roteadores, um por um: roteador se configura
-    // poucas vezes; caso pede resposta no mesmo dia.
-    expect(ia?.items.map((i) => i.href)).toEqual([
-      "/app/ai/agents",
-      "/app/ai/followups",
-      "/app/ai/cases",
-    ]);
+    const hrefs = ia?.items.map((i) => i.href) ?? [];
+    expect(hrefs.slice(0, 3)).toEqual(["/app/ai/agents", "/app/ai/followups", "/app/ai/cases"]);
+    expect(hrefs.length).toBeGreaterThan(3);
   });
 });
 
 describe("hubSections", () => {
-  it("o hub do CRM é inventário: as telas do grupo, nas duas seções", () => {
-    // As seções são a régua do sidebar escrita por extenso — o que se abre todo
-    // dia contra o que se define uma vez. Lista EXATA: `toContain` deixaria uma
-    // tela nova entrar sem que ninguém decidisse de que lado dela ela cai.
-    const secoes = hubSections("crm", true, null);
-    expect(secoes.map((s) => s.section)).toEqual(["O dia a dia da venda", "Preparar a venda", "Fechar a venda"]);
-    expect(secoes.flatMap((s) => s.items.map((i) => i.href))).toEqual([
-      "/app/prospecting",
-      "/app/kanban",
-      "/app/campaigns",
-      "/app/contacts",
-      "/app/companies",
-      "/app/people",
-      "/app/tasks",
-      "/app/calls",
-      "/app/comandas",
-      "/app/products",
-      "/app/imports",
-      "/app/settings/tenant/pipelines",
-      "/app/proposals",
-    ]);
-  });
-
   it("empresas, pessoas e importação só existem com o módulo crm_b2b ligado (doc 68)", () => {
     const B2B = ["/app/companies", "/app/people", "/app/imports"];
     const hrefs = (modulos: readonly ModuloOpcional[]) =>
-      hubSections("crm", true, null, undefined, modulos).flatMap((s) => s.items.map((i) => i.href));
+      (["atendimento", "operacoes"] as const).flatMap((g) =>
+        hubSections(g, true, null, undefined, modulos).flatMap((s) => s.items.map((i) => i.href)),
+      );
     expect(hrefs([]).filter((h) => B2B.includes(h))).toEqual([]);
-    expect(hrefs(["crm_b2b"]).filter((h) => B2B.includes(h))).toEqual(B2B);
+    expect(hrefs(["crm_b2b"]).filter((h) => B2B.includes(h)).sort()).toEqual([...B2B].sort());
   });
 
   it("agrupa a IA nas três etapas da jornada, na ordem", () => {
@@ -265,15 +208,4 @@ describe("hubSections", () => {
   });
 });
 
-describe("searchable", () => {
-  it("expõe todo destino visível, do sidebar ou não", () => {
-    const hrefs = searchable(ADMIN.platform, ADMIN.role).map((d) => d.href);
-    expect(hrefs).toContain("/app/ai/knowledge/sources");
-    expect(hrefs).toContain("/app/inbox");
-  });
 
-  it("respeita o papel", () => {
-    const hrefs = searchable(AGENT.platform, AGENT.role).map((d) => d.href);
-    expect(hrefs).not.toContain("/app/audit");
-  });
-});

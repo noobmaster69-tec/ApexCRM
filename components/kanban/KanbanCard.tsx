@@ -2,17 +2,21 @@
 import { Draggable } from "@hello-pangea/dnd";
 import type { MouseEvent } from "react";
 import { useT } from "@/hooks/i18n/useT";
+import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
+import { useChatsFlutuantes } from "@/hooks/chat-flutuante/ChatsFlutuantesProvider";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { estiloDasIniciais, initials, relativeTime } from "@/lib/contacts/apresentacao-na-lista";
+import { phoneForDisplay, samePhone } from "@/lib/channels/phone-variants";
 import { cn } from "@/lib/utils";
 import { formatValorDoNegocio, MOEDA_PADRAO } from "@/lib/money";
+import { rotuloDaRecorrencia } from "@/lib/leads/valor-recorrente";
 import type { Lead } from "@/lib/types/leads";
-import { resolveCardState, stageAgeLabel, type CardInput } from "@/lib/kanban/card-state";
+import type { Stage } from "@/lib/kanban/types";
+import { resolveCardState, type CardInput } from "@/lib/kanban/card-state";
+import { ArquivosNoCard } from "./ArquivosNoCard";
 import { KanbanCardActions } from "./KanbanCardActions";
 import { NextActionSlot } from "./NextActionSlot";
 import { ReactivationSlot } from "./ReactivationSlot";
-import { ConversaSlot } from "./ConversaSlot";
-import { ScoreSlot } from "./ScoreSlot";
-import { OwnerBadge } from "./OwnerBadge";
-import { ContatoNoCard } from "./ContatoNoCard";
 
 /** Os dois gestos de seleção que o card sabe relatar. */
 export type GestoDeSelecao = "alterna" | "intervalo";
@@ -45,6 +49,31 @@ interface KanbanCardProps {
   onSelect?: (leadId: string, gesto: GestoDeSelecao) => void;
   /** Abrir o dossiê. Separado de `onSelect`: são gestos e intenções diferentes. */
   onOpen?: (leadId: string) => void;
+  /** Repassados ao menu de ações ("Mover para…"). */
+  etapas?: Stage[];
+  onMoverPara?: (lead: Lead, stageId: string) => void;
+  /**
+   * Densidade COMPACTA (issue #3461, item 2): cabe mais contato na mesma tela.
+   *
+   * O que muda é o ORÇAMENTO de altura, não o conteúdo: o título passa de duas
+   * linhas para uma (com o texto inteiro no `title` e no dossiê), os respiros
+   * encolhem e a última mensagem e o bloco de contato saem do card — os dois
+   * continuam inteiros no dossiê (`ConversaNoDossie` e `ContatoDoNegocio`, que
+   * abrem com o mesmo clique). Valor, dono, selo de tarefas, tempo na etapa e a
+   * faixa do agente continuam aqui: são o que se lê de relance para decidir.
+   */
+  denso?: boolean;
+  /**
+   * Quadro de funil arquivado (#1298): o card é só leitura. Sem arraste, sem
+   * menu de ações, sem caixa de seleção e sem abrir o dossiê (que tem ações
+   * de escrita próprias).
+   */
+  somenteLeitura?: boolean;
+}
+
+/** "Maria Silva" e " maria silva " são o mesmo nome — não se repete na linha. */
+function mesmoNome(a: string, b: string): boolean {
+  return a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
 }
 
 function formatValor(cents: number | null, currency: string | null): string | null {
@@ -56,15 +85,16 @@ function formatValor(cents: number | null, currency: string | null): string | nu
 }
 
 /**
- * O card do Kanban — orçamento FIXO: 5 elementos, 3 faixas, altura constante.
+ * O card do Kanban, compacto no estilo Leona (~80px): avatar à esquerda; nome
+ * e hora; telefone, valor e não lidas; a última mensagem em 2 linhas.
  *
- * As alturas são reservadas em vez de derivadas do conteúdo: título sempre
- * ocupa 2 linhas, valor sempre ocupa a sua linha (com "—" quando não há valor),
- * e a faixa do agente existe mesmo vazia. É isso que faz o board continuar
- * legível quando score, próxima ação e alerta chegarem — o card não cresce com
- * dados, ele TROCA de estado.
+ * Pedido do dono do produto (fork jhoow): o card denso de conversa venceu o
+ * card de 5 faixas. Saíram dono, tempo na etapa, e-mail/links, score e o
+ * atalho "Abrir no Inbox" — o clique no card já abre o chat. As alturas
+ * continuam RESERVADAS (a prévia ocupa sempre 2 linhas), então o quadro segue
+ * alinhado. A única faixa extra é a proposta do agente, que pede decisão.
  *
- * Cor só aparece na borda esquerda, e só quando o estado pede (Lei C).
+ * Cor do estado só na borda esquerda, e só quando o estado pede (Lei C).
  */
 export function KanbanCard({
   card,
@@ -76,11 +106,54 @@ export function KanbanCard({
   pulseCount = 0,
   onSelect,
   onOpen,
+  etapas,
+  onMoverPara,
+  denso = false,
+  somenteLeitura = false,
 }: KanbanCardProps) {
   const t = useT();
   const value = formatValor(card.valueCents, card.currency);
+  /**
+   * A MENSALIDADE, ao lado do valor único (fatia 1 da #3602): o card escreve
+   * "R$ 3.000 + R$ 500/mês". Os dois números aparecem — nunca a soma, que é
+   * exatamente o que a issue pediu para não fazer — e o negócio de valor único
+   * fica com a linha de sempre (o segundo trecho só existe quando há
+   * recorrência). `semCentavos` acompanha o valor único: o card nunca mostrou
+   * centavos, e a linha tem altura fixa.
+   */
+  const recorrente = rotuloDaRecorrencia(
+    card.recurringValueCents,
+    card.recurringPeriod,
+    card.currency ?? MOEDA_PADRAO,
+    { semCentavos: true, sufixo: t("/mês") },
+  );
   const state = resolveCardState(card, t);
-  const age = stageAgeLabel(card.hoursInStage, t);
+  const localeDaData = useLocaleDeData();
+  const chats = useChatsFlutuantes();
+
+  // A identidade estilo Kommo: foto, o nome que a pessoa pôs no WhatsApp e a
+  // última mensagem. Tudo derivado do que o quadro já carrega (`withConversas`
+  // e `withMarcadoresDoContato` na rota do board) — nenhuma leitura nova.
+  const nomeDoWhatsapp = lead.contact_whatsapp_name ?? null;
+  const telefone = lead.contact_phone ? phoneForDisplay(lead.contact_phone) : null;
+  // Contato sem nome no WhatsApp ganha o próprio número como título do
+  // negócio. Aí o número É o nome: vai para cima e não se repete embaixo.
+  const tituloEhOTelefone = Boolean(
+    lead.contact_phone && card.title.trim() && samePhone(card.title, lead.contact_phone),
+  );
+  const nome =
+    nomeDoWhatsapp ||
+    (tituloEhOTelefone ? telefone : card.title.trim()) ||
+    telefone ||
+    t("Sem nome");
+  const telefoneEmbaixo = nome === telefone ? null : telefone;
+  const previa = lead.conversa?.preview?.trim() || null;
+  const hora = relativeTime(lead.conversa?.last_message_at ?? null, localeDaData);
+  const naoLidas = lead.conversa?.unread ?? 0;
+  // Sem conversa (negócio criado à mão), a linha de baixo é o título do
+  // negócio — quando ele diz algo além do nome que já está em cima.
+  const linhaDeBaixo =
+    previa ?? (nomeDoWhatsapp && !mesmoNome(nomeDoWhatsapp, card.title) ? card.title : "");
 
   // Clique ABRE o dossiê; ctrl/cmd+clique SELECIONA; shift+clique estende até a
   // âncora. "Clicar abre" é a convenção mais forte, e seleção múltipla é recurso
@@ -116,12 +189,19 @@ export function KanbanCard({
       onSelect?.(card.id, "alterna");
       return;
     }
+    // Com conversa, o clique abre o CHAT flutuante (pedido do dono do produto);
+    // o dossiê passa para o "Ver negócio" do menu ⋮ e do cabeçalho do chat.
+    // Sem conversa (negócio criado à mão) ou fora do provedor, segue o dossiê.
+    if (chats && lead.conversa) {
+      chats.abrirChat(lead.conversa.id, { leadId: lead.id, pipelineId });
+      return;
+    }
     onOpen?.(card.id);
   };
   const handleClick = (e: MouseEvent<HTMLDivElement>) => decidirClique(e);
 
   return (
-    <Draggable draggableId={card.id} index={index}>
+    <Draggable draggableId={card.id} index={index} isDragDisabled={somenteLeitura}>
       {(provided, snapshot) => (
         <div
           ref={provided.innerRef}
@@ -132,13 +212,16 @@ export function KanbanCard({
           // teclado do dnd (tabIndex e handlers continuam vindo do spread) sem
           // aninhar dois controles — nada de aria-hidden nem de suprimir regra.
           role="group"
-          aria-label={`${t("Lead")}: ${card.title}`}
+          aria-label={`${t("Negócio")}: ${card.title}`}
           onClick={handleClick}
           // Tags saem do card (Lei A): ficam a um hover, sem ocupar altura.
           title={card.tags.length > 0 ? `Tags: ${card.tags.join(", ")}` : undefined}
+          // `data-densidade` é o observável da densidade: o teste de tela mede
+          // o card, não o estado do React.
+          data-densidade={denso ? "compacta" : "confortavel"}
           className={cn(
             "group relative overflow-hidden rounded-md border border-border bg-surface",
-            "py-2.5 pl-3 pr-3 shadow-xs transition-colors",
+            "py-2 pl-2.5 pr-1.5 shadow-xs transition-colors",
             "hover:border-border-strong",
             snapshot.isDragging && "rotate-1 shadow-md ring-1 ring-accent/40",
             isSelected && "ring-2 ring-accent",
@@ -169,145 +252,175 @@ export function KanbanCard({
             )}
           />
 
-          {/* ① identidade — altura FIXA de 2 linhas, com ou sem texto longo. */}
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex min-w-0 flex-1 items-start gap-1.5">
-              {/* A largura é SEMPRE reservada (`h-4 w-4` num wrapper que não
-                  some), só a tinta é condicional: o card tem orçamento fixo de
-                  altura e largura, e uma caixa que aparece no hover EMPURRANDO
-                  o título faria o quadro inteiro tremer com o mouse. Some por
-                  opacidade, nunca por `hidden`. `focus:opacity-100` no próprio
-                  input: uma caixa invisível e tabulável seria armadilha de
-                  teclado. */}
-              <input
-                type="checkbox"
-                checked={Boolean(isSelected)}
-                aria-label={`${t("Selecionar")}: ${card.title}`}
-                onClick={(e) => {
-                  // O card inteiro tem onClick (abre o dossiê): sem parar a
-                  // propagação, marcar a caixa abriria o dossiê por cima.
-                  e.stopPropagation();
-                  onSelect?.(card.id, e.shiftKey ? "intervalo" : "alterna");
-                }}
-                onChange={() => {
-                  /* estado vem de `isSelected`; quem decide é o onClick acima */
-                }}
-                className={cn(
-                  "mt-1 h-4 w-4 shrink-0 cursor-pointer accent-accent transition-opacity",
-                  "focus:opacity-100 focus-visible:outline-2 focus-visible:outline-accent",
-                  isSelected || isSelecting
-                    ? "opacity-100"
-                    : "opacity-0 group-hover:opacity-100",
-                )}
-              />
-              {card.canonicalTag && (
-                <span
-                  className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
-                  title={card.canonicalTag}
-                  // role="img": um span nu não aceita aria-label (aria-prohibited-attr).
-                  role="img"
-                  aria-label={`${t("Tag")}: ${card.canonicalTag}`}
-                />
+          {/* A caixa de seleção FLUTUA sobre o canto do avatar: não reserva
+              largura (o card compacto não tem onde) e, por ser absoluta, não
+              empurra nada quando aparece — o quadro não treme com o mouse.
+              Some por opacidade, nunca por `hidden`; `focus:opacity-100`
+              porque caixa invisível e tabulável seria armadilha de teclado. */}
+          {/* No funil arquivado a caixa some de vez: seleção só existe para a
+              ação em lote, e escrever ali é o que o arquivo proíbe (#1298). */}
+          {!somenteLeitura && (
+            <input
+              type="checkbox"
+              checked={Boolean(isSelected)}
+              aria-label={`${t("Selecionar")}: ${card.title}`}
+              onClick={(e) => {
+                // O card inteiro tem onClick: sem parar a propagação, marcar a
+                // caixa abriria o chat (ou o dossiê) por cima.
+                e.stopPropagation();
+                onSelect?.(card.id, e.shiftKey ? "intervalo" : "alterna");
+              }}
+              onChange={() => {
+                /* estado vem de `isSelected`; quem decide é o onClick acima */
+              }}
+              className={cn(
+                "absolute left-1 top-1 z-10 h-4 w-4 cursor-pointer accent-accent transition-opacity",
+                "focus:opacity-100 focus-visible:outline-2 focus-visible:outline-accent",
+                isSelected || isSelecting ? "opacity-100" : "opacity-0 group-hover:opacity-100",
               )}
-              {/* O TÍTULO é o elemento ativável, não o card inteiro.
-                  `role="group"` no card foi decisão da wave 2 (o dnd marca o
-                  handle como button, e com o menu de ações dentro isso vira
-                  nested-interactive no axe). Voltar o card para `button`
-                  reintroduziria aquele defeito com cara de melhoria de
-                  acessibilidade; deixar só onKeyDown daria uma ação que existe
-                  e NÃO É DESCOBERTA por leitor de tela. O título como button
-                  atende mouse, teclado e leitor sem desfazer a decisão antiga. */}
-              <h3 className="line-clamp-2 h-10 text-sm font-medium leading-5 text-text">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    // `stopPropagation` continua: sem ele o handler do card
-                    // rodaria de novo e o gesto seria contado duas vezes (um
-                    // ctrl+clique marcaria e desmarcaria no mesmo instante).
-                    // Por isso a DECISÃO tem de ser tomada aqui também.
-                    e.stopPropagation();
-                    decidirClique(e);
-                  }}
-                  className="text-left hover:underline"
-                >
-                  {card.title}
-                </button>
-              </h3>
+            />
+          )}
+
+          {/* Estilo Leona: avatar à esquerda; à direita, nome + hora, telefone
+              + não lidas, e a última mensagem. Altura reservada (a prévia
+              ocupa sempre 2 linhas): o card não cresce nem encolhe com o texto,
+              e o quadro fica alinhado. */}
+          <div className="flex items-start gap-2.5">
+            <Avatar className="mt-0.5 h-10 w-10 shrink-0">
+              {/* A MESMA foto do Inbox, pela mesma rota. Só monta a <img>
+                  quando há arquivo — senão o quadro pediria a rota para todo
+                  card e levaria 404 na maioria (ver ConversationListItem). */}
+              {lead.contact_has_avatar && lead.contact_id ? (
+                <AvatarImage
+                  src={`/api/v1/contacts/${lead.contact_id}/avatar`}
+                  alt=""
+                  className="object-cover"
+                />
+              ) : null}
+              <AvatarFallback
+                className="text-xs font-semibold"
+                style={estiloDasIniciais(lead.contact_id ?? card.id)}
+              >
+                {initials(nome, telefone ?? "?")}
+              </AvatarFallback>
+            </Avatar>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex h-5 items-center gap-1.5">
+                {card.canonicalTag && (
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
+                    title={card.canonicalTag}
+                    // role="img": um span nu não aceita aria-label (aria-prohibited-attr).
+                    role="img"
+                    aria-label={`${t("Tag")}: ${card.canonicalTag}`}
+                  />
+                )}
+                {/* O NOME é o elemento ativável, não o card inteiro: o card é
+                    `role="group"` (o dnd marca o handle como button, e com o
+                    menu dentro isso vira nested-interactive no axe). O botão
+                    atende mouse, teclado e leitor de tela. */}
+                <h3 className="min-w-0 flex-1 text-sm leading-5 text-text">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      // `stopPropagation`: sem ele o handler do card rodaria de
+                      // novo e o gesto contaria duas vezes (ctrl+clique marcaria
+                      // e desmarcaria no mesmo instante). Por isso a DECISÃO é
+                      // tomada aqui também.
+                      e.stopPropagation();
+                      decidirClique(e);
+                    }}
+                    className={cn(
+                      "block w-full truncate text-left hover:underline",
+                      naoLidas > 0 ? "font-semibold" : "font-medium",
+                    )}
+                  >
+                    {nome}
+                  </button>
+                </h3>
+                {hora && (
+                  <span
+                    className={cn(
+                      "shrink-0 text-[11px] tabular-nums",
+                      naoLidas > 0 ? "font-semibold text-text" : "text-text-muted",
+                    )}
+                  >
+                    {hora}
+                  </span>
+                )}
+                {!somenteLeitura && (
+                  <KanbanCardActions
+                    lead={lead}
+                    pipelineId={pipelineId}
+                    onVerNegocio={onOpen ? () => onOpen(card.id) : undefined}
+                    etapas={etapas}
+                    onMoverPara={onMoverPara}
+                  />
+                )}
+              </div>
+
+              <div className="flex h-4 items-center gap-2 text-[11px] leading-4 text-text-muted">
+                <span className="min-w-0 flex-1 truncate tabular-nums">{telefoneEmbaixo ?? ""}</span>
+                {(value || recorrente) && (
+                  <span
+                    data-testid="card-valor"
+                    className="shrink-0 font-medium tabular-nums text-text"
+                    title={recorrente ? `${value ?? ""} + ${recorrente}`.trim() : undefined}
+                  >
+                    {[value, recorrente].filter(Boolean).join(" + ")}
+                  </span>
+                )}
+                {naoLidas > 0 && (
+                  // O número, não um ponto: "3 sem ler" e "12 sem ler" pedem
+                  // urgências diferentes, e um ponto colapsa as duas.
+                  <span
+                    className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground tabular-nums"
+                    aria-label={`${naoLidas} ${t("sem ler")}`}
+                  >
+                    {naoLidas > 99 ? "99+" : naoLidas}
+                  </span>
+                )}
+              </div>
+
+              <p
+                className={cn(
+                  "mt-0.5 line-clamp-2 h-8 text-xs leading-4",
+                  naoLidas > 0 ? "text-text" : "text-text-muted",
+                )}
+              >
+                {linhaDeBaixo}
+              </p>
             </div>
-            <KanbanCardActions lead={lead} pipelineId={pipelineId} />
           </div>
 
-          {/* ② valor — altura reservada mesmo sem valor, senão o card encolhe. */}
-          <p
-            className={cn(
-              "mt-1 h-5 text-xs font-medium leading-5 tabular-nums",
-              value ? "text-text" : "text-text-muted",
-            )}
-          >
-            {value ?? "—"}
-          </p>
+          {/* Os campos `file` do funil (#2829): contagem + o documento clicável.
+              Some por inteiro quando o funil não declara campo de arquivo. */}
+          <ArquivosNoCard lead={lead} />
 
-          {/* ③ a linha do agente — um slot, três estados, nunca três blocos. */}
-          <div className="mt-1.5 flex h-6 items-center gap-2 text-xs">
-            {state.slot.type === "awaiting" && (
-              // A proposta do agente é a ÚNICA linha do card com ação: é o
-              // ponto onde a decisão do humano entra. Sem os botões aqui, o
-              // texto seria só mais um aviso — e a wave existe porque avisar
-              // sem poder decidir é o que já acontecia (o dado ficava no banco).
+          {/* A proposta do agente é a ÚNICA linha que sobrevive à compactação:
+              é onde a decisão do humano entra (aprovar/recusar). Só aparece
+              quando há o que decidir — aí o card cresce, de propósito. */}
+          {state.slot.type === "awaiting" && (
+            <div className="mt-1.5 flex h-6 items-center gap-2 text-xs">
               <NextActionSlot
                 label={state.slot.label}
                 leadId={card.id}
                 approvedSeq={lead.next_action?.seq ?? -1}
                 pipelineId={pipelineId}
               />
-            )}
-            {state.slot.type === "reactivation" && (
-              // O negócio parou E aqui está o que fazer. Mesma faixa, mesma
-              // altura: o card não cresce quando o sistema tem algo a propor.
+            </div>
+          )}
+          {state.slot.type === "reactivation" && (
+            <div className="mt-1.5 flex h-6 items-center gap-2 text-xs">
               <ReactivationSlot
                 leadId={card.id}
                 proposalId={state.slot.proposalId}
                 expiresAt={state.slot.expiresAt}
                 pipelineId={pipelineId}
               />
-            )}
-            {state.slot.type === "cooling" && (
-              // -fg é a variante de TEXTO do token (o -warning puro dá 3.7:1 em
-              // 12px); a cor cheia fica na borda de estado, que é gráfica.
-              <span className="truncate text-warning-fg">{state.slot.label}</span>
-            )}
-            {state.slot.type === "meter" && (
-              <ScoreSlot
-                probability={state.slot.probability}
-                band={state.slot.band}
-                reason={state.slot.reason}
-                factors={state.slot.factors}
-              />
-            )}
-          </div>
-
-          {/* A última mensagem, com atalho para o inbox. Fica ANTES do rodapé
-              de dono/tempo porque é conteúdo do negócio, não metadado do card —
-              e some por inteiro quando não há conversa. */}
-          <ConversaSlot conversa={lead.conversa} />
-
-          {/* Telefone, e-mail e links do contato — some por inteiro quando o
-              negócio não tem nada disso, como a conversa acima. */}
-          <ContatoNoCard lead={lead} />
-
-          {/* ④ dono · ⑤ tempo no estágio */}
-          <div className="mt-1 flex h-6 items-center justify-between gap-2">
-            <OwnerBadge
-              ownerKind={card.owner.kind}
-              ownerName={card.owner.name}
-              agentVersion={card.owner.agentVersion}
-            />
-            <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-text-muted">
-              {state.showStageAge && age
-                ? `${age} ${t("em")} ${card.stageName}`
-                : `${t("em")} ${card.stageName}`}
-            </span>
-          </div>
+            </div>
+          )}
         </div>
       )}
     </Draggable>

@@ -81,8 +81,8 @@ async function idDoFunil(page: Page, nome: string): Promise<string> {
 test.describe("gestão de funis", () => {
   test.beforeEach(async ({ page }) => {
     await login(page, creds.users.manager!.email);
-    await page.goto("/app/kanban");
-    await expect(page.getByRole("heading", { name: "Funis" })).toBeVisible();
+    await page.goto("/app/crms/padrao");
+    await expect(page.getByRole("heading", { name: "PADRÃO", level: 1 })).toBeVisible();
   });
 
   test("a lista mostra só a organização ativa, mesmo com funil homônimo em outra", async ({
@@ -102,19 +102,22 @@ test.describe("gestão de funis", () => {
     await expect(linhaDoFunil(page, NOME)).toBeVisible();
     await page.screenshot({ path: path.join(EVIDENCIA, "funis-01-criado.png"), fullPage: true });
 
-    // ---- o funil nasce com as quatro colunas (senão o quadro é morto) ----
+    // ---- o funil nasce com as colunas finais (senão o quadro é morto) ----
+    // Funis no modelo Kommo (Fase C): funil adicional nasce só com «Ganho» e
+    // «Perdido» — as colunas do meio são de quem cria, pelo «+ Nova etapa».
     await linhaDoFunil(page, NOME).getByRole("link").click();
     await page.waitForURL(/\/app\/pipelines\//);
-    // Quem cria funil é manager+: para ele o nome da etapa é o campo editável
-    // do cabeçalho (#1738), e `getByText` não lê o valor de um <input>.
-    for (const coluna of ["Novo", "Em andamento", "Ganho", "Perdido"]) {
-      const nome = page.getByRole("textbox", { name: `«${coluna}»` }).first();
-      await expect(nome).toHaveValue(coluna);
+    // Quem cria funil é manager+: para ele o nome da etapa é o botão que abre a
+    // edição da coluna (Fase B), dentro do <h2> do cabeçalho.
+    for (const coluna of ["Ganho", "Perdido"]) {
+      const nome = page.locator("[data-etapa-do-quadro] h2", { hasText: coluna }).first();
+      await expect(nome).toHaveText(coluna);
       await expect(nome).toBeVisible();
     }
+    await expect(page.getByTestId("nova-etapa")).toBeVisible();
     await page.screenshot({ path: path.join(EVIDENCIA, "funis-02-quadro-novo.png"), fullPage: true });
 
-    await page.goto("/app/kanban");
+    await page.goto("/app/crms/padrao");
 
     // ---- renomear ----
     const id = await idDoFunil(page, NOME);
@@ -171,8 +174,8 @@ test("quem não pode gerenciar vê a lista sem os controles de escrita", async (
   // Botão que o servidor recusaria é promessa que não se cumpre: `requireRole`
   // cobra manager nas rotas, então agent não vê "Novo funil" nem "Arquivar".
   await login(page, creds.users.agent!.email);
-  await page.goto("/app/kanban");
-  await expect(page.getByRole("heading", { name: "Funis" })).toBeVisible();
+  await page.goto("/app/crms/padrao");
+  await expect(page.getByRole("heading", { name: "PADRÃO", level: 1 })).toBeVisible();
   await expect(page.getByText("Pedidos", { exact: true })).toHaveCount(1);
   await expect(page.getByTestId("novo-funil")).toHaveCount(0);
   await expect(page.locator('[data-testid^="arquivar-"]')).toHaveCount(0);

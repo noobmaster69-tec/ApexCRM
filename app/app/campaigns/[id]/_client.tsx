@@ -23,6 +23,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   useAcaoDeCampanha,
   useCampanha,
@@ -32,13 +33,36 @@ import {
   type AcaoDeCampanha,
   type CampanhaDetalhada,
 } from "@/hooks/campanhas/useCampanhas";
-import { useAgentesPublicados, useFunis } from "@/hooks/campanhas/useDestinoDaCampanha";
+import { useAgentesPublicados } from "@/hooks/campanhas/useDestinoDaCampanha";
 import { channelLabel, useChannelSessions } from "@/hooks/channels/useChannelSessions";
 import { useContactList } from "@/hooks/contacts/useContactList";
 import { useT } from "@/hooks/i18n/useT";
 import { ArrowBendUpLeft } from "@/lib/ui/icons";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { TEXTO_DA_EXCLUSAO } from "@/lib/campanhas/tipos";
+import { useListaRemota } from "@/app/app/fluxos/_blocos/useListaRemota";
+import {
+  CamposDeInicio,
+  CamposDeRitmo,
+  FraseDoInicio,
+  corpoDaCota,
+  corpoDaJanela,
+  corpoDosTetos,
+  resumoDoRitmo,
+  errosDoRitmo,
+  instanteAgendado,
+  janelaDosValores,
+  lugarDoFuso,
+  programacaoDaCampanha,
+  useAgora,
+  type ValoresDeRitmo,
+} from "@/components/campanhas/CamposDeRitmo";
+import { camposDoInstante, resumoDoInicio, textoDoInstante } from "@/lib/campanhas/agendamento";
+import { fusoValido } from "@/lib/campanhas/fuso";
+import { ProgressoDaCampanha } from "@/components/campanhas/ProgressoDaCampanha";
+
+import { ModeloDaCampanhaNoDetalhe } from "../_components/ModeloDaCampanhaNoDetalhe";
+import { VelocidadeDaCampanha, minutosParaEnviar, type Velocidade } from "../_components/VelocidadeDaCampanha";
 
 export function DetalheDaCampanha({ id }: { id: string }) {
   const t = useT();
@@ -49,6 +73,11 @@ export function DetalheDaCampanha({ id }: { id: string }) {
   const acao = useAcaoDeCampanha(id);
   const [confirmando, setConfirmando] = useState<AcaoDeCampanha | null>(null);
   const [testando, setTestando] = useState(false);
+  // Item 4: o nome do fluxo que a campanha inicia (modo fluxo).
+  const { itens: fluxos } = useListaRemota<{ id: string; name: string }>(
+    campanha.data?.mode === "flow" ? "/api/v1/ai/followup-flows?surface=fluxo" : null,
+  );
+  const nomeDoFluxo = fluxos.find((f) => f.id === campanha.data?.flow_id)?.name ?? null;
 
   if (campanha.isLoading) {
     return (
@@ -108,8 +137,11 @@ export function DetalheDaCampanha({ id }: { id: string }) {
             <EstadoDaCampanha status={c.status} />
           </div>
           {c.failure_code && (
-            <p className="mt-1 text-sm text-warning-fg">
-              {t("Último problema")}: {c.failure_code}
+            <p className="mt-1 text-sm text-warning-fg" data-testid="motivo-da-pausa">
+              {t("Último problema")}: {c.failure_detail ? t(c.failure_detail) : c.failure_code}
+              {c.status === "paused" && c.failure_detail
+                ? ` ${t("Corrija a causa e use Retomar.")}`
+                : ""}
             </p>
           )}
         </div>
@@ -144,8 +176,17 @@ export function DetalheDaCampanha({ id }: { id: string }) {
         <Card className="space-y-3 border-warning-fg p-4">
           <p className="text-sm">
             {confirmando === "iniciar"
-              ? `${t("Começar a enviar para")} ${c.snapshot_eligible} ${c.snapshot_eligible === 1 ? t("pessoa?") : t("pessoas?")} ${t("O envio segue o ritmo do número e pode levar horas.")}`
-              : t("Cancelar é definitivo: quem ainda não recebeu não recebe mais, e a campanha não volta a rodar.")}
+              ? `${t("Começar a enviar para")} ${c.snapshot_eligible} ${c.snapshot_eligible === 1 ? t("pessoa?") : t("pessoas?")} ${
+                  c.velocidade === "rapida"
+                    ? t("Envio rápido: sai tudo em cerca de {n} min.").replace(
+                        "{n}",
+                        String(minutosParaEnviar(c.snapshot_eligible ?? 0, "rapida")),
+                      )
+                    : t("O envio segue o ritmo do número e pode levar horas.")
+                }`
+              : t(
+                  "Cancelar é definitivo: quem ainda não recebeu não recebe mais, e a campanha não volta a rodar.",
+                )}
           </p>
           <div className="flex gap-2">
             <Button
@@ -186,9 +227,7 @@ export function DetalheDaCampanha({ id }: { id: string }) {
         <Card className="space-y-2 p-4">
           <div className="flex items-baseline justify-between">
             <h2 className="font-medium">{t("Progresso")}</h2>
-            <span className="text-sm text-muted-foreground">
-              {Math.round(m.progresso * 100)}%
-            </span>
+            <span className="text-sm text-muted-foreground">{Math.round(m.progresso * 100)}%</span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-surface-elevated">
             <div
@@ -202,23 +241,56 @@ export function DetalheDaCampanha({ id }: { id: string }) {
             />
           </div>
           <p className="text-sm text-muted-foreground">
-            {m.contagem.pendentes} {t("ainda não enviadas")} · {m.contagem.falharam} {t("falharam")} ·{" "}
-            {m.contagem.optOut} {t("pediram para parar")}
+            {m.contagem.pendentes} {t("ainda não enviadas")} · {m.contagem.falharam} {t("falharam")}{" "}
+            · {m.contagem.optOut} {t("pediram para parar")}
           </p>
+          {m.fluxo && (
+            <p className="text-sm" data-testid="metricas-do-fluxo">
+              {m.fluxo.iniciados} {t("entraram no fluxo")} · {m.fluxo.concluiram} {t("concluíram o fluxo")}
+            </p>
+          )}
         </Card>
       )}
+
+      <ProgressoDaCampanha
+        recebe={{ funil: c.recipients_pipeline_id, etapa: c.recipients_stage_id }}
+        responde={{ funil: c.pipeline_id, etapa: c.stage_id }}
+        numeros={
+          m
+            ? {
+                elegiveis: m.contagem.elegiveis,
+                enviados: m.contagem.enviados,
+                pendentes: m.contagem.pendentes,
+                responderam: m.contagem.responderam,
+              }
+            : null
+        }
+      />
 
       <DestinoDaCampanha campanha={c} />
 
       <NumerosDaCampanha campanha={c} />
 
+      <InicioDaCampanha campanha={c} />
       <RitmoDaCampanha campanha={c} />
 
       <Card className="space-y-2 p-4">
-        <h2 className="font-medium">{t("Mensagem")}</h2>
-        <p className="whitespace-pre-wrap text-sm">{c.message_body}</p>
+        <h2 className="font-medium">{c.mode === "flow" ? t("Inicia um fluxo") : t("Mensagem")}</h2>
+        {c.mode === "flow" ? (
+          <p className="text-sm" data-testid="campanha-fluxo">
+            {t("Cada contato entra no fluxo")}{" "}
+            <Link href={`/app/fluxos/${c.flow_id ?? ""}`} className="font-medium text-accent-text hover:underline">
+              {nomeDoFluxo ?? t("(fluxo apagado)")}
+            </Link>
+          </p>
+        ) : c.message_mode === "template" ? (
+          <ModeloDaCampanhaNoDetalhe campanha={c} />
+        ) : (
+          <p className="whitespace-pre-wrap text-sm">{c.message_body}</p>
+        )}
         <p className="text-xs text-muted-foreground">
-          {t("Base legal")}: {c.base_legal === "consent" ? t("consentimento") : t("interesse legítimo")}
+          {t("Base legal")}:{" "}
+          {c.base_legal === "consent" ? t("consentimento") : t("interesse legítimo")}
           {c.lia_ref ? ` (${c.lia_ref})` : ""}
         </p>
       </Card>
@@ -251,13 +323,19 @@ export function DetalheDaCampanha({ id }: { id: string }) {
           <div className="divide-y divide-border">
             {linhas.map((d) => (
               <div key={d.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                <span className="min-w-0 truncate">
-                  {rotuloDoContato(d.contacts, t)}
-                </span>
-                <span className="shrink-0 text-muted-foreground">
+                <span className="min-w-0 truncate">{rotuloDoContato(d.contacts, t)}</span>
+                <span className="shrink-0 text-right text-muted-foreground">
                   {d.eligibility_status === "excluded"
                     ? t(d.legenda_da_exclusao ?? rotuloDoMotivo(d.exclusion_reason))
                     : t(ROTULO_DO_DESTINATARIO[d.status] ?? d.status)}
+                  {d.motivo_da_falha && (
+                    <span
+                      className="block max-w-xs text-xs whitespace-normal text-warning-fg"
+                      data-testid="motivo-da-falha"
+                    >
+                      {t(d.motivo_da_falha)}
+                    </span>
+                  )}
                 </span>
               </div>
             ))}
@@ -345,21 +423,16 @@ function TesteDaCampanha({
  */
 function DestinoDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
   const t = useT();
-  const funis = useFunis();
   const agentes = useAgentesPublicados();
-  if (!campanha.pipeline_id && !campanha.agent_id) return null;
+  // Item 5: tudo aqui é opcional. O funil/etapa de resposta aparece no
+  // "Progresso" (item 3); este cartão só existe quando há um agente escolhido.
+  if (!campanha.agent_id) return null;
 
-  const funil = (funis.data ?? []).find((f) => f.id === campanha.pipeline_id);
   const agente = (agentes.data ?? []).find((a) => a.id === campanha.agent_id);
 
   return (
     <Card className="space-y-2 p-4">
-      <h2 className="font-medium">{t("Quem responder")}</h2>
-      {campanha.pipeline_id && (
-        <p className="text-sm">
-          {t("Vira card no funil")}: <strong>{funil?.name ?? t("funil removido")}</strong>
-        </p>
-      )}
+      <h2 className="font-medium">{t("Quem atende a resposta")}</h2>
       {campanha.agent_id && (
         <p className="text-sm">
           {t("Quem atende a resposta")}: <strong>{agente?.name ?? t("agente indisponível")}</strong>
@@ -392,7 +465,9 @@ function NumerosDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
     <Card className="space-y-2 p-4">
       <h2 className="font-medium">{t("Números desta campanha")}</h2>
       <p className="text-sm text-muted-foreground">
-        {t("A cada envio, a campanha usa o número com mais folga no teto do dia — e o número que a pessoa já conhece, quando ela já conversou com algum deles.")}
+        {t(
+          "A cada envio, a campanha usa o número com mais folga no teto do dia — e o número que a pessoa já conhece, quando ela já conversou com algum deles.",
+        )}
       </p>
       <ul className="text-sm">
         {[campanha.channel_session_id, ...extras].map((id) => (
@@ -414,11 +489,24 @@ function NumerosDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
 function RitmoDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
   const t = useT();
   const editar = useEditarCampanha(campanha.id);
-  const [intervalo, setIntervalo] = useState(texto(campanha.intervalo_segundos));
-  const [tetoDia, setTetoDia] = useState(texto(campanha.teto_diario));
-  const [tetoHora, setTetoHora] = useState(texto(campanha.teto_horario));
-  const [inicio, setInicio] = useState(texto(campanha.janela_inicio_hora));
-  const [fim, setFim] = useState(texto(campanha.janela_fim_hora));
+  const prog = programacaoDaCampanha(campanha);
+  const salvo: ValoresDeRitmo = {
+    minIntervalo: String(campanha.min_interval_seconds ?? 60),
+    maxIntervalo: String(campanha.max_interval_seconds ?? 180),
+    tetoDiario: texto(campanha.teto_diario),
+    tetoHorario: texto(campanha.teto_horario),
+    janelaInicio: prog.janelaInicio,
+    janelaFim: prog.janelaFim,
+    fuso: campanha.timezone ?? "",
+    cotaQuantidade: prog.cotaQuantidade,
+    cotaPeriodo: prog.cotaPeriodo,
+    modoRitmo: prog.modoRitmo,
+  };
+  const [v, setV] = useState<ValoresDeRitmo>(salvo);
+  const [velocidade, setVelocidade] = useState<Velocidade>(campanha.velocidade === "rapida" ? "rapida" : "gradual");
+  const [emBaloes, setEmBaloes] = useState(campanha.split_messages === true);
+  const ehOficial = campanha.message_mode === "template";
+  const rapida = ehOficial && velocidade === "rapida";
 
   const encerrada = campanha.status === "completed" || campanha.status === "cancelled";
   if (encerrada) return null;
@@ -426,32 +514,46 @@ function RitmoDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
   return (
     <Card className="space-y-4 p-4">
       <div>
-        <h2 className="font-medium">{t("Ritmo desta campanha")}</h2>
+        <h2 className="font-medium">{t("Ritmo e Programação")}</h2>
+        <p className="text-sm font-medium" data-testid="ritmo-resumo">
+          {resumoDoRitmo(salvo, t)}
+        </p>
         <p className="text-sm text-muted-foreground">
           {t(
             "Em branco, vale o ritmo do número (Conexões › Proteção de envio). O que você puser aqui só pode deixar mais devagar.",
           )}
         </p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <CampoDeRitmo id="r-intervalo" rotulo={t("Intervalo mínimo entre mensagens (segundos)")} valor={intervalo} onChange={setIntervalo} />
-        <CampoDeRitmo id="r-dia" rotulo={t("Máximo por dia")} valor={tetoDia} onChange={setTetoDia} />
-        <CampoDeRitmo id="r-hora" rotulo={t("Máximo por hora")} valor={tetoHora} onChange={setTetoHora} />
-        <div />
-        <CampoDeRitmo id="r-inicio" rotulo={t("Enviar só a partir das (hora)")} valor={inicio} onChange={setInicio} />
-        <CampoDeRitmo id="r-fim" rotulo={t("Parar de enviar às (hora)")} valor={fim} onChange={setFim} />
-      </div>
+      <VelocidadeDaCampanha valor={velocidade} onChange={setVelocidade} ehOficial={ehOficial} nome="r-velocidade" />
+      <CamposDeRitmo v={v} onChange={(campo, valor) => setV((a) => ({ ...a, [campo]: valor }))} prefixo="r" />
+      {/* Modelo aprovado sai como a plataforma aprovou: nunca se divide. */}
+      {!ehOficial && (
+        <div className="flex items-start gap-3">
+          <Switch id="r-baloes" checked={emBaloes} onCheckedChange={setEmBaloes} />
+          <div className="space-y-1">
+            <Label htmlFor="r-baloes">{t("Dividir a mensagem em balões, um por parágrafo")}</Label>
+            <p className="text-sm text-muted-foreground">
+              {t(
+                "Até 3 balões por pessoa; o que passar disso vai junto no último. Cada balão conta no limite diário do número.",
+              )}
+            </p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <Button
           size="sm"
-          disabled={editar.isPending}
+          disabled={editar.isPending || errosDoRitmo(v).length > 0}
           onClick={() =>
             editar.mutate({
-              intervalo_segundos: numero(intervalo),
-              teto_diario: numero(tetoDia),
-              teto_horario: numero(tetoHora),
-              janela_inicio_hora: numero(inicio),
-              janela_fim_hora: numero(fim),
+              min_interval_seconds: Number(v.minIntervalo),
+              max_interval_seconds: Number(v.maxIntervalo),
+              timezone: v.fuso || null,
+              ...corpoDosTetos(v),
+              ...corpoDaJanela(v),
+              ...corpoDaCota(v),
+              ...(ehOficial ? { velocidade: rapida ? "rapida" : "gradual" } : {}),
+              ...(ehOficial ? {} : { split_messages: emBaloes }),
             })
           }
         >
@@ -465,35 +567,154 @@ function RitmoDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
   );
 }
 
-function CampoDeRitmo({
-  id,
-  rotulo,
-  valor,
-  onChange,
-}: {
-  id: string;
-  rotulo: string;
-  valor: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{rotulo}</Label>
-      <Input id={id} type="number" min={0} value={valor} onChange={(e) => onChange(e.target.value)} />
-    </div>
-  );
+/** O motivo real da espera (9018) — tabela constante para o t(). */
+const TEXTO_DA_ESPERA: Record<string, string> = {
+  fora_da_janela: "Fora da janela diária de envio.",
+  teto_diario: "Chegou ao máximo por dia desta campanha.",
+  teto_horario: "Chegou ao máximo por hora desta campanha.",
+  intervalo: "Aguardando o intervalo entre envios.",
+  intervalo_aleatorio: "Aguardando o intervalo sorteado entre envios.",
+  sem_numero_livre: "Nenhum número pode enviar agora (proteção de envio da conexão, limite do número ou número fora do ar).",
+  cota_do_periodo: "Chegou à cota de contatos do período desta campanha.",
+};
+
+/**
+ * O INÍCIO da campanha ("Ritmo e Programação"), conforme o estado: planejado
+ * no rascunho, agendável depois de preparada, agendamento confirmado (com a
+ * contagem regressiva), em execução (com o motivo REAL de não estar enviando).
+ */
+function InicioDaCampanha({ campanha }: { campanha: CampanhaDetalhada }) {
+  const t = useT();
+  const agora = useAgora();
+  const acao = useAcaoDeCampanha(campanha.id);
+  const fusoSalvo = fusoValido(campanha.timezone) ? campanha.timezone! : null;
+  const planejado =
+    campanha.scheduled_at && fusoSalvo ? camposDoInstante(new Date(campanha.scheduled_at), fusoSalvo) : null;
+  const [v, setV] = useState({
+    fuso: fusoSalvo ?? "",
+    inicioModo: (planejado ? "agendar" : "agora") as "agora" | "agendar",
+    inicioData: planejado?.data ?? "",
+    inicioHora: planejado?.hora ?? "",
+  });
+  const janela = janelaDosValores(programacaoDaCampanha(campanha));
+  const st = campanha.status;
+
+  if (st === "completed" || st === "cancelled") return null;
+
+  if (st === "draft") {
+    if (!planejado || !fusoSalvo) return null;
+    const r = resumoDoInicio({ agora, fuso: fusoSalvo, modo: "agendar", data: planejado.data, hora: planejado.hora, janela });
+    return (
+      <Card className="space-y-2 p-4" data-testid="inicio-da-campanha">
+        <h2 className="font-medium">{t("Início da campanha")}</h2>
+        {r.tipo === "passado" ? (
+          <p className="text-sm text-error-fg">{t("O horário planejado já passou. Edite a campanha e escolha outro.")}</p>
+        ) : (
+          <FraseDoInicio resumo={r} fuso={fusoSalvo} estado="planejada" testid="inicio-resumo" />
+        )}
+      </Card>
+    );
+  }
+
+  if (st === "ready") {
+    const valores = { ...v, minIntervalo: "60", maxIntervalo: "180", tetoDiario: "", tetoHorario: "", janelaInicio: "", janelaFim: "" };
+    const erros = errosDoRitmo(valores, agora).filter((e) => e.startsWith("agenda"));
+    const fuso = fusoValido(v.fuso) ? v.fuso : null;
+    const r = resumoDoInicio({ agora, fuso, modo: v.inicioModo, data: v.inicioData, hora: v.inicioHora, janela });
+    const quando = instanteAgendado(valores);
+    return (
+      <Card className="space-y-4 p-4" data-testid="inicio-da-campanha">
+        <h2 className="font-medium">{t("Início da campanha")}</h2>
+        <CamposDeInicio v={v} onChange={(campo, valor) => setV((a) => ({ ...a, [campo]: valor }))} prefixo="inicio" />
+        <FraseDoInicio resumo={r} fuso={fuso} estado="previa" testid="inicio-resumo" />
+        {v.inicioModo === "agendar" && erros.length > 0 && (
+          <ul className="space-y-1 text-sm text-error-fg" role="alert">
+            {erros.map((e) => (
+              <li key={e}>{t(TEXTO_DO_ERRO_DO_INICIO[e] ?? e)}</li>
+            ))}
+          </ul>
+        )}
+        {v.inicioModo === "agendar" ? (
+          <Button
+            disabled={acao.isPending || erros.length > 0 || !quando}
+            onClick={() => acao.mutate({ acao: "agendar", corpo: { scheduled_at: quando, timezone: v.fuso } })}
+            data-testid="confirmar-agendamento"
+          >
+            {t("Confirmar agendamento")}
+          </Button>
+        ) : (
+          <p className="text-sm text-muted-foreground">{t("Para começar já, use “Iniciar envio” no topo da página.")}</p>
+        )}
+      </Card>
+    );
+  }
+
+  if (st === "scheduled" && campanha.scheduled_at) {
+    const fuso = fusoSalvo ?? "UTC";
+    const c = camposDoInstante(new Date(campanha.scheduled_at), fuso);
+    const r = resumoDoInicio({ agora, fuso, modo: "agendar", data: c.data, hora: c.hora, janela });
+    return (
+      <Card className="space-y-2 p-4" data-testid="inicio-da-campanha">
+        <h2 className="font-medium">{t("Início da campanha")}</h2>
+        {r.tipo === "passado" ? (
+          <p className="text-sm" data-testid="inicio-resumo">
+            {t("O horário agendado chegou — o agendador inicia a campanha no próximo ciclo (em até 1 minuto).")}
+          </p>
+        ) : (
+          <FraseDoInicio resumo={r} fuso={fuso} estado="agendada" testid="inicio-resumo" />
+        )}
+        <p className="text-xs text-muted-foreground">
+          {t("O início roda no servidor: vale com o navegador fechado. Para mudar o horário, pause e agende de novo.")}
+        </p>
+      </Card>
+    );
+  }
+
+  if (st === "running") {
+    const fuso = fusoSalvo ?? "UTC";
+    const ate = campanha.wait_until ? textoDoInstante(new Date(campanha.wait_until), fuso) : null;
+    const espera = campanha.wait_reason ? TEXTO_DA_ESPERA[campanha.wait_reason] : null;
+    return (
+      <Card className="space-y-2 p-4" data-testid="inicio-da-campanha">
+        <h2 className="font-medium">{t("Em execução")}</h2>
+        {campanha.started_at && (
+          <p className="text-sm">
+            {t("Começou em")} {textoDoInstante(new Date(campanha.started_at), fuso).data}{" "}
+            {t("às")} {textoDoInstante(new Date(campanha.started_at), fuso).hora}
+            {fusoSalvo ? ` (${lugarDoFuso(fusoSalvo)})` : " (UTC)"}.
+          </p>
+        )}
+        {espera && (
+          <p className="text-sm text-warning-fg" data-testid="motivo-da-espera">
+            {t("Não está enviando agora:")} {t(espera)}
+            {ate ? ` ${t("Volta a tentar em")} ${ate.data} ${t("às")} ${ate.hora}.` : ""}
+          </p>
+        )}
+      </Card>
+    );
+  }
+
+  if (st === "paused") {
+    return (
+      <Card className="space-y-2 p-4" data-testid="inicio-da-campanha">
+        <h2 className="font-medium">{t("Início da campanha")}</h2>
+        <p className="text-sm text-warning-fg">{t("Pausada — não envia nada até ser retomada.")}</p>
+      </Card>
+    );
+  }
+  return null;
 }
+
+const TEXTO_DO_ERRO_DO_INICIO: Record<string, string> = {
+  agenda_sem_fuso: "Para agendar, escolha o fuso horário da campanha.",
+  agenda_invalida: "Escolha uma data e um horário válidos — esse horário não existe nesse dia no fuso escolhido (mudança de horário de verão).",
+  agenda_passado: "O horário agendado já passou. Escolha uma data e hora no futuro.",
+};
+
 
 /** `null` vira campo vazio — e campo vazio volta a ser `null`, que é "herda o número". */
 function texto(valor: number | null): string {
   return valor === null || valor === undefined ? "" : String(valor);
-}
-
-function numero(valor: string): number | null {
-  const limpo = valor.trim();
-  if (limpo === "") return null;
-  const n = Number(limpo);
-  return Number.isFinite(n) ? n : null;
 }
 
 function Numero({ titulo, valor }: { titulo: string; valor: number }) {

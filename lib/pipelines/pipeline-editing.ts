@@ -25,6 +25,8 @@ import { chaveDeNome, slugDeNome } from "@/lib/leads/stage-editing";
 /** O que as regras precisam saber de cada funil. Inclui os arquivados — quem filtra é este módulo. */
 export interface FunilEditavel {
   id: string;
+  /** O CRM do funil (migration 9004). Opcional: quem só ordena ou renomeia não carrega. */
+  crm_id?: string;
   name: string;
   slug: string;
   position: number;
@@ -38,6 +40,13 @@ export interface FunilEditavel {
   is_archived: boolean;
   /** Opcional porque NENHUMA regra daqui a usa — ela só existe para a tela. */
   description?: string | null;
+  /**
+   * O funil principal do CRM (migration 9007): o único com a Etapa de entrada,
+   * onde cai todo contato novo do CRM. Opcional: ausente vale `false`.
+   */
+  is_primary?: boolean;
+  /** Cor do funil no seletor do quadro (9008). Só a tela usa. */
+  color?: string | null;
 }
 
 /** O que amarra o funil ao resto do sistema, contado ANTES de arquivar ou excluir. */
@@ -102,6 +111,23 @@ export function validarNomeDeFunil(
 }
 
 /**
+ * O funil ATIVO que já ocupa o nome de `funilId` (#2559) — `null` quando o nome está livre.
+ *
+ * É a MESMA régua de `validarNomeDeFunil` (chave dobrada com `chaveDeNome`,
+ * arquivados de fora), saindo como NOME e não como `Resultado` porque quem
+ * chama é a rota que tira do arquivo: ela precisa do nome do outro funil para
+ * citá-lo no conselho, e para traduzir a frase — `traduzir` só casa a chave do
+ * dicionário quando o texto chega com o `{nome}` ainda por preencher.
+ */
+export function nomeOcupadoPorAtivo(funis: FunilEditavel[], funilId: string): string | null {
+  const funil = funis.find((f) => f.id === funilId);
+  if (!funil) return null;
+  const chave = chaveDeNome(funil.name);
+  const colisao = ativos(funis).find((f) => f.id !== funilId && chaveDeNome(f.name) === chave);
+  return colisao?.name ?? null;
+}
+
+/**
  * Recusa o arquivamento que deixaria a operação sem quadro ou quebraria uma entrada de lead.
  *
  * ⚠️ A ORDEM DAS RECUSAS É A ORDEM DO QUE O USUÁRIO CONSEGUE RESOLVER. Quem tem
@@ -116,6 +142,13 @@ export function validarArquivamento(
   const funil = funis.find((f) => f.id === funilId);
   if (!funil) {
     return { ok: false, erro: "Esse funil não está mais na sua lista. Recarregue a página e tente de novo." };
+  }
+
+  // O principal vem antes de tudo: nada que o usuário resolva o tira daqui (não
+  // há "eleger outro principal"), então mandá-lo resolver outra recusa primeiro
+  // seria gastar um passo dele à toa.
+  if (funil.is_primary) {
+    return { ok: false, erro: principalFixo(funil.name, "não se arquiva nem se exclui — dá para renomear e trocar a cor") };
   }
 
   if (ativos(funis).filter((f) => f.id !== funilId).length === 0) {
@@ -133,6 +166,30 @@ export function validarArquivamento(
       erro:
         `«${funil.name}» é o funil padrão: é para ele que vai o negócio criado sem funil escolhido. ` +
         `Marque OUTRO funil como padrão antes de arquivar este.`,
+    };
+  }
+
+  // #2559 — A MARCA DE FUNIL DE CLIENTES NÃO VAI PRESA NO ARQUIVO.
+  //
+  // Arquivar gravava só `is_archived = true` e deixava `is_client_pipeline`
+  // no funil que sumia da lista. Enquanto isso, `lib/leads/nascimento-do-lead.ts`
+  // filtra `is_client_pipeline` junto de `is_archived = false`: o lead de cliente
+  // caía no padrão sem aviso, e ao TIRAR DO ARQUIVO a marca voltava sem ninguém
+  // ter escolhido — era a surpresa nº 2 da #2559. É o MESMO molde do funil
+  // padrão logo acima (`MarcaExclusiva` é um tipo só para as duas serem a mesma
+  // regra), e a ordem é a mesma: o que só resolve marcando OUTRO vem antes das
+  // dependências. A marca do outro tem de existir (ou ninguém decide nada), mas
+  // o índice `uniq_crm_pipelines_org_client` já garante que só um a carrega.
+  //
+  // ⚠️ O `{nome}` NOMEIA O FUNIL COMO CHAVE DE TRADUÇÃO, não como texto final:
+  // este módulo devolve PT e a rota `DELETE` faz `t(erro).replace("{nome}", …)`.
+  // Aqui dentro interpolar o nome deixaria a frase fora do dicionário.
+  if (funil.is_client_pipeline && !funis.some((f) => f.id !== funilId && f.is_client_pipeline)) {
+    return {
+      ok: false,
+      erro:
+        "«{nome}» é o funil de clientes: é para ele que vai o lead que já é cliente. " +
+        "Marque OUTRO funil como funil de clientes antes de arquivar este.",
     };
   }
 
@@ -167,6 +224,41 @@ export function validarArquivamento(
 }
 
 /**
+ * A frase da recusa sobre o funil principal, num lugar só (arquivar, excluir e
+ * mover de CRM usam a mesma).
+ */
+function principalFixo(nome: string, oQue: string): string {
+  return `«${nome}» é o funil principal deste CRM — é nele que fica a Etapa de entrada, onde chega todo contato novo — e ${oQue}.`;
+}
+
+/**
+ * Recusa levar o funil principal para outro CRM: o CRM de origem ficaria sem
+ * Etapa de entrada, e o de destino já tem o principal dele (índice único).
+ */
+export function validarMudancaDeCrm(funil: FunilEditavel, crmDestino: string): Resultado {
+  if (!funil.is_primary || funil.crm_id === crmDestino) return { ok: true };
+  return { ok: false, erro: principalFixo(funil.name, "não muda de CRM") };
+}
+
+/**
+ * O nome do funil principal que nasce com um CRM novo — "Funil de vendas", como
+ * no Kommo. O nome de funil é único entre os VIVOS da organização (regra da tela),
+ * então no segundo CRM ele leva o nome do CRM entre parênteses, a mesma
+ * convenção de `fn_crm_duplicar`, e um contador se ainda colidir.
+ */
+export function nomeDoFunilPrincipal(nomeDoCrm: string, funis: FunilEditavel[]): string {
+  const base = "Funil de vendas";
+  const livre = (nome: string) => validarNomeDeFunil(nome, funis, null).ok;
+  if (livre(base)) return base;
+  const comCrm = `${base} (${nomeDoCrm.trim()})`.slice(0, 80);
+  if (livre(comCrm)) return comCrm;
+  for (let n = 2; ; n++) {
+    const candidato = `${base} (${nomeDoCrm.trim()} ${n})`.slice(0, 80);
+    if (livre(candidato)) return candidato;
+  }
+}
+
+/**
  * Recusa a exclusão definitiva — a operação que não tem volta.
  *
  * Herda TODA recusa do arquivamento de propósito: excluir é mais grave que
@@ -184,11 +276,30 @@ export function podeExcluirDeVez(
   if (deps.negocios > 0) {
     const funil = funis.find((f) => f.id === funilId)!;
     const n = deps.negocios;
+    const um = n === 1;
+    const negocio = um ? "negócio" : "negócios";
+    const historico = um ? "dele" : "deles";
+    /**
+     * ⚠️ O CONSELHO MUDA CONFORME DE ONDE O CLIQUE VEIO (#979).
+     *
+     * "Arquive em vez de excluir" é a resposta certa para quem está com o funil
+     * na lista viva. Mas o "Excluir de vez" que leva aqui também mora na gaveta
+     * do arquivo — e para um funil que JÁ está arquivado aquilo é beco sem
+     * saída: manda arquivar algo que não está na lista, que é exatamente o
+     * estado sem saída da issue. A recusa em si NÃO muda (nega nos dois casos,
+     * nenhuma escrita sai); só o conselho aponta para a porta que existe
+     * dali — tirar do arquivo e resolver os negócios antes de excluir.
+     */
+    const conselho = funil.is_archived
+      ? `Ele já está no arquivo, então arquivar de novo não resolve: tire-o do arquivo e ` +
+        `resolva ${um ? "o negócio" : "os negócios"} antes de excluir.`
+      : `Arquive em vez de excluir — o funil sai da lista e nada se perde.`;
+
     return {
       ok: false,
       erro:
-        `«${funil.name}» tem ${n} ${n === 1 ? "negócio" : "negócios"}, e o histórico ${n === 1 ? "dele" : "deles"} ` +
-        `aponta para este funil. Arquive em vez de excluir — o funil sai da lista e nada se perde.`,
+        `«${funil.name}» tem ${n} ${negocio}, e o histórico ${historico} ` +
+        `aponta para este funil. ${conselho}`,
     };
   }
 
@@ -272,18 +383,19 @@ export function regrasQueApontamPara(regras: RegraDeAutomacao[], pipelineId: str
 }
 
 /**
- * As etapas com que um funil novo nasce.
+ * As etapas com que um funil novo nasce: só as duas FINAIS, ganho e perda.
  *
- * ⚠️ FUNIL SEM ETAPA É QUADRO MORTO — a doutrina do sistema vivo em uma linha: o
- * board abriria sem coluna nenhuma e não receberia negócio. E a etapa de GANHO
- * não é enfeite: `/leads/[id]/win` procura `is_won` e responde 422
- * `pipeline_no_won_stage` sem ela, ou seja, o funil nasceria incapaz de fechar
- * negócio.
+ * ⚠️ AS COLUNAS DO MEIO SÃO DE QUEM CRIA (decisão do dono, Funis no modelo
+ * Kommo): funil adicional nasce só com as colunas que o usuário criar, mais
+ * "Ganho" e "Perdido". E as duas finais não são enfeite — `/leads/[id]/win`
+ * procura `is_won` e responde 422 `pipeline_no_won_stage` sem ela, e levar um
+ * negócio para outro funil exige etapa de perda na ORIGEM
+ * (`origem_sem_etapa_de_perda`): sem ela o negócio ficaria preso no funil.
  *
- * Os nomes são neutros de propósito. O gatilho `fn_seed_default_pipeline_for_org`
- * semeia um funil de e-commerce ("Carrinho abandonado") em toda org nova, e é
- * justamente isso que uma clínica não consegue usar — repetir o erro no funil
- * criado à mão seria absurdo. Tudo aqui é renomeável em Configurações › Funis.
+ * O funil que nasce PRINCIPAL (o primeiro de um CRM) ganha também a Etapa de
+ * entrada, na frente — quem a cria é o gatilho `trg_crm_pipelines_entrada`
+ * (9007), não esta lista. As colunas novas do quadro entram ANTES destas duas
+ * (`posicaoDaEtapaNova` em `lib/leads/stage-editing.ts`).
  */
 export const ETAPAS_INICIAIS: ReadonlyArray<{
   name: string;
@@ -291,8 +403,6 @@ export const ETAPAS_INICIAIS: ReadonlyArray<{
   is_won: boolean;
   is_lost: boolean;
 }> = [
-  { name: "Novo", slug: "novo", is_won: false, is_lost: false },
-  { name: "Em andamento", slug: "em_andamento", is_won: false, is_lost: false },
   { name: "Ganho", slug: "ganho", is_won: true, is_lost: false },
   { name: "Perdido", slug: "perdido", is_won: false, is_lost: true },
 ];

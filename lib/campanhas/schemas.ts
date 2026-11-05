@@ -6,6 +6,9 @@
 import { z } from "zod";
 
 import { filtroDeAudienciaSchema } from "./audiencia";
+import { fusoValido } from "./fuso";
+import { variaveisDaCampanhaSchema } from "./modelo";
+import { MODOS_DA_MENSAGEM, VELOCIDADES_DA_CAMPANHA } from "./tipos";
 
 /**
  * O ritmo próprio. Todos opcionais e anuláveis: `null` devolve a decisão ao
@@ -15,12 +18,48 @@ import { filtroDeAudienciaSchema } from "./audiencia";
  * operador, não default de comportamento (os números de pacing são fonte única
  * em `lib/agent-engine/pacing/defaults.ts`).
  */
+/** 9018: os dois minutos juntos (ou nenhum), e o fim depois do início — o mesmo CHECK do banco. */
+function janelaEmMinutosCoerente(c: { janela_inicio_minuto?: number | null; janela_fim_minuto?: number | null }): boolean {
+  const i = c.janela_inicio_minuto;
+  const f = c.janela_fim_minuto;
+  if (i === undefined && f === undefined) return true;
+  if (i == null && f == null) return true;
+  return i != null && f != null && f > i;
+}
+
 export const ritmoSchema = z.object({
   intervalo_segundos: z.number().int().min(1).max(86_400).nullable().optional(),
   janela_inicio_hora: z.number().int().min(0).max(23).nullable().optional(),
   janela_fim_hora: z.number().int().min(1).max(24).nullable().optional(),
   teto_diario: z.number().int().min(1).max(10_000).nullable().optional(),
   teto_horario: z.number().int().min(1).max(10_000).nullable().optional(),
+  /** 9018: janela diária em minutos do dia (HH:mm). Manda sobre a de horas. */
+  janela_inicio_minuto: z.number().int().min(0).max(1439).nullable().optional(),
+  janela_fim_minuto: z.number().int().min(1).max(1440).nullable().optional(),
+  /** 9020: "chamar N por período" — a rodada espaça pela janela. */
+  cota_quantidade: z.number().int().min(1).max(10_000).nullable().optional(),
+  cota_periodo: z.enum(["hora", "dia", "semana", "mes"]).nullable().optional(),
+  /** Item 7: intervalo SORTEADO entre min e max (segundos). */
+  min_interval_seconds: z.number().int().min(10).max(86_400).optional(),
+  max_interval_seconds: z.number().int().min(10).max(86_400).optional(),
+  /** Item 7: fuso IANA da janela desta campanha. `null` = o do número. */
+  timezone: z
+    .string()
+    .trim()
+    .max(64)
+    .refine((f) => fusoValido(f), "fuso horário desconhecido")
+    .nullable()
+    .optional(),
+  /**
+   * Migration 0711. Ausente = a que já está (`gradual` numa campanha nova). A
+   * rota confere contra o número: rápida só com modelo aprovado.
+   */
+  velocidade: z.enum(VELOCIDADES_DA_CAMPANHA).optional(),
+  /**
+   * Migration 0765. Texto em balões, um por parágrafo; ausente = o que já está
+   * (`false` numa campanha nova). Modelo aprovado nunca se divide.
+   */
+  split_messages: z.boolean().optional(),
 });
 
 const baseDaCampanha = {
@@ -28,6 +67,15 @@ const baseDaCampanha = {
   description: z.string().trim().max(4000).nullable().optional(),
   channel_session_id: z.string().uuid(),
   message_body: z.string().trim().max(4096).nullable().optional(),
+  /**
+   * Migration 0710 (#1330, fatia 4). Ausente = `text`, que é o que toda campanha
+   * anterior é. A rota confere contra o número: o modo é o que o canal aceita
+   * (`modoDeCampanhaDoCanal`), nunca uma escolha solta do corpo.
+   */
+  message_mode: z.enum(MODOS_DA_MENSAGEM).optional(),
+  provider_template_name: z.string().trim().min(1).max(512).nullable().optional(),
+  provider_template_language: z.string().trim().min(2).max(15).nullable().optional(),
+  provider_template_variables: variaveisDaCampanhaSchema.optional(),
   base_legal: z.enum(["consent", "legitimate_interest"]),
   lia_ref: z.string().trim().max(120).nullable().optional(),
   audience_filter: filtroDeAudienciaSchema.optional(),
@@ -44,6 +92,25 @@ const baseDaCampanha = {
   pipeline_id: z.string().uuid().nullable().optional(),
   stage_id: z.string().uuid().nullable().optional(),
   agent_id: z.string().uuid().nullable().optional(),
+  /** Item 4: `text` manda a mensagem; `flow` inscreve cada contato no fluxo `flow_id`. */
+  mode: z.enum(["text", "flow"]).optional(),
+  flow_id: z.string().uuid().nullable().optional(),
+  /** Item 3 (9016): ao enviar, o card vai para esta etapa ("Quem recebe"). */
+  recipients_pipeline_id: z.string().uuid().nullable().optional(),
+  recipients_stage_id: z.string().uuid().nullable().optional(),
+  /**
+   * "Ritmo e Programação": o início PLANEJADO no rascunho (UTC). A campanha só
+   * vira `scheduled` pela ação Agendar, depois de preparada; a rota recusa
+   * horário passado e exige o fuso.
+   */
+  scheduled_at: z.string().datetime().nullable().optional(),
+  /** 9019: o idioma da campanha (inicia o idioma da prospecção/conversa do contato). */
+  language: z
+    .string()
+    .trim()
+    .regex(/^[a-z]{2,3}([-_][A-Za-z0-9]{2,8})?$/, "idioma no formato pt-PT, es, en")
+    .nullable()
+    .optional(),
 };
 
 export const criarCampanhaSchema = z
@@ -58,6 +125,18 @@ export const criarCampanhaSchema = z
       path: ["lia_ref"],
     },
   )
+  .refine(
+    (c) => c.min_interval_seconds == null || c.max_interval_seconds == null || c.max_interval_seconds >= c.min_interval_seconds,
+    { message: "O intervalo máximo não pode ser menor que o mínimo.", path: ["max_interval_seconds"] },
+  )
+  .refine((c) => c.mode !== "flow" || c.flow_id != null, {
+    message: "Escolha o fluxo que a campanha vai iniciar.",
+    path: ["flow_id"],
+  })
+  .refine((c) => c.recipients_stage_id == null || c.recipients_pipeline_id != null, {
+    message: "Escolha o funil de quem recebe antes da etapa.",
+    path: ["recipients_stage_id"],
+  })
   .refine((c) => c.stage_id == null || c.pipeline_id != null, {
     message: "Escolha o funil antes da etapa — etapa sem funil seria um card sem coluna.",
     path: ["stage_id"],
@@ -68,7 +147,11 @@ export const criarCampanhaSchema = z
       c.janela_fim_hora == null ||
       c.janela_fim_hora > c.janela_inicio_hora,
     { message: "A janela precisa terminar depois de começar.", path: ["janela_fim_hora"] },
-  );
+  )
+  .refine((c) => janelaEmMinutosCoerente(c), {
+    message: "A janela precisa de início e fim, e terminar depois de começar.",
+    path: ["janela_fim_minuto"],
+  });
 
 /** Edição de rascunho: tudo opcional, e a mesma checagem de base legal na rota. */
 export const editarCampanhaSchema = z
@@ -77,6 +160,10 @@ export const editarCampanhaSchema = z
     description: baseDaCampanha.description,
     channel_session_id: baseDaCampanha.channel_session_id.optional(),
     message_body: baseDaCampanha.message_body,
+    message_mode: baseDaCampanha.message_mode,
+    provider_template_name: baseDaCampanha.provider_template_name,
+    provider_template_language: baseDaCampanha.provider_template_language,
+    provider_template_variables: baseDaCampanha.provider_template_variables,
     base_legal: baseDaCampanha.base_legal.optional(),
     lia_ref: baseDaCampanha.lia_ref,
     audience_filter: filtroDeAudienciaSchema.optional(),
@@ -84,13 +171,37 @@ export const editarCampanhaSchema = z
     pipeline_id: baseDaCampanha.pipeline_id,
     stage_id: baseDaCampanha.stage_id,
     agent_id: baseDaCampanha.agent_id,
+    mode: baseDaCampanha.mode,
+    flow_id: baseDaCampanha.flow_id,
+    recipients_pipeline_id: baseDaCampanha.recipients_pipeline_id,
+    recipients_stage_id: baseDaCampanha.recipients_stage_id,
+    scheduled_at: baseDaCampanha.scheduled_at,
+    language: baseDaCampanha.language,
   })
-  .merge(ritmoSchema);
+  .merge(ritmoSchema)
+  .refine((c) => janelaEmMinutosCoerente(c), {
+    message: "A janela precisa de início e fim, e terminar depois de começar.",
+    path: ["janela_fim_minuto"],
+  });
 
 export const previaSchema = z.object({
   audience_filter: filtroDeAudienciaSchema,
   message_body: z.string().max(4096).default(""),
   campaign_id: z.string().uuid().optional(),
+  /** Item 6: com consentimento, a prévia já conta quem não consentiu como fora. */
+  base_legal: z.enum(["consent", "legitimate_interest"]).optional(),
+  /**
+   * Com modelo, quem sai por `variavel_ausente` é decidido pelo MAPA de
+   * variáveis, não pelo texto — a prévia precisa dele para contar certo.
+   */
+  modelo: z
+    .object({
+      channel_session_id: z.string().uuid(),
+      name: z.string().trim().min(1).max(512),
+      language: z.string().trim().min(2).max(15),
+      variables: variaveisDaCampanhaSchema.default({}),
+    })
+    .optional(),
 });
 
 export const criarTemplateSchema = z.object({
@@ -114,7 +225,16 @@ export const criarExclusaoSchema = z.object({
   contact_id: z.string().uuid().nullable().optional(),
 });
 
-export const agendarSchema = z.object({ scheduled_at: z.string().datetime() });
+export const agendarSchema = z.object({
+  scheduled_at: z.string().datetime(),
+  /** O fuso em que o operador escolheu a data (gravado junto, para a tela mostrar igual). */
+  timezone: z
+    .string()
+    .trim()
+    .max(64)
+    .refine((f) => fusoValido(f), "fuso horário desconhecido")
+    .optional(),
+});
 export const testarSchema = z.object({ contact_id: z.string().uuid() });
 
 export const listarCampanhasSchema = z.object({
@@ -146,4 +266,21 @@ export function decodificarCursor(bruto: string): { created_at: string; id: stri
   } catch {
     return null;
   }
+}
+
+/**
+ * O início planejado é coerente? Recusa horário passado e agendamento sem fuso
+ * (a data foi escolhida NUM fuso; sem ele, o servidor não saberia mostrar a
+ * mesma data de volta). `null` = ok; senão, a frase do erro.
+ */
+export function problemaDoInicioPlanejado(
+  scheduledAt: string | null | undefined,
+  fuso: string | null | undefined,
+  agora: Date,
+): string | null {
+  if (!scheduledAt) return null;
+  if (!fusoValido(fuso)) return "Para agendar, escolha o fuso horário da campanha.";
+  if (new Date(scheduledAt).getTime() <= agora.getTime())
+    return "O horário agendado já passou. Escolha uma data e hora no futuro.";
+  return null;
 }

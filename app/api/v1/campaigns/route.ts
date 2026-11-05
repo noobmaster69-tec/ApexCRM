@@ -17,12 +17,15 @@ import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { FILTRO_VAZIO } from "@/lib/campanhas/audiencia";
+import { vincularListaACampanha } from "@/lib/campanhas/importar-audiencia";
+import { decidirConteudo, decidirVelocidade, lerModoDoCanal } from "@/lib/campanhas/conteudo-do-canal";
 import { gravarPool } from "@/lib/campanhas/pool-de-numeros";
 import {
   codificarCursor,
   criarCampanhaSchema,
   decodificarCursor,
   listarCampanhasSchema,
+  problemaDoInicioPlanejado,
 } from "@/lib/campanhas/schemas";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { requireSupportWrite } from "@/lib/impersonate/support";
@@ -34,7 +37,8 @@ export const dynamic = "force-dynamic";
 const COLUNAS_DA_LISTA =
   "id, name, status, channel_session_id, snapshot_total, snapshot_eligible, snapshot_excluded, " +
   "scheduled_at, started_at, completed_at, cancelled_at, created_at, created_by, " +
-  "pipeline_id, stage_id, agent_id";
+  "pipeline_id, stage_id, agent_id, mode, flow_id, recipients_pipeline_id, recipients_stage_id, timezone, language, " +
+  "message_mode, provider_template_name";
 
 export async function GET(req: NextRequest): Promise<Response> {
   const requestId = randomUUID();
@@ -103,6 +107,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
   }
   const entrada = parsed.data;
+  const doInicio = problemaDoInicioPlanejado(entrada.scheduled_at, entrada.timezone, new Date());
+  if (doInicio) return fail("campanha_agenda_invalida", t(doInicio), 422, { requestId });
 
   // Client ADMIN na escrita, e não o da sessão: a migration 0375 concede ao
   // papel `authenticated` apenas SELECT (a tela lê; só o servidor escreve), e o
@@ -113,19 +119,44 @@ export async function POST(req: NextRequest): Promise<Response> {
   const supabase = createAdminClient();
   // A conexão é conferida CONTRA A ORGANIZAÇÃO: a FK composta da 0375 recusaria
   // o número de outro tenant, mas a recusa do banco chegaria como erro genérico.
-  const { data: canal } = await supabase
-    .from("channel_sessions")
-    .select("id")
-    .eq("organization_id", org.orgId)
-    .eq("id", entrada.channel_session_id)
-    .maybeSingle();
-  if (!canal) {
+  const canal = await lerModoDoCanal(supabase, org.orgId, entrada.channel_session_id);
+  if (!canal.existe) {
     return fail(
       "campanha_canal_indisponivel",
       t("Escolha uma conexão de WhatsApp desta organização."),
       409,
       { requestId },
     );
+  }
+  // O conteúdo segue o que o número aceita: texto livre no QR, modelo aprovado
+  // no oficial (migration 0710). O modelo escolhido é conferido inteiro aqui.
+  const conteudo = await decidirConteudo(supabase, {
+    organizationId: org.orgId,
+    channelSessionId: entrada.channel_session_id,
+    extras: entrada.channel_session_ids ?? [],
+    modoDoCanal: canal.modo,
+    pedido: entrada,
+  });
+  if (!conteudo.ok) {
+    return fail(conteudo.codigo, t(conteudo.mensagem), conteudo.status, { requestId });
+  }
+  // Rápida só com modelo aprovado (migration 0711).
+  const velocidade = decidirVelocidade({ pedida: entrada.velocidade, atual: "gradual", modo: conteudo.modo });
+  if (!velocidade.ok) {
+    return fail(velocidade.codigo, t(velocidade.mensagem), velocidade.status, { requestId });
+  }
+
+  // Item 4: o fluxo é um FLUXO desta organização (a FK garante a org; a
+  // superfície é conferida aqui — follow-up não é disparável por campanha).
+  if (entrada.flow_id) {
+    const { data: fluxo } = await supabase
+      .from("followup_flow_pointers")
+      .select("id")
+      .eq("organization_id", org.orgId)
+      .eq("id", entrada.flow_id)
+      .eq("surface", "fluxo")
+      .maybeSingle();
+    if (!fluxo) return fail("not_found", t("Fluxo não encontrado."), 404, { requestId });
   }
 
   const { data, error } = await supabase
@@ -135,7 +166,8 @@ export async function POST(req: NextRequest): Promise<Response> {
       name: entrada.name,
       description: entrada.description ?? null,
       channel_session_id: entrada.channel_session_id,
-      message_body: entrada.message_body ?? null,
+      message_body: conteudo.modo === "template" ? null : (entrada.message_body ?? null),
+      ...conteudo.colunas,
       base_legal: entrada.base_legal,
       lia_ref: entrada.lia_ref ?? null,
       audience_filter: entrada.audience_filter ?? FILTRO_VAZIO,
@@ -144,9 +176,24 @@ export async function POST(req: NextRequest): Promise<Response> {
       janela_fim_hora: entrada.janela_fim_hora ?? null,
       teto_diario: entrada.teto_diario ?? null,
       teto_horario: entrada.teto_horario ?? null,
+      velocidade: velocidade.velocidade,
+      split_messages: entrada.split_messages ?? false,
       pipeline_id: entrada.pipeline_id ?? null,
       stage_id: entrada.stage_id ?? null,
       agent_id: entrada.agent_id ?? null,
+      mode: entrada.mode ?? "text",
+      min_interval_seconds: entrada.min_interval_seconds ?? 60,
+      max_interval_seconds: entrada.max_interval_seconds ?? 180,
+      timezone: entrada.timezone ?? null,
+      janela_inicio_minuto: entrada.janela_inicio_minuto ?? null,
+      janela_fim_minuto: entrada.janela_fim_minuto ?? null,
+      scheduled_at: entrada.scheduled_at ?? null,
+      language: entrada.language ?? null,
+      cota_quantidade: entrada.cota_quantidade ?? null,
+      cota_periodo: entrada.cota_quantidade ? (entrada.cota_periodo ?? null) : null,
+      recipients_pipeline_id: entrada.recipients_pipeline_id ?? null,
+      recipients_stage_id: entrada.recipients_stage_id ?? null,
+      flow_id: entrada.flow_id ?? null,
       created_by: user.id,
     })
     .select(COLUNAS_DA_LISTA)
@@ -158,6 +205,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const criada = data as unknown as { id: string };
+  await vincularListaACampanha(supabase, { organizationId: org.orgId, campanhaId: criada.id }, entrada.audience_filter);
   if ((entrada.channel_session_ids ?? []).length > 0) {
     // Falha do pool NÃO derruba a criação: a campanha existe e fala pelo número
     // principal. Devolver erro aqui faria o operador achar que nada foi criado
@@ -182,7 +230,12 @@ export async function POST(req: NextRequest): Promise<Response> {
     resourceType: "campaign",
     resourceId: criada.id,
     requestId,
-    metadata: { base_legal: entrada.base_legal, numeros: 1 + (entrada.channel_session_ids ?? []).length },
+    metadata: {
+      base_legal: entrada.base_legal,
+      numeros: 1 + (entrada.channel_session_ids ?? []).length,
+      modo: conteudo.modo,
+      ...(conteudo.colunas.provider_template_name ? { modelo: conteudo.colunas.provider_template_name } : {}),
+    },
   });
 
   return ok(data, { requestId, status: 201 });

@@ -111,9 +111,12 @@ describe("POST /api/v1/pipelines/[id]/stages", () => {
         pipeline_id: PIPE,
         name: "Pós-venda",
         slug: "pos-venda",
-        // A última posição do funil é 4000 (a fixture chega embaralhada): a etapa
-        // nova entra DEPOIS dela, não no meio.
-        position: 5000,
+        // As duas últimas colunas são as finais («Pago» ganho em 3000,
+        // «Cancelado» perda em 4000): a nova entra ANTES delas, como no Kommo —
+        // entre «Proposta» (2000) e «Pago».
+        position: 2500,
+        // Sem cor pedida, a coluna nasce sem cor — declarado, não omitido.
+        color: null,
       }),
     );
 
@@ -121,9 +124,9 @@ describe("POST /api/v1/pipelines/[id]/stages", () => {
     expect(body.data.etapas.map((e) => e.name)).toEqual([
       "Novo",
       "Proposta",
+      "Pós-venda",
       "Pago",
       "Cancelado",
-      "Pós-venda",
     ]);
   });
 
@@ -194,9 +197,132 @@ describe("POST /api/v1/pipelines/[id]/stages", () => {
   });
 });
 
+describe("GET /api/v1/pipelines/[id]/stages", () => {
+  /**
+   * ⭐ #2999 — o `select()` do GET deixou de fora `win_probability` e
+   * `avisar_na_central`. O PATCH grava, o GET devolve — a tela de
+   * configurações do funil mostrava os dois campos vazios logo depois de
+   * salvar. O dublê projeta as colunas pedidas de verdade, então omitir o
+   * campo do `.select()` faz este teste falhar na hora de ler `win_probability`
+   * da resposta.
+   */
+  it("traz a chance de fechamento e o aviso de equipe gravados na etapa", async () => {
+    authOk();
+    const stages = funil().map((e) =>
+      e.id === "e2"
+        ? { ...e, win_probability: 40, avisar_na_central: true }
+        : e.id === "e3"
+          ? { ...e, win_probability: 100, avisar_na_central: false }
+          : { ...e, win_probability: null, avisar_na_central: false },
+    );
+    makeDb({ stages });
+    const { GET } = await import("./route");
+    const req = new NextRequest(`http://localhost/api/v1/pipelines/${PIPE}/stages`, { method: "GET" });
+    const res = await GET(req, ctx);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ id: string; win_probability: number | null; avisar_na_central: boolean }>;
+    };
+    const porId = Object.fromEntries(body.data.map((e) => [e.id, e]));
+    // A etapa calibrada devolve o valor gravado — se o select omitir a coluna,
+    // o campo vem undefined e o `toEqual` falha.
+    expect(porId["e2"]?.win_probability).toEqual(40);
+    expect(porId["e2"]?.avisar_na_central).toEqual(true);
+    // Ganho vale 100 NA REGRA (não gravado aqui); o valor calibrado viaja igual.
+    expect(porId["e3"]?.win_probability).toEqual(100);
+    // Etapa sem calibração devolve null, não undefined — o select trouxe a coluna.
+    expect(porId["e1"]?.win_probability).toEqual(null);
+  });
+
+  it("respeita o tenant do JWT (etapa de outra org não aparece)", async () => {
+    authOk();
+    const stages = funil().map((e) => ({
+      ...e,
+      organization_id: OUTRA_ORG,
+      win_probability: 50,
+      avisar_na_central: true,
+    }));
+    makeDb({ pipelineOrg: OUTRA_ORG, stages });
+    const { GET } = await import("./route");
+    const req = new NextRequest(`http://localhost/api/v1/pipelines/${PIPE}/stages`, { method: "GET" });
+    const res = await GET(req, ctx);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ id: string }> };
+    expect(body.data).toEqual([]);
+  });
+});
+
 // Este teste isola o handler; autoridade de suporte é exercitada na suíte própria.
 vi.mock("@/lib/impersonate/support", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/impersonate/support")>(),
   requireSupportWrite: vi.fn(async () => null),
   authenticatedSessionId: vi.fn(async () => "f2200000-0000-4000-8000-000000000099"),
 }));
+
+describe("POST com cor e marcação (Funis no modelo Kommo, Fase B)", () => {
+  it("cria com a cor no insert e MOVE o ganho: insert, solta a antiga, marca a nova — nessa ordem", async () => {
+    authOk();
+    const db = makeDb({ stages: funil() });
+    const { POST } = await import("./route");
+    const res = await POST(reqPost({ name: "Fechado - ganho", color: "#d7fc70", is_won: true }), ctx);
+
+    expect(res.status).toBe(201);
+    expect(db.escritas.map((e) => e.tipo)).toEqual(["insert", "update", "update"]);
+    expect(db.escritas[0]?.patch).toMatchObject({ name: "Fechado - ganho", color: "#d7fc70" });
+    expect(db.escritas[0]?.patch).not.toHaveProperty("is_won");
+    // «Pago» (e3) era o ganho: solta ANTES — o índice único é imediato.
+    expect(db.escritas[1]?.filtros).toContainEqual(["id", "e3"]);
+    expect(db.escritas[1]?.patch).toEqual(comAutoria({ is_won: false }));
+    expect(db.escritas[2]?.filtros).toContainEqual(["id", "novo-1-0"]);
+    expect(db.escritas[2]?.patch).toEqual(comAutoria({ is_won: true }));
+  });
+
+  it("ganho E perda ao mesmo tempo → 422, e nenhuma escrita", async () => {
+    authOk();
+    const db = makeDb({ stages: funil() });
+    const { POST } = await import("./route");
+    const res = await POST(reqPost({ name: "Fim", is_won: true, is_lost: true }), ctx);
+    expect(res.status).toBe(422);
+    expect(db.escritas).toEqual([]);
+  });
+
+  it("cor fora do formato → 422 do Zod, e nenhuma escrita", async () => {
+    authOk();
+    const db = makeDb({ stages: funil() });
+    const { POST } = await import("./route");
+    const res = await POST(reqPost({ name: "Retorno", color: "red" }), ctx);
+    expect(res.status).toBe(422);
+    expect(db.escritas).toEqual([]);
+  });
+
+  it("funil que só tem a entrada e as finais: a coluna nova entra entre a entrada e «Ganho»", async () => {
+    authOk();
+    // É o funil adicional/principal como nasce na Fase C: sem colunas do meio.
+    const db = makeDb({
+      stages: [
+        etapa({ id: "g", name: "Ganho", position: 1000, is_won: true }),
+        etapa({ id: "p", name: "Perdido", position: 2000, is_lost: true }),
+        etapa({ id: "en", name: "Etapa de entrada", position: 0, is_entry: true }),
+      ],
+    });
+    const { POST } = await import("./route");
+    await POST(reqPost({ name: "Qualificando" }), ctx);
+    expect((db.escritas[0]?.patch as Record<string, unknown>).position).toBe(500);
+  });
+
+  it("funil sem final na ponta: a coluna nova entra depois da MAIOR posição", async () => {
+    authOk();
+    const db = makeDb({
+      stages: [
+        etapa({ id: "a", name: "Pago", position: 1000, is_won: true }),
+        etapa({ id: "b", name: "Cancelado", position: 2000, is_lost: true }),
+        etapa({ id: "c", name: "Entregue", position: 3000 }),
+      ],
+    });
+    const { POST } = await import("./route");
+    await POST(reqPost({ name: "Pós-venda" }), ctx);
+    expect((db.escritas[0]?.patch as Record<string, unknown>).position).toBe(4000);
+  });
+});

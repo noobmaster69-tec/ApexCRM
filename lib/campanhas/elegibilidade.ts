@@ -24,16 +24,33 @@
  * registrada que `lib/automation/guarda-do-contato.ts` já respeita no resto do
  * produto. A campanha não cria régua concorrente: lê as que existem.
  */
-import type { MotivoDeExclusao } from "./tipos";
+import type { CamposPersonalizados } from "./renderizador";
+import type { MotivoDeExclusao, StatusDoDestinatario } from "./tipos";
 
 /** O que se sabe do destinatário na hora de decidir. Nada além disto importa. */
 export interface ContatoParaDecidir {
   contactId: string;
   telefone: string | null;
   bloqueado: boolean;
+  /** `contacts.is_personal` (spec 21): fora da operação, nada sai para ele. */
+  pessoal: boolean;
   anonimizado: boolean;
   /** `consent.marketing.declined_at` — recusa REGISTRADA, diferente de ausência. */
   recusouMarketing: boolean;
+  /**
+   * Item 6: `consent.marketing.granted_at` sem recusa depois — consentimento
+   * REGISTRADO. Só pesa quando a base legal da campanha é consentimento.
+   */
+  consentiu?: boolean;
+  /** Campo "Não contatar" (`custom_fields.nao_contatar`) marcado na ficha. */
+  naoContatar?: boolean;
+}
+
+/** `nao_contatar` marcado? Aceita booleano e os textos que planilha e formulário gravam. */
+export function marcadoNaoContatar(campos: Record<string, unknown> | null | undefined): boolean {
+  const v = campos && Object.prototype.hasOwnProperty.call(campos, "nao_contatar") ? campos.nao_contatar : null;
+  if (v === true) return true;
+  return typeof v === "string" && /^(true|sim|s|1|yes|x)$/i.test(v.trim());
 }
 
 /** O telefone que o canal aceita: E.164 com `+`, o mesmo CHECK de `contacts.phone_number`. */
@@ -47,19 +64,53 @@ const E164 = /^\+\d{8,15}$/;
  * alguém que pediu para parar, e trocar isso na tela seria mentir sobre o
  * motivo de não ter recebido.
  */
-export function motivoParaExcluir(c: ContatoParaDecidir): MotivoDeExclusao | null {
+export function motivoParaExcluir(
+  c: ContatoParaDecidir,
+  opcoes: { exigeConsentimento?: boolean } = {},
+): MotivoDeExclusao | null {
   if (c.bloqueado) return "opt_out";
+  if (c.pessoal) return "contato_pessoal";
   if (c.anonimizado) return "anonimizado";
   if (c.recusouMarketing) return "recusou_marketing";
+  if (c.naoContatar) return "nao_contatar";
+  // Item 6: base legal CONSENTIMENTO só fala com quem consentiu — ausência de
+  // registro não é consentimento.
+  if (opcoes.exigeConsentimento && !c.consentiu) return "sem_consentimento";
   const telefone = c.telefone?.trim() ?? "";
   if (telefone === "") return "sem_telefone";
   if (!E164.test(telefone)) return "telefone_invalido";
   return null;
 }
 
+/**
+ * O status de quem a rodada tira da fila. Pessoal tem saída própria (spec 21,
+ * D7): nunca `opted_out`, que inflaria "pediu para parar" com quem nunca pediu.
+ */
+export function statusDaSaida(motivo: MotivoDeExclusao): StatusDoDestinatario {
+  if (motivo === "opt_out") return "opted_out";
+  if (motivo === "contato_pessoal") return "personal";
+  return "skipped";
+}
+
 /** Um candidato do recorte, já lido do banco. */
 export interface CandidatoDaAudiencia extends ContatoParaDecidir {
   nome: string | null;
+  /** Para as variáveis (item 2): e-mail e `contacts.custom_fields`. */
+  email?: string | null;
+  campos?: Record<string, unknown>;
+  /** `contacts.locale`, `source` e `last_activity_at` — as variáveis {idioma_contato}, {origem_contato}, {ultima_interacao}. */
+  locale?: string | null;
+  origem?: string | null;
+  ultimaInteracao?: string | null;
+  /**
+   * Campos personalizados que o TEXTO usa — `{{lead.gancho}}`,
+   * `{{contato.link_previa}}`. Só entram quando o corpo pede (ver
+   * `consulta-de-audiencia.ts`): sem eles o renderizador marca FALTA e a pessoa
+   * sai da lista com `variavel_ausente`, que é a MESMA regra de `{{nome}}` sem
+   * nome no cadastro.
+   */
+  lead?: CamposPersonalizados | null;
+  contato?: CamposPersonalizados | null;
 }
 
 export interface LinhaClassificada {
@@ -82,6 +133,8 @@ export interface ContextoDaClassificacao {
   suprimidos: ReadonlySet<string>;
   /** O hash de um endereço — injetado para esta função continuar pura. */
   hashDoEndereco: (endereco: string) => string;
+  /** Item 6: a base legal é consentimento — quem não consentiu fica de fora. */
+  exigeConsentimento?: boolean;
   /** Renderiza o texto e diz o que faltou. Injetado para esta função ficar pura. */
   renderizar: (c: CandidatoDaAudiencia) => { texto: string; faltando: string[] };
 }
@@ -122,7 +175,7 @@ export function classificarAudiencia(
       excluir("excluido_manualmente");
       continue;
     }
-    const pessoal = motivoParaExcluir(candidato);
+    const pessoal = motivoParaExcluir(candidato, { exigeConsentimento: ctx.exigeConsentimento });
     if (pessoal) {
       excluir(pessoal);
       continue;
@@ -162,6 +215,21 @@ export function contarExclusoes(
     if (linha.motivo) conta[linha.motivo] = (conta[linha.motivo] ?? 0) + 1;
   }
   return conta;
+}
+
+/**
+ * Item 6: há consentimento de marketing REGISTRADO (`granted_at`) e ele não foi
+ * revogado depois (`declined_at` mais recente que ele).
+ */
+export function consentiuMarketing(consent: unknown): boolean {
+  if (!consent || typeof consent !== "object") return false;
+  const m = (consent as Record<string, unknown>).marketing;
+  if (!m || typeof m !== "object") return false;
+  const dado = (m as Record<string, unknown>).granted_at;
+  const recusa = (m as Record<string, unknown>).declined_at;
+  if (typeof dado !== "string" || dado === "") return false;
+  if (typeof recusa === "string" && recusa !== "" && recusa >= dado) return false;
+  return true;
 }
 
 /** Lê `contacts.consent` sem confiar no shape — é jsonb livre. */

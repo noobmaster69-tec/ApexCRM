@@ -28,6 +28,14 @@ export const EXTENSION_PERMISSIONS = [
   "navigation.contacts",
   "navigation.agenda",
   "navigation.radar",
+  // O consentimento para um tema de extensão pintar o produto — mostrado na
+  // MESMA tela que lista as demais permissões antes de alguém aceitar a extensão.
+  "theme.apply",
+  // A concessão de um módulo de DADOS: ele guarda fichas próprias, declaradas no manifesto e
+  // compiladas pelo host. Entra na lista porque aparece na MESMA tela de consentimento das outras —
+  // um pacote de dados não pede porta de navegação, e dar-lhe uma que ele não usa só para caber na
+  // validação seria mentir para quem lê a tela (ADR-0005, D4).
+  "dados.proprios",
 ] as const;
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number];
 
@@ -56,7 +64,7 @@ interface PortaDaCapacidade {
 export const PORTA_DA_CAPACIDADE: Record<ExtensionCapability, PortaDaCapacidade> = {
   "tasks.open": { destino: "/app/tasks", permissao: "navigation.tasks" },
   "inbox.open": { destino: "/app/inbox", permissao: "navigation.inbox" },
-  "kanban.open": { destino: "/app/kanban", permissao: "navigation.kanban" },
+  "kanban.open": { destino: "/app/crms", permissao: "navigation.kanban" },
   "contacts.open": { destino: "/app/contacts", permissao: "navigation.contacts" },
   "agenda.open": { destino: "/app/agenda", permissao: "navigation.agenda" },
   "radar.open": { destino: "/app/radar", permissao: "navigation.radar" },

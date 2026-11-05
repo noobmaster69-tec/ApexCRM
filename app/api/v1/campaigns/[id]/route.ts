@@ -14,9 +14,12 @@ import type { NextRequest } from "next/server";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
 import { carregarCampanha } from "@/lib/campanhas/acoes";
+import { vincularListaACampanha } from "@/lib/campanhas/importar-audiencia";
 import { ehEditavel, ehTerminal } from "@/lib/campanhas/maquina-de-estados";
 import { gravarPool, lerPoolExtra } from "@/lib/campanhas/pool-de-numeros";
-import { editarCampanhaSchema } from "@/lib/campanhas/schemas";
+import { decidirConteudo, decidirVelocidade, lerModoDoCanal } from "@/lib/campanhas/conteudo-do-canal";
+import { variaveisDaCampanhaSchema } from "@/lib/campanhas/modelo";
+import { editarCampanhaSchema, problemaDoInicioPlanejado } from "@/lib/campanhas/schemas";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { requireSupportWrite } from "@/lib/impersonate/support";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -28,8 +31,12 @@ const COLUNAS =
   "id, name, description, status, channel_session_id, message_body, base_legal, lia_ref, " +
   "audience_filter, audience_version, content_version, snapshot_total, snapshot_eligible, " +
   "snapshot_excluded, scheduled_at, prepared_at, started_at, paused_at, completed_at, " +
-  "cancelled_at, failure_code, intervalo_segundos, janela_inicio_hora, janela_fim_hora, " +
-  "teto_diario, teto_horario, pipeline_id, stage_id, agent_id, created_at, created_by";
+  "cancelled_at, failure_code, failure_detail, intervalo_segundos, janela_inicio_hora, janela_fim_hora, " +
+  "teto_diario, teto_horario, pipeline_id, stage_id, agent_id, mode, flow_id, " +
+  "min_interval_seconds, max_interval_seconds, timezone, next_send_at, " +
+  "janela_inicio_minuto, janela_fim_minuto, wait_reason, wait_until, language, cota_quantidade, cota_periodo, " +
+  "recipients_pipeline_id, recipients_stage_id, created_at, created_by, " +
+  "message_mode, provider_template_name, provider_template_language, provider_template_variables, velocidade, split_messages";
 
 export async function GET(
   _req: NextRequest,
@@ -103,8 +110,19 @@ export async function PATCH(
     "intervalo_segundos",
     "janela_inicio_hora",
     "janela_fim_hora",
+    "janela_inicio_minuto",
+    "janela_fim_minuto",
     "teto_diario",
     "teto_horario",
+    // Item 7: o ritmo sorteado e o fuso também são ritmo — sem eles na lista,
+    // "Salvar ritmo" numa campanha viva voltava 409.
+    "min_interval_seconds",
+    "max_interval_seconds",
+    "timezone",
+    "cota_quantidade",
+    "cota_periodo",
+    "velocidade",
+    "split_messages",
   ] as const;
   const mexeEmConteudo = Object.entries(entrada).some(
     ([campo, valor]) =>
@@ -139,6 +157,21 @@ export async function PATCH(
     );
   }
 
+  // "Ritmo e Programação": o início planejado (só rascunho) no futuro e com fuso.
+  if (entrada.scheduled_at) {
+    const fuso = entrada.timezone === undefined ? (campanha as { timezone?: string | null }).timezone : entrada.timezone;
+    const doInicio = problemaDoInicioPlanejado(entrada.scheduled_at, fuso, new Date());
+    if (doInicio) return fail("campanha_agenda_invalida", t(doInicio), 422, { requestId });
+  }
+
+  // Item 7: min ≤ max também contra o que JÁ está gravado (o PATCH pode mandar só um).
+  {
+    const atual = campanha as { min_interval_seconds?: number; max_interval_seconds?: number };
+    const min = entrada.min_interval_seconds ?? atual.min_interval_seconds ?? 60;
+    const max = entrada.max_interval_seconds ?? atual.max_interval_seconds ?? 180;
+    if (max < min)
+      return fail("validation_failed", t("O intervalo máximo não pode ser menor que o mínimo."), 422, { requestId });
+  }
   const mudanca: Record<string, unknown> = { updated_by: authz.user.id };
   for (const campo of [
     "name",
@@ -150,10 +183,24 @@ export async function PATCH(
     "janela_fim_hora",
     "teto_diario",
     "teto_horario",
+    "split_messages",
     "channel_session_id",
     "pipeline_id",
     "stage_id",
     "agent_id",
+    "mode",
+    "flow_id",
+    "min_interval_seconds",
+    "max_interval_seconds",
+    "timezone",
+    "recipients_pipeline_id",
+    "recipients_stage_id",
+    "janela_inicio_minuto",
+    "janela_fim_minuto",
+    "scheduled_at",
+    "language",
+    "cota_quantidade",
+    "cota_periodo",
   ] as const) {
     if (entrada[campo] !== undefined) mudanca[campo] = entrada[campo];
   }
@@ -161,18 +208,44 @@ export async function PATCH(
   if (entrada.lia_ref !== undefined) mudanca.lia_ref = entrada.lia_ref;
   // Mexer no TEXTO sobe a versão do conteúdo: é ela que o destinatário carrega,
   // e é por ela que se sabe se a mensagem preparada é a mensagem de hoje.
-  if (entrada.message_body !== undefined && entrada.message_body !== campanha.message_body) {
+  if (
+    (entrada.message_body !== undefined && entrada.message_body !== campanha.message_body) ||
+    (entrada.mode !== undefined && entrada.mode !== (campanha as { mode?: string }).mode) ||
+    (entrada.flow_id !== undefined && entrada.flow_id !== (campanha as { flow_id?: string | null }).flow_id)
+  ) {
     mudanca.content_version = campanha.content_version + 1;
   }
-
-  if (entrada.channel_session_id !== undefined) {
-    const { data: canal } = await supabase
-      .from("channel_sessions")
+  if (entrada.flow_id) {
+    const { data: fluxo } = await supabase
+      .from("followup_flow_pointers")
       .select("id")
       .eq("organization_id", authz.org.orgId)
-      .eq("id", entrada.channel_session_id)
+      .eq("id", entrada.flow_id)
+      .eq("surface", "fluxo")
       .maybeSingle();
-    if (!canal) {
+    if (!fluxo) return fail("not_found", t("Fluxo não encontrado."), 404, { requestId });
+  }
+
+  // ═══ O conteúdo segue o que o número aceita (migration 0710) ═══
+  //
+  // Trocar o número, o modelo, o mapa de variáveis ou os números extras passa
+  // pela MESMA decisão da criação: texto livre no QR, modelo aprovado e
+  // conferido no oficial, um número só quando há modelo. Trocar de número sem
+  // dizer o modelo descarta o anterior — cada número tem os próprios modelos.
+  const tocaConteudo = (
+    [
+      "channel_session_id",
+      "channel_session_ids",
+      "message_mode",
+      "provider_template_name",
+      "provider_template_language",
+      "provider_template_variables",
+    ] as const
+  ).some((campo) => entrada[campo] !== undefined);
+  if (tocaConteudo) {
+    const canalAlvo = entrada.channel_session_id ?? campanha.channel_session_id;
+    const canal = await lerModoDoCanal(supabase, authz.org.orgId, canalAlvo);
+    if (!canal.existe) {
       return fail(
         "campanha_canal_indisponivel",
         t("Escolha uma conexão de WhatsApp desta organização."),
@@ -180,6 +253,53 @@ export async function PATCH(
         { requestId },
       );
     }
+    const trocouDeNumero = canalAlvo !== campanha.channel_session_id;
+    const antigo = <T,>(novo: T | undefined, velho: T): T | null =>
+      novo !== undefined ? novo : trocouDeNumero ? null : velho;
+    const variaveisAntigas = variaveisDaCampanhaSchema.safeParse(campanha.provider_template_variables ?? {});
+    const decisao = await decidirConteudo(supabase, {
+      organizationId: authz.org.orgId,
+      channelSessionId: canalAlvo,
+      extras: entrada.channel_session_ids ?? (await lerPoolExtra(supabase, authz.org.orgId, id)),
+      modoDoCanal: canal.modo,
+      pedido: {
+        message_mode: entrada.message_mode,
+        provider_template_name: antigo(entrada.provider_template_name, campanha.provider_template_name),
+        provider_template_language: antigo(entrada.provider_template_language, campanha.provider_template_language),
+        provider_template_variables:
+          entrada.provider_template_variables ??
+          (trocouDeNumero || !variaveisAntigas.success ? {} : variaveisAntigas.data),
+      },
+    });
+    if (!decisao.ok) {
+      return fail(decisao.codigo, t(decisao.mensagem), decisao.status, { requestId });
+    }
+    Object.assign(mudanca, decisao.colunas);
+    if (decisao.modo === "template") mudanca.message_body = null;
+    // Trocar o modelo ou o mapa é trocar o texto: sobe a versão do conteúdo.
+    const mudouOModelo =
+      decisao.colunas.provider_template_name !== campanha.provider_template_name ||
+      decisao.colunas.provider_template_language !== campanha.provider_template_language ||
+      JSON.stringify(decisao.colunas.provider_template_variables) !==
+        JSON.stringify(campanha.provider_template_variables ?? {});
+    if (mudouOModelo && mudanca.content_version === undefined) {
+      mudanca.content_version = campanha.content_version + 1;
+    }
+  }
+
+  // ═══ A velocidade segue o conteúdo (migration 0711) ═══
+  // Rápida só com modelo. Pedida num número por QR, recusa; uma campanha rápida
+  // que trocou para um número por QR volta a gradual (a única que ali existe).
+  if (entrada.velocidade !== undefined || mudanca.message_mode !== undefined) {
+    const velocidade = decidirVelocidade({
+      pedida: entrada.velocidade,
+      atual: campanha.velocidade === "rapida" ? "rapida" : "gradual",
+      modo: (mudanca.message_mode ?? campanha.message_mode) === "template" ? "template" : "text",
+    });
+    if (!velocidade.ok) {
+      return fail(velocidade.codigo, t(velocidade.mensagem), velocidade.status, { requestId });
+    }
+    mudanca.velocidade = velocidade.velocidade;
   }
 
   // O compare-and-set prende o estado que foi CONFERIDO acima — não o literal
@@ -202,6 +322,9 @@ export async function PATCH(
       { requestId },
     );
   }
+
+  if (entrada.audience_filter !== undefined)
+    await vincularListaACampanha(supabase, { organizationId: authz.org.orgId, campanhaId: id }, entrada.audience_filter);
 
   if (entrada.channel_session_ids !== undefined) {
     const r = await gravarPool(supabase, {

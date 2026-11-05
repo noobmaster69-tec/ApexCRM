@@ -7,7 +7,7 @@ import {
   interfaceTemDestino,
   lerInterface,
 } from "@/lib/navigation/interface";
-import { sidebarGroups, searchable, hubSections } from "@/lib/navigation/registry";
+import { sidebarGroups, hubSections } from "@/lib/navigation/registry";
 import { signInviteToken, verifyInviteToken } from "@/lib/auth/invite-token";
 const complete = { preset: "completa" } as const;
 const simplified = { preset: "simplificada" } as const;
@@ -28,7 +28,7 @@ describe("interface por vínculo é apresentação", () => {
         "/app/inbox",
         "/app/agenda",
         "/app/contacts",
-        "/app/kanban",
+        "/app/crms",
         "/app/tasks",
       ]),
     );
@@ -40,15 +40,14 @@ describe("interface por vínculo é apresentação", () => {
   it("granular hub-only tem porta, home e busca úteis, sem grupos vazios", () => {
     const settings = interfaceSettingsSchema.parse(granular);
     expect(sidebarGroups(false, "admin", settings).map((g) => g.group.id)).toEqual([
-      "crm",
+      "operacoes",
       "organizacao",
     ]);
     expect(
-      hubSections("crm", false, "admin", settings)
+      hubSections("operacoes", false, "admin", settings)
         .flatMap((s) => s.items)
         .map((d) => d.href),
     ).toEqual(["/app/products"]);
-    expect(searchable(false, "admin", settings).map((d) => d.href)).toContain("/app/products");
     expect(homeDaInterface(settings, false, "admin")).toBe("/app/products");
     expect(hrefs(settings)).toEqual(
       expect.arrayContaining(["/app/team", "/app/settings/profile", "/app/settings/security"]),

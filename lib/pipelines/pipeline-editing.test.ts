@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ETAPAS_INICIAIS,
+  nomeOcupadoPorAtivo,
   podeExcluirDeVez,
   regrasQueApontamPara,
   updatesDeMarcaExclusiva,
@@ -9,6 +10,8 @@ import {
   validarNomeDeFunil,
   type DependenciasDoFunil,
   type FunilEditavel,
+  validarMudancaDeCrm,
+  nomeDoFunilPrincipal,
 } from './pipeline-editing';
 
 const funis: FunilEditavel[] = [
@@ -100,6 +103,52 @@ describe('validarArquivamento', () => {
     const r = validarArquivamento(soUm, 'f1', semDependencia);
     expect(r.ok === false && r.erro).toMatch(/único/i);
   });
+
+  /**
+   * #2559/2 — a marca de funil de clientes era a ÚNICA que arquivava presa no
+   * funil: `is_default` já tinha esta recusa e `is_client_pipeline` não, sendo
+   * que as duas são `MarcaExclusiva`. O molde é o do padrão logo acima.
+   */
+  it('recusa arquivar o funil de clientes quando nenhum outro está marcado (#2559)', () => {
+    const comMarca = funis.map((f) => (f.id === 'f2' ? { ...f, is_client_pipeline: true } : f));
+    const r = validarArquivamento(comMarca, 'f2', semDependencia);
+    expect(r.ok).toBe(false);
+    const erro = r.ok === false ? r.erro : '';
+    expect(erro).toMatch(/funil de clientes/);
+    expect(erro).toMatch(/Marque OUTRO funil como funil de clientes/);
+    // O nome vem como {nome}: quem devolve à tela é quem traduz e preenche.
+    expect(erro).toContain('{nome}');
+  });
+
+  it('com OUTRO já marcado, o arquivamento segue liberado (#2559)', () => {
+    // A recusa existe para a marca não sumir no arquivo sem ninguém escolher.
+    // Com outro funil já marcado, não há decisão pendente — e o índice
+    // `uniq_crm_pipelines_org_client` impede que os dois estejam marcados na
+    // prática. Aqui só se documenta que a régua é "sem outro marcado".
+    const comDois = funis.map((f) => ({ ...f, is_client_pipeline: f.id === 'f2' || f.id === 'f3' }));
+    expect(validarArquivamento(comDois, 'f2', semDependencia).ok).toBe(true);
+  });
+});
+
+describe('nomeOcupadoPorAtivo', () => {
+  // #2559/1 — desarquivar é update simples e o pedido misto é recusado, então a
+  // volta do funil era o ÚNICO caminho para dois funis com o mesmo nome na lista.
+  it('devolve o nome do ATIVO que já ocupa o nome do arquivado, dobrando acento e espaço', () => {
+    const lista = [
+      funis[0]!,
+      { ...funis[1]!, name: 'pos  venda' },
+      { ...funis[2]!, name: 'Antigo' },
+      { id: 'f9', name: ' antigo ', slug: 'antigo', position: 4000, is_default: false, is_archived: true },
+    ];
+    expect(nomeOcupadoPorAtivo(lista, 'f9')).toBe('Antigo');
+    expect(nomeOcupadoPorAtivo([...funis.slice(0, 2), { ...funis[2]!, is_archived: true }], 'f3')).toBeNull();
+  });
+
+  it('o próprio funil arquivado não colide consigo mesmo, e sem funil não há nome', () => {
+    const arquivado = { ...funis[2]!, is_archived: true };
+    expect(nomeOcupadoPorAtivo([...funis.slice(0, 2), arquivado], 'f3')).toBeNull();
+    expect(nomeOcupadoPorAtivo(funis, 'inexistente')).toBeNull();
+  });
 });
 
 describe('podeExcluirDeVez', () => {
@@ -107,6 +156,29 @@ describe('podeExcluirDeVez', () => {
     const r = podeExcluirDeVez(funis, 'f2', { ...semDependencia, negocios: 3 });
     expect(r.ok).toBe(false);
     expect(r.ok === false && r.erro).toMatch(/arquiv/i);
+  });
+
+  it('funil ATIVO com negócios → segue mandando arquivar, que é a porta certa de quem tem lista viva', () => {
+    const r = podeExcluirDeVez(funis, 'f2', { ...semDependencia, negocios: 3 });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.erro).toMatch(/Arquive em vez de excluir/);
+  });
+
+  /**
+   * #979 — o "Excluir de vez" do funil ARQUIVADO mora na gaveta do arquivo.
+   * A recusa que chega lá precisa apontar para uma saída que existe dali;
+   * mandar "arquive em vez de excluir" para quem está olhando um funil que já
+   * está arquivado é o mesmo beco sem saída de onde a issue nasceu.
+   */
+  it('funil JÁ arquivado com negócios → a recusa não manda arquivar de novo', () => {
+    const arquivados = funis.map((f) => (f.id === 'f2' ? { ...f, is_archived: true } : f));
+    const r = podeExcluirDeVez(arquivados, 'f2', { ...semDependencia, negocios: 3 });
+    expect(r.ok).toBe(false);
+    const erro = r.ok === false ? r.erro : '';
+    expect(erro).not.toMatch(/Arquive em vez de excluir/);
+    expect(erro).toMatch(/já está no arquivo/i);
+    expect(erro).toMatch(/tire-o do arquivo/i);
+    expect(erro).toMatch(/3 negócios/);
   });
 
   it('permite excluir o funil criado por engano — zero de tudo', () => {
@@ -261,5 +333,39 @@ describe('ETAPAS_INICIAIS', () => {
     const slugs = ETAPAS_INICIAIS.map((e) => e.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const slug of slugs) expect(slug).toMatch(/^[a-z0-9_-]{2,40}$/);
+  });
+});
+
+describe("o funil principal (Funis no modelo Kommo)", () => {
+  const funis = [
+    { id: "p", name: "Pedidos", slug: "pedidos", position: 1, is_default: true, is_archived: false, crm_id: "A" },
+    { id: "s", name: "Social Seller", slug: "social", position: 2, is_default: false, is_archived: false, crm_id: "B", is_primary: true },
+    { id: "d", name: "SDR", slug: "sdr", position: 3, is_default: false, is_archived: false, crm_id: "B" },
+  ];
+  const semDeps = { negocios: 0, fontesDeWebhook: [], regrasAtivas: [] };
+
+  it("não se arquiva nem se exclui, mesmo sem dependência nenhuma", () => {
+    expect(validarArquivamento(funis, "s", semDeps).ok).toBe(false);
+    expect(podeExcluirDeVez(funis, "s", semDeps).ok).toBe(false);
+    expect(validarArquivamento(funis, "d", semDeps).ok).toBe(true);
+  });
+
+  it("não muda de CRM; o adicional muda", () => {
+    expect(validarMudancaDeCrm(funis[1]!, "A").ok).toBe(false);
+    expect(validarMudancaDeCrm(funis[1]!, "B").ok).toBe(true);
+    expect(validarMudancaDeCrm(funis[2]!, "A").ok).toBe(true);
+  });
+
+  it("o funil de um CRM novo se chama «Funil de vendas», ou leva o nome do CRM se o nome estiver tomado", () => {
+    expect(nomeDoFunilPrincipal("Apex", funis)).toBe("Funil de vendas");
+    const comVendas = [...funis, { id: "v", name: "Funil de vendas", slug: "fv", position: 4, is_default: false, is_archived: false }];
+    expect(nomeDoFunilPrincipal("Apex", comVendas)).toBe("Funil de vendas (Apex)");
+    const comAmbos = [...comVendas, { id: "w", name: "Funil de vendas (Apex)", slug: "fva", position: 5, is_default: false, is_archived: false }];
+    expect(nomeDoFunilPrincipal("Apex", comAmbos)).toBe("Funil de vendas (Apex 2)");
+  });
+
+  it("funil ARQUIVADO com o nome não toma o nome", () => {
+    const arquivado = [{ id: "v", name: "Funil de vendas", slug: "fv", position: 4, is_default: false, is_archived: true }];
+    expect(nomeDoFunilPrincipal("Apex", arquivado)).toBe("Funil de vendas");
   });
 });

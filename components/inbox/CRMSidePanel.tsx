@@ -1,42 +1,86 @@
 "use client";
 
+import { CartaoDaCarteira } from "@/components/contacts/CartaoDaCarteira";
 import { RoteirosDoContato } from "@/components/contacts/RoteirosDoContato";
 import { AcervoSearch } from "./AcervoSearch";
 import { LeadEnrichment } from "./LeadEnrichment";
+import { AnuncioDoContato, type AnuncioDeOrigem, type AnuncioMaisRecente } from "./AnuncioDoContato";
+import { UltimasComprasDoContato } from "@/components/contacts/UltimasCompras";
 import type { ProspectEnrichment } from "@/lib/prospecting/schema";
+import type { PersonalizacaoProspeccao } from "@/lib/prospecting/personalizar";
 import { useAuth } from "@/hooks/auth/AuthProvider";
+import { roleAtLeast } from "@/lib/auth/types";
 import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 
 import type { Locale } from "date-fns";
 import Link from "next/link";
 import { useT } from "@/hooks/i18n/useT";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { format } from "date-fns";
-import { ChipDeEtiqueta } from "@/components/tags/ChipDeEtiqueta";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
-import { Tag, Receipt, Users, ArrowRight } from "@/lib/ui/icons";
+import { CalendarPlus, Tag as LucideTag, UserPlus } from "./icones";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { initials } from "@/lib/contacts/apresentacao-na-lista";
+import { telefoneLegivel } from "@/lib/inbox/telefone-legivel";
+import { Receipt, ArrowRight, CaretDoubleLeft, CaretDoubleRight } from "@/lib/ui/icons";
+import { ChipDeEtiqueta } from "@/components/tags/ChipDeEtiqueta";
 import { apiClient } from "@/lib/api/client";
 import { toast } from "sonner";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
 import { activityLabel, actorLabel, actorShape } from "@/lib/leads/activity-vocabulary";
+import { soChavesAlteradas } from "@/lib/leads/custom-fields-so-diff";
+import { rotuloDaRecorrencia } from "@/lib/leads/valor-recorrente";
 import { ConversationTagsEditor } from "./ConversationTagsEditor";
 import { ContactTagsEditor } from "./ContactTagsEditor";
+import { TarefasDaDemanda } from "./TarefasDaDemanda";
+import { FollowupDoContato } from "./FollowupDoContato";
+import { DialogoDosModulos } from "./DialogoDosModulos";
+import {
+  modulosPadrao,
+  type IdModuloDaLateral,
+  type ModuloDaLateral,
+} from "@/lib/inbox/modulos-da-lateral";
 import { useDefaultPipeline } from "@/hooks/pipelines/useDefaultPipeline";
+import { LoseLeadDialog } from "@/components/kanban/LoseLeadDialog";
 import { NewLeadDialog } from "@/components/kanban/NewLeadDialog";
+import { MoverParaFunil, type FunilDoSeletorDoInbox } from "./MoverParaFunil";
+import { MoveToOtherPipelineDialog } from "@/components/kanban/MoveToOtherPipelineDialog";
 import { CustomFieldsEditor, type CustomFieldDef } from "@/components/contacts/CustomFieldsEditor";
+import { CamposDoContato } from "@/components/contacts/CamposDoContato";
 import { useEditLead } from "@/hooks/kanban/useUpdateLead";
 import { useBulkAction } from "@/hooks/kanban/useBulkAction";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
-import { phoneForDisplay } from "@/lib/channels/phone-variants";
+import { PROXIMO_PASSO_DA_MENSAGEM_NOVA } from "@/lib/atendimento/proximo-passo-padrao";
+import { rotuloParaAEquipe } from "@/lib/contacts/rotulo-do-contato";
+import { AtalhosDoNegocio } from "@/components/kanban/AtalhosDoCard";
+import type { AtalhoDoCard } from "@/lib/leads/atalhos-do-card";
 
 interface Props {
   conversation: ConversationWithContact | null;
+  /**
+   * O painel inteiro recolhido (issue #3004): em vez do conteúdo, desenha só o
+   * trilho com o botão de expandir — e a tela (`InboxLayout`) devolve a largura
+   * ao fio da conversa. São DOIS valores, um estado: `recolhido` diz como
+   * desenhar, `onAlternarRecolhido` diz se há controle.
+   */
+  recolhido?: boolean;
+  /**
+   * O clique do controle. Só existe na coluna do desktop: o painel do celular
+   * abre dentro de um `Sheet`, que já tem o próprio gesto de fechar — por isso o
+   * controle é OPCIONAL, como o `showCollapseControl` do menu da esquerda, e o
+   * `Sheet` do Inbox não o passa.
+   */
+  onAlternarRecolhido?: () => void;
+  /**
+   * Os módulos que ESTA pessoa escolheu mostrar, na ordem dela (#3008), já
+   * lidos no servidor (`app/app/inbox/page.tsx`) para o primeiro paint sair
+   * certo. Ausente = o padrão do produto, que é a lateral de hoje: quem nunca
+   * abriu o diálogo não pode ver a tela mudar por causa desta feature.
+   */
+  modulosIniciais?: ModuloDaLateral[];
 }
 
 interface LeadRow {
@@ -44,6 +88,10 @@ interface LeadRow {
   title: string;
   status: string;
   value_cents: number | null;
+  /** Mensalidade do negócio (fatia 1 da #3602); `null`/ausente = sem recorrência. */
+  recurring_value_cents?: number | null;
+  recurring_period?: string | null;
+  recurring_months?: number | null;
   currency: string | null;
   updated_at: string;
   pipeline_id: string;
@@ -54,6 +102,15 @@ interface LeadRow {
   stage_id?: string;
   /** As etapas ativas do funil, na ordem do quadro (rota crm-summary). */
   etapas_do_funil?: Array<{ id: string; name: string; is_won: boolean; is_lost: boolean }>;
+  /** Os funis do CRM do negócio, com etapas e cores — o seletor "Mover para funil" (Fase E). */
+  funis_do_crm?: FunilDoSeletorDoInbox[];
+  motivos_de_perda?: string[];
+  /**
+   * Os atalhos do card do funil deste negócio (#3487) — o MODELO de link, como
+   * está em `crm_pipelines.settings.atalhos`. O painel do Inbox não tem o quadro
+   * em cache, então a rota `crm-summary` manda junto.
+   */
+  atalhos?: AtalhoDoCard[];
 }
 
 interface OrderRow {
@@ -200,7 +257,7 @@ function MarcarProximoPasso({ demandaId, onPronto }: { demandaId: string; onPron
       <Button
         size="sm"
         variant="outline"
-        className="mt-1.5 h-7 text-xs"
+        className="mt-1.5 h-11 text-xs lg:h-7"
         data-testid="marcar-proximo-passo"
         onClick={() => setAberto(true)}
       >
@@ -223,12 +280,12 @@ function MarcarProximoPasso({ demandaId, onPronto }: { demandaId: string; onPron
         placeholder={t("O que acontece a seguir?")}
         aria-label={t("Próximo passo desta demanda")}
         data-testid="campo-proximo-passo"
-        className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-hidden focus:ring-1 focus:ring-ring"
+        className="w-full rounded-md border border-input bg-background px-2 py-1 text-base focus:outline-hidden focus:ring-1 focus:ring-ring md:text-xs"
       />
       <div className="flex gap-1.5">
         <Button
           size="sm"
-          className="h-7 text-xs"
+          className="h-11 text-xs lg:h-7"
           disabled={salvando || texto.trim().length < 3}
           data-testid="salvar-proximo-passo"
           onClick={() => void salvar()}
@@ -238,7 +295,7 @@ function MarcarProximoPasso({ demandaId, onPronto }: { demandaId: string; onPron
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 text-xs"
+          className="h-11 text-xs lg:h-7"
           onClick={() => setAberto(false)}
         >
           {t("Cancelar")}
@@ -343,21 +400,41 @@ function ondeEstaOLead(l: LeadRow): string {
  * spec de tela com `getBoundingClientRect`.
  */
 const CLASSES_DE_ONDE_ESTA = "line-clamp-2 text-muted-foreground";
+/** O título das seções da lateral — o mesmo em todos os módulos (fork jhoow). */
+const TITULO_DA_SECAO = "text-[11px] font-semibold uppercase tracking-[0.06em] text-ibx-muted";
 
 function InboxLeadEditor({
   leads,
   selecionadoId,
   onSelecionar,
   onSalvo,
+  podeLevarParaOutroFunil,
+  onTrocouDeNegocio,
 }: {
   leads: LeadRow[];
   selecionadoId: string | null;
   onSelecionar: (id: string) => void;
   onSalvo: () => void;
+  /** Mesmo portão do Kanban (`pipeline.move_card`) — ver `LevarParaOutroFunil`. */
+  podeLevarParaOutroFunil: boolean;
+  /** Recarrega o resumo e deixa o negócio NOVO (se algum nasceu) virar o ativo. */
+  onTrocouDeNegocio: () => void;
 }) {
   const t = useT();
   const ativo = leads.find((l) => l.id === selecionadoId) ?? leads[0]!;
   const status = (l: LeadRow) => t(STATUS_DO_LEAD[l.status] ?? l.status);
+  /**
+   * A MENSALIDADE do negócio, ao lado do valor único (fatia 1 da #3602).
+   *
+   * A régua é a mesma do card (`rotuloDaRecorrencia`), e `null` quando não há
+   * recorrência: negócio de valor único continua mostrando um número só — a
+   * mesma tela de antes. `sufixo` entra traduzido porque a frase é da tela, e a
+   * regra de qual texto cabe em qual periodicidade é do módulo puro.
+   */
+  const recorrenteDoNegocio = (l: LeadRow) =>
+    rotuloDaRecorrencia(l.recurring_value_cents, l.recurring_period, l.currency ?? "BRL", {
+      sufixo: t("/mês"),
+    });
 
   return (
     <div className="mt-2 space-y-2">
@@ -383,6 +460,14 @@ function InboxLeadEditor({
                   </div>
                   <div className="text-muted-foreground">
                     {status(l)} · {formatMoney(l.value_cents, l.currency)}
+                    {/* A MENSALIDADE ao lado do valor único (fatia 1 da #3602):
+                        os dois aparecem, e o negócio de valor único fica sem
+                        este trecho — nada de "/mês" inventado. */}
+                    {recorrenteDoNegocio(l) && (
+                      <span className="ml-1" data-testid={`inbox-lead-recorrente-${l.id}`}>
+                        + {recorrenteDoNegocio(l)}
+                      </span>
+                    )}
                   </div>
                 </button>
               </li>
@@ -393,12 +478,62 @@ function InboxLeadEditor({
       {leads.length === 1 && (
         <div data-testid="inbox-lead-unico" className="text-xs text-muted-foreground">
           <p>{ativo.title} · {status(ativo)}</p>
+          {/* O valor do negócio — único e recorrente — também no caso de UM só
+              negócio, que antes não mostrava valor nenhum no painel (fatia 1
+              da #3602: quem atende precisa ver o contrato sem abrir o quadro). */}
+          <p data-testid="inbox-lead-unico-valor">
+            {formatMoney(ativo.value_cents, ativo.currency)}
+            {recorrenteDoNegocio(ativo) && <> + {recorrenteDoNegocio(ativo)}</>}
+          </p>
           <p className={CLASSES_DE_ONDE_ESTA} title={ondeEstaOLead(ativo)}>
             {ondeEstaOLead(ativo)}
           </p>
         </div>
       )}
-      <EtapaDoNegocio key={`etapa-${ativo.id}`} lead={ativo} onMovido={onSalvo} />
+      {ativo.stage_id && (ativo.funis_do_crm?.length ?? 0) > 0 ? (
+        <MoverParaFunil
+          key={`funil-${ativo.id}`}
+          negocio={{
+            id: ativo.id,
+            pipeline_id: ativo.pipeline_id,
+            stage_id: ativo.stage_id,
+            updated_at: ativo.updated_at,
+            funil_nome: ativo.funil_nome,
+            etapa_nome: ativo.etapa_nome,
+          }}
+          funis={ativo.funis_do_crm ?? []}
+          onMovido={onSalvo}
+        />
+      ) : (
+        // Resposta antiga (sem `funis_do_crm`) em cache: o seletor de etapa de sempre.
+        <EtapaDoNegocio key={`etapa-${ativo.id}`} lead={ativo} onMovido={onSalvo} />
+      )}
+      {/*
+        ABRIR O NEGÓCIO NO QUADRO DO FUNIL (issue #3004).
+
+        Antes, ir do atendimento ao card exigia sair do Inbox, abrir o quadro e
+        procurar o negócio na mão — trabalho que o próprio sistema já sabia fazer:
+        a rota do funil entende `?lead=`, o MESMO parâmetro que
+        `app/app/leads/[id]/page.tsx` já usa para jogar quem chega pela captação
+        direto no negócio (`KanbanBoard.leadInicial` abre o dossiê do card). Aqui
+        só se reusa essa âncora com o `pipeline_id` do negócio ativo — nada novo
+        de rota, nada de quadro reimplementado.
+      */}
+      <Button asChild size="sm" variant="outline" className="h-11 w-full text-xs lg:h-7">
+        <Link
+          href={`/app/pipelines/${ativo.pipeline_id}?lead=${ativo.id}`}
+          data-testid="inbox-abrir-no-funil"
+        >
+          <ArrowRight size={12} className="mr-1" weight="regular" aria-hidden />
+          {t("Abrir no funil")}
+        </Link>
+      </Button>
+      <LevarParaOutroFunil
+        key={`levar-${ativo.id}`}
+        lead={ativo}
+        podeLevar={podeLevarParaOutroFunil}
+        onTrocouDeNegocio={onTrocouDeNegocio}
+      />
       <CamposDoFunil
         key={ativo.id}
         leadId={ativo.id}
@@ -418,17 +553,23 @@ function InboxLeadEditor({
  *
  * Usa o MESMO caminho do "Mover para…" do quadro (`/api/v1/leads/bulk`, que
  * posiciona o card no banco e emite atividade, evento e auditoria), então a
- * etapa que avisa na Central avisa igual. Etapa de PERDA fica de fora: ela pede
- * o motivo, e esse diálogo mora no quadro.
+ * etapa que avisa na Central avisa igual. A etapa de PERDA aparece também, mas
+ * não move direto: ela pede o motivo, então abre o mesmo `LoseLeadDialog` do
+ * quadro (issue #2871).
  */
 function EtapaDoNegocio({ lead, onMovido }: { lead: LeadRow; onMovido: () => void }) {
   const t = useT();
   const mover = useBulkAction(lead.pipeline_id);
-  const etapas = (lead.etapas_do_funil ?? []).filter((e) => !e.is_lost || e.id === lead.stage_id);
+  const [perdendo, setPerdendo] = useState(false);
+  const etapas = lead.etapas_do_funil ?? [];
   if (!lead.stage_id || etapas.length === 0) return null;
 
   async function escolher(stageId: string) {
     if (stageId === lead.stage_id) return;
+    if (etapas.find((e) => e.id === stageId)?.is_lost) {
+      setPerdendo(true);
+      return;
+    }
     try {
       await mover.mutateAsync({ action: "move", lead_ids: [lead.id], params: { stage_id: stageId } });
       toast.success(t("Etapa atualizada."));
@@ -455,7 +596,80 @@ function EtapaDoNegocio({ lead, onMovido }: { lead: LeadRow; onMovido: () => voi
           ))}
         </SelectContent>
       </Select>
+      <LoseLeadDialog
+        open={perdendo}
+        onOpenChange={setPerdendo}
+        leadId={lead.id}
+        pipelineId={lead.pipeline_id}
+        onPerdido={onMovido}
+        motivos={lead.motivos_de_perda}
+      />
     </div>
+  );
+}
+
+/**
+ * "Levar para outro funil" no lead ATIVO da conversa — o que faltava ao lado de
+ * "Etapa do funil". Antes, mudar de funil exigia sair, abrir o Kanban, achar o
+ * card e usar a mesma ação lá.
+ *
+ * Nada de transferência é reimplementado aqui: abre o MESMO diálogo do quadro
+ * (`components/kanban/MoveToOtherPipelineDialog`, o que `KanbanCardActions`
+ * usa), que por sua vez reusa `useMoveLeadToPipeline` / `useDestinosDeFunil` e a
+ * rota `POST /api/v1/leads/[id]/clone` — a rota cria o negócio no funil destino
+ * (na etapa de entrada escolhida, ou na primeira aberta quando ninguém escolhe,
+ * issue #3643) e encerra a origem com o motivo canônico.
+ *
+ * O portão é o do Kanban: `pipeline.move_card` (agent+) — a MESMA chave de
+ * `usePermission` em `KanbanCardActions` e o mesmo piso que `POST /clone` exige
+ * (`requireRole("agent")`). Aqui a régua entra escrita como `roleAtLeast` porque
+ * este painel já resolve `podeCriarTarefa` assim (o `usePermission` não sobrevive
+ * aos dublês de `useAuth` dos testes do painel); a semântica é idêntica — floor
+ * `agent` mais o atalho do platform admin. Mostrar a ação a quem o servidor
+ * recusaria seria prometer o que não se cumpre.
+ *
+ * O erro sai como toast pelo `onError` do hook (o próprio `showApiError` do
+ * quadro, em `ApiErrorToast`), e o diálogo fica ABERTO para o operador ler e
+ * corrigir — igual ao card.
+ */
+function LevarParaOutroFunil({
+  lead,
+  podeLevar,
+  onTrocouDeNegocio,
+}: {
+  lead: LeadRow;
+  podeLevar: boolean;
+  onTrocouDeNegocio: () => void;
+}) {
+  const t = useT();
+  const [aberto, setAberto] = useState(false);
+  if (!podeLevar) return null;
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-11 w-full text-xs lg:h-7"
+        data-testid="inbox-levar-para-outro-funil"
+        onClick={() => setAberto(true)}
+      >
+        {t("Levar para outro funil")}
+      </Button>
+      <MoveToOtherPipelineDialog
+        open={aberto}
+        onOpenChange={(next) => {
+          setAberto(next);
+          // Fechar — confirmar OU cancelar — relê o resumo: quem decide se a
+          // seleção muda é o diff de ids em `load`, não este evento. Assim um
+          // cancelamento não troca o negócio ativo por engano.
+          if (!next) onTrocouDeNegocio();
+        }}
+        leadId={lead.id}
+        pipelineId={lead.pipeline_id}
+      />
+    </>
   );
 }
 
@@ -475,14 +689,21 @@ function CamposDoFunil({
   const t = useT();
   const edit = useEditLead(pipelineId);
   const [customFields, setCustomFields] = useState(valores);
+  // A RÉGUA do diff (issue #2132): o valor carregado quando o painel abriu.
+  // Só o que a pessoa mudar daqui vai viajar — o merge é do servidor.
+  const [camposCarregados, setCamposCarregados] = useState(valores);
 
   if (fieldDefs.length === 0) {
     return <p className="text-xs text-muted-foreground">{t("Este funil não tem campos extras.")}</p>;
   }
 
   async function salvar() {
+    const payload = soChavesAlteradas(camposCarregados, customFields);
     try {
-      await edit.mutateAsync({ leadId, patch: { custom_fields: customFields } });
+      await edit.mutateAsync({ leadId, patch: { custom_fields: payload } });
+      // O que acabou de gravar vira a nova régua: o próximo salvamento não
+      // reenvia este, e uma limpeza alheia no intervalo não é atropelada.
+      setCamposCarregados({ ...customFields });
       toast.success(t("Campos atualizados"));
       onSalvo();
     } catch {
@@ -497,11 +718,12 @@ function CamposDoFunil({
         value={customFields}
         onChange={setCustomFields}
         mode="lead"
+        leadId={leadId}
         className="gap-3 md:grid-cols-1"
       />
       <Button
         size="sm"
-        className="h-7 w-full text-xs"
+        className="h-11 w-full text-xs lg:h-7"
         disabled={edit.isPending}
         onClick={() => void salvar()}
       >
@@ -511,9 +733,79 @@ function CamposDoFunil({
   );
 }
 
-export function CRMSidePanel({ conversation }: Props) {
-  const { user } = useAuth();
+/**
+ * O CONTROLE DE RECOLHER O PAINEL INTEIRO (issue #3004).
+ *
+ * Mesmo ícone e mesmo vocabulário do recolher do menu da esquerda
+ * (`BotaoDeRecolher` em `components/shell/Sidebar.tsx`): `CaretDoubleLeft` para
+ * recolher, `CaretDoubleRight` para expandir, o verbo "Recolher"/"Expandir" no
+ * rótulo. O que muda é o ALVO na frase: aqui há dois recolhedores na mesma tela,
+ * e um leitor de tela que ouvisse "Recolher" nos dois não saberia qual. O
+ * alvo explícito ("painel do contato") é o que os distingue — o vocabulário
+ * continua o mesmo.
+ *
+ * É `Link`/botão próprio e não o `Button` do design system porque o recolher da
+ * esquerda também não é: é um controle de casca, discreto (`text-muted-foreground`
+ * até o hover), que não compete com as ações do contato.
+ */
+function BotaoDeRecolherDoPainel({
+  recolhido,
+  onAlternar,
+}: {
+  recolhido: boolean;
+  onAlternar: () => void;
+}) {
+  const t = useT();
+  // Um rótulo só para `aria-label` e `title`: os dois nomeiam a MESMA ação.
+  const rotulo = recolhido ? t("Expandir painel do contato") : t("Recolher painel do contato");
+  return (
+    <button
+      type="button"
+      onClick={onAlternar}
+      // Vocabulário e ícone iguais aos do menu da esquerda (`BotaoDeRecolher`).
+      className={cn(
+        "flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+        recolhido && "justify-center",
+      )}
+      aria-label={rotulo}
+      aria-expanded={!recolhido}
+      title={rotulo}
+      data-testid="inbox-recolher-painel"
+    >
+      {recolhido ? (
+        <CaretDoubleRight size={14} aria-hidden />
+      ) : (
+        <CaretDoubleLeft size={14} aria-hidden />
+      )}
+      {!recolhido && <span>{t("Recolher")}</span>}
+    </button>
+  );
+}
+
+export function CRMSidePanel({
+  conversation,
+  recolhido = false,
+  onAlternarRecolhido,
+  modulosIniciais,
+}: Props) {
+  const { user, activeOrg } = useAuth();
   const readonly = user.support?.access_mode === "support_readonly";
+  // Criar tarefa é `agent`+ (a rota cobra `requireRole("agent")`): a MESMA régua
+  // da tela de Tarefas (`app/app/tasks/page.tsx`). `readonly` sozinho deixava o
+  // `viewer` ver "Nova tarefa", preencher e levar 403 ao salvar (#2842).
+  const podeCriarTarefa = (user.is_platform_admin && !user.support) || roleAtLeast(activeOrg?.role, "agent");
+  // A MESMA régua do Kanban para "Levar para outro funil": `pipeline.move_card`
+  // (agent+) é a chave que `KanbanCardActions` consulta e o piso que
+  // `POST /api/v1/leads/[id]/clone` cobra no servidor. Escrita como `roleAtLeast`
+  // pelo mesmo motivo de `podeCriarTarefa` acima — os dublês de `useAuth` dos
+  // testes deste painel não expõem `usePermission`, e a semântica é a mesma.
+  const podeLevarParaOutroFunil = (user.is_platform_admin && !user.support) || roleAtLeast(activeOrg?.role, "agent");
+  // O MESMO piso da ficha do contato para o bloco da carteira (#2591): `agent`+
+  // é quem LÊ a carteira (o GET da rota cobra `requireRole("agent")`), e o
+  // `viewer` receberia 403. Escrever é outra régua (`manager`+) e mora dentro do
+  // `CartaoDaCarteira`, que só desenha o seletor para `manager`+. Aqui só se
+  // decide se o bloco existe — nunca se oferece um botão que o servidor recusaria.
+  const podeVerCarteira = (user.is_platform_admin && !user.support) || roleAtLeast(activeOrg?.role, "agent");
   const localeDaData = useLocaleDeData();
   const t = useT();
   const contact = conversation?.contacts ?? null;
@@ -528,12 +820,15 @@ export function CRMSidePanel({ conversation }: Props) {
 
   const [enrichment, setEnrichment] = useState<(ProspectEnrichment & { collected_at: string }) | null>(null);
   const [enrichmentError, setEnrichmentError] = useState(false);
+  const [personalizacao, setPersonalizacao] =
+    useState<PersonalizacaoProspeccao | null>(null);
   const [leads, setLeads] = useState<LeadRow[] | null>(null);
   const [orders, setOrders] = useState<OrderRow[] | null>(null);
   const [activities, setActivities] = useState<ActivityRow[] | null>(null);
   const [demandas, setDemandas] = useState<DemandaRow[] | null>(null);
   const [fatos, setFatos] = useState<Array<{ id: string; headline: string; body: string }>>([]);
   const [historico, setHistorico] = useState<Array<{ id: string; desfecho: string; fechada_em: string }>>([]);
+  const [anuncios, setAnuncios] = useState<{ origem: AnuncioDeOrigem | null; recente: AnuncioMaisRecente | null }>({ origem: null, recente: null });
   const [summaryContactId, setSummaryContactId] = useState<string | null>(null);
   /**
    * O TERCEIRO ESTADO. Antes existiam dois — carregando e "tem N itens" — e a
@@ -543,6 +838,22 @@ export function CRMSidePanel({ conversation }: Props) {
    */
   const [erro, setErro] = useState(false);
   const [tentativa, setTentativa] = useState(0);
+  /**
+   * Os ids de negócio da ÚLTIMA leitura — a régua para achar o negócio NOVO de
+   * uma troca de funil (ver `load`). `procurarNovoNegocio` só liga quando o
+   * diálogo "Levar para outro funil" fecha, para o diff não mexer na seleção
+   * fora de uma troca.
+   */
+  const idsDeNegocioVistos = useRef<Set<string>>(new Set());
+  const procurarNovoNegocio = useRef(false);
+
+  /**
+   * A LATERAL DESTA PESSOA (#3008) — semeada pelo servidor, trocada pelo
+   * diálogo. Estado local e não `useState` por prop pura porque o "Salvar" já
+   * devolve a lista GRAVADA no metadata: redesenhar pelo retorno é o que faz o
+   * clique ter efeito imediato sem esperar a próxima carga do Inbox.
+   */
+  const [modulos, setModulos] = useState<ModuloDaLateral[]>(() => modulosIniciais ?? modulosPadrao());
 
   const [tagEditorOpen, setTagEditorOpen] = useState(false);
   const [leadDialogOpen, setLeadDialogOpen] = useState(false);
@@ -563,7 +874,10 @@ export function CRMSidePanel({ conversation }: Props) {
       setActivities(null);
       setDemandas(null);
       setFatos([]); setHistorico([]);
+      setAnuncios({ origem: null, recente: null });
       setLeadAtivoId(null);
+      idsDeNegocioVistos.current.clear();
+      procurarNovoNegocio.current = false;
       return;
     }
     let cancelled = false;
@@ -579,19 +893,35 @@ export function CRMSidePanel({ conversation }: Props) {
           data: {
             enrichment?: (ProspectEnrichment & { collected_at: string }) | null;
             enrichment_error?: boolean;
+            personalizacao?: PersonalizacaoProspeccao | null;
             leads: LeadRow[];
             orders: OrderRow[];
             activities: ActivityRow[];
             demandas: DemandaRow[];
             fatos?: Array<{ id: string; headline: string; body: string }>;
             historico?: Array<{ id: string; desfecho: string; fechada_em: string }>;
+            anuncio_de_origem?: AnuncioDeOrigem | null;
+            anuncio_mais_recente?: AnuncioMaisRecente | null;
           };
         }>(`/api/v1/contacts/${contactId}/crm-summary`);
         if (cancelled) return;
         setSummaryContactId(contactId);
         setEnrichment(r.data.enrichment ?? null);
         setEnrichmentError(r.data.enrichment_error ?? false);
+        setPersonalizacao(r.data.personalizacao ?? null);
         setLeads(r.data.leads);
+        // A TROCA DE FUNIL cria um negócio que ESTE painel nunca viu, e o
+        // diálogo reusado do Kanban não devolve o id dele. O negócio novo é o
+        // que não estava na leitura anterior — e é ele que passa a ser o ATIVO,
+        // como a issue pede. Um cancelamento (nada novo no resumo) não mexe na
+        // seleção: o diff simplesmente não acha id novo.
+        const idsAgora = new Set(r.data.leads.map((l) => l.id));
+        if (procurarNovoNegocio.current) {
+          const novo = r.data.leads.find((l) => !idsDeNegocioVistos.current.has(l.id));
+          procurarNovoNegocio.current = false;
+          if (novo) setLeadAtivoId(novo.id);
+        }
+        idsDeNegocioVistos.current = idsAgora;
         setOrders(r.data.orders);
         setActivities(r.data.activities);
         // `?? []` e não `?? null`: aqui a leitura DEU CERTO. Cair em `null`
@@ -600,6 +930,7 @@ export function CRMSidePanel({ conversation }: Props) {
         // que é o caso saudável.
         setDemandas(r.data.demandas ?? []);
         setFatos(r.data.fatos ?? []); setHistorico(r.data.historico ?? []);
+        setAnuncios({ origem: r.data.anuncio_de_origem ?? null, recente: r.data.anuncio_mais_recente ?? null });
       } catch {
         if (cancelled) return;
         // Falha NÃO vira lista vazia. Os dados ficam `null` e o painel diz que
@@ -610,6 +941,7 @@ export function CRMSidePanel({ conversation }: Props) {
         setActivities(null);
         setDemandas(null);
         setFatos([]); setHistorico([]);
+        setAnuncios({ origem: null, recente: null });
       }
     }
 
@@ -638,8 +970,18 @@ export function CRMSidePanel({ conversation }: Props) {
   // esta tela inteira combate.
   const recarregar = useCallback(() => setTentativa((n) => n + 1), []);
 
+  /**
+   * A troca de funil recarrega pelo MESMO caminho do "Tentar de novo" — este
+   * painel não usa react-query, então `invalidateQueries` não o alcança — e
+   * marca que um negócio novo pode ter nascido: `load` o elege como ativo.
+   */
+  const aoTrocarDeNegocio = useCallback(() => {
+    procurarNovoNegocio.current = true;
+    setTentativa((n) => n + 1);
+  }, []);
+
   const tags = contact?.tags ?? [];
-  const displayName = rotuloDoContato(contact, t);
+  const displayName = rotuloParaAEquipe(contact, t);
 
   // `erro` PRIMEIRO, e não é detalhe: as três listas voltam a `null` quando a
   // leitura falha, e este derivado lê `null` como "ainda não chegou". Sem esta
@@ -653,104 +995,183 @@ export function CRMSidePanel({ conversation }: Props) {
     [erro, summaryContactId, contactId, leads, orders, activities, demandas],
   );
 
+  /**
+   * O negócio ATIVO do contato, se houver: a tarefa criada no inbox também o
+   * aponta (#2818). `leadAtivoId` é o que o editor de leads marcou (o contato
+   * pode ter vários negócios); sem escolha, o primeiro da lista, que é o que
+   * `InboxLeadEditor` mostra como ativo.
+   */
+  const negocioAtivoId = leadAtivoId ?? leads?.[0]?.id ?? null;
+  /**
+   * O negócio ATIVO, a LINHA (não só o id): os atalhos do card (#3487) precisam
+   * do `custom_fields` dele para `{{erp_id}}` e afins. Mesma escolha do
+   * `InboxLeadEditor`, para os dois não apontarem para negócios diferentes na
+   * mesma tela.
+   */
+  const negocioAtivo = (leads ?? []).find((l) => l.id === negocioAtivoId) ?? leads?.[0] ?? null;
+
+  /**
+   * RECOLHIDO (issue #3004): só o trilho, com o botão de expandir. Sem o
+   * controle — o caso do `Sheet` do celular — o trilho não teria porta de volta,
+   * então nesse caso o painel desenha inteiro, como sempre desenhou.
+   */
+  if (recolhido && onAlternarRecolhido) {
+    return (
+      <aside
+        className="flex h-full flex-col items-center border-l border-border bg-background py-2"
+        data-testid="inbox-painel-recolhido"
+      >
+        <BotaoDeRecolherDoPainel recolhido onAlternar={onAlternarRecolhido} />
+      </aside>
+    );
+  }
+
   if (!conversation) {
     return (
-      <aside className="flex h-full items-center justify-center border-l border-border p-4 text-center text-xs text-muted-foreground">
+      <aside className="relative flex h-full items-center justify-center p-4 text-center text-[13px] text-ibx-muted">
+        {onAlternarRecolhido && (
+          <div className="absolute top-2 right-2">
+            <BotaoDeRecolherDoPainel recolhido={false} onAlternar={onAlternarRecolhido} />
+          </div>
+        )}
         {t("Selecione uma conversa para ver detalhes do contato.")}
       </aside>
     );
   }
 
-  return (
-    <aside className="flex h-full flex-col gap-4 overflow-y-auto border-l border-border bg-background p-4">
-      <section>
-        <h3 className="text-xs font-semibold text-text">
-          {t("Contato")}
-        </h3>
-        <Card className="mt-2 space-y-2 p-3 text-sm">
-          <div className="font-medium">{displayName}</div>
+  const acaoRapida =
+    "flex flex-1 flex-col items-center gap-1 rounded-[10px] px-1 py-2 text-[12px] font-medium text-ibx-text-2 transition-colors hover:bg-ibx-field hover:text-ibx-text focus-visible:outline-2 focus-visible:outline-ibx-accent disabled:pointer-events-none disabled:opacity-50";
+
+  /**
+   * O CONTEÚDO DE CADA MÓDULO DA LATERAL (#3008) — o mapa que a ordem e a
+   * visibilidade escolhidas pela pessoa percorrem. Fork jhoow: o desenho é o
+   * do painel novo (topo com avatar e ações rápidas, seções sem cartão
+   * separadas por linha); a ordem e a visibilidade vêm do diálogo de módulos.
+   *
+   * A condição de DADO (sem contato, sem permissão de carteira, contato
+   * anonimizado) continua dentro do módulo — preferência decide o que a pessoa
+   * quer ver; dado decide o que existe. Módulo sem conteúdo some (`empty:hidden`).
+   */
+  const conteudo: Record<IdModuloDaLateral, ReactNode> = {
+    contato: (
+      <section data-testid="inbox-contato">
+        {/* TOPO: quem é, e as três ações que mais se usam daqui. */}
+        <div className="flex flex-col items-center gap-1 pb-4 pt-5 text-center">
+          <Avatar className="h-14 w-14">
+            {contact?.avatar_storage_path && !contact?.is_anonymized ? (
+              <AvatarImage src={`/api/v1/contacts/${contact.id}/avatar`} alt="" className="object-cover" />
+            ) : null}
+            <AvatarFallback className="bg-ibx-chip text-[16px] font-semibold text-ibx-text-2">
+              {initials(displayName, contact?.phone_number ?? "??")}
+            </AvatarFallback>
+          </Avatar>
+          <p className="mt-2 max-w-full truncate text-[16px] font-semibold" title={displayName}>{displayName}</p>
+          {/* O TIPO DO CONTATO (issue 3005): lido da COLUNA, nunca da etiqueta
+              `fornecedor`. Só o fornecedor ganha selo — cliente é o padrão. */}
+          {contact?.contact_type === "fornecedor" && (
+            <Badge variant="secondary">{t("Fornecedor")}</Badge>
+          )}
           {contact?.phone_number && (
-            <div className="text-xs text-muted-foreground">{phoneForDisplay(contact.phone_number)}</div>
+            <p className="font-inbox-mono text-[12px] text-ibx-muted">{telefoneLegivel(contact.phone_number)}</p>
           )}
-          {tags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {tags.map((t) => (
-                <ChipDeEtiqueta key={t} tag={t} className="h-4 px-1.5 text-[10px]" />
-              ))}
-            </div>
-          )}
-          <div className="flex flex-wrap gap-2 pt-1">
-            {contactId&&conversation?<Link className="underline" href={`/app/agenda?contato=${contactId}&conversa=${conversation.id}`}>{t("Marcar compromisso")}</Link>:null}
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-xs"
+          {/* OS ATALHOS DO CARD (#3487), logo abaixo do telefone — que é o dado
+              que eles usam. Sem atalho configurado no funil, nada aparece. */}
+          <AtalhosDoNegocio
+            atalhos={negocioAtivo?.atalhos}
+            lead={negocioAtivo}
+            contactId={contactId}
+          />
+          <div className="mt-3 flex w-full gap-1">
+            {contactId ? (
+              <Link className={acaoRapida} href={`/app/agenda?contato=${contactId}&conversa=${conversation.id}`}>
+                <CalendarPlus size={17} aria-hidden />
+                {t("Agendar")}
+              </Link>
+            ) : null}
+            <button
+              type="button"
+              className={cn(acaoRapida, tagEditorOpen && "bg-ibx-field text-ibx-text")}
               disabled={readonly || !contactId}
               aria-pressed={tagEditorOpen}
+              aria-label={t("Tags do contato")}
               onClick={() => setTagEditorOpen((v) => !v)}
             >
-              <Tag size={12} className="mr-1" weight="regular" aria-hidden /> {t("Tags do contato")}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-xs"
+              <LucideTag size={17} aria-hidden />
+              {t("Tags")}
+            </button>
+            <button
+              type="button"
+              className={acaoRapida}
               disabled={readonly || !contactId || (leadDialogOpen && defaultPipeline.isLoading)}
               onClick={() => setLeadDialogOpen(true)}
             >
-              <Users size={12} className="mr-1" weight="regular" aria-hidden />
-              {leadDialogOpen && defaultPipeline.isLoading ? t("Carregando…") : t("Novo Lead")}
-            </Button>
-            {contactId && (
-              <Button asChild size="sm" variant="ghost" className="h-7 px-2 text-xs">
-                <Link href={`/app/contacts/${contactId}`}>
-                  {t("Ver contato")}
-                  <ArrowRight size={12} className="ml-1" weight="regular" aria-hidden />
-                </Link>
-              </Button>
-            )}
+              <UserPlus size={17} aria-hidden />
+              {leadDialogOpen && defaultPipeline.isLoading ? t("Carregando…") : t("Novo negócio")}
+            </button>
           </div>
-          {tagEditorOpen && contactId && <ContactTagsEditor contactId={contactId} orgId={conversation.organization_id} tags={tags} />}
-        </Card>
+          {tagEditorOpen && contactId && (
+            <div className="mt-3 w-full text-left">
+              {/* Contexto de PESSOA: a etiqueta vai para `contacts.tags` (#2979). */}
+              <ContactTagsEditor entityId={contactId} orgId={conversation.organization_id} tags={tags} />
+            </div>
+          )}
+        </div>
+        {contactId && !contact?.is_anonymized && (
+          <div data-testid="inbox-campos-do-contato" className="border-t border-ibx-line py-4">
+            <CamposDoContato contactId={contactId} podeEditar={!readonly} variante="painel" />
+          </div>
+        )}
       </section>
+    ),
 
+    /* TAGS DO CONTATO (#3008): bloco próprio, para poder ser desligado e
+       ordenado. O editor abre pelo "Tags" do topo. */
+    "tags-do-contato":
+      tags.length > 0 ? (
+        <section data-testid="inbox-tags-do-contato" className="flex flex-wrap gap-1">
+          {tags.map((tag) => (
+            <ChipDeEtiqueta key={tag} tag={tag} className="h-4 px-1.5 text-[10px]" />
+          ))}
+        </section>
+      ) : null,
+
+    /* O BLOCO CARTEIRA (#3026) — de quem é este cliente. O componente é o MESMO
+       da ficha; o piso do BLOCO é `agent`+ (`podeVerCarteira`). */
+    carteira: contactId && podeVerCarteira ? (
+      <section data-testid="inbox-bloco-carteira">
+        <CartaoDaCarteira contactId={contactId} papelDoUsuario={activeOrg?.role ?? null} />
+      </section>
+    ) : null,
+
+    anuncio:
+      contactId && summaryContactId === contactId && !erro ? (
+        <AnuncioDoContato contactId={contactId} origem={anuncios.origem} recente={anuncios.recente} />
+      ) : null,
+
+    "perfil-enriquecido": (
       <LeadEnrichment
         data={summaryContactId === contactId && !erro && !contact?.is_anonymized ? enrichment : null}
         loading={sectionsLoading}
         error={erro || (summaryContactId === contactId && enrichmentError)}
         onRetry={recarregar}
+        sobrescritaVocabulario={personalizacao?.vocabulario ?? null}
       />
+    ),
 
-      {contactId && defaultPipeline.data && (
-        <NewLeadDialog
-          open={leadDialogOpen}
-          onOpenChange={setLeadDialogOpen}
-          pipelineId={defaultPipeline.data.pipeline.id}
-          stages={defaultPipeline.data.stages}
-          contactId={contactId}
-          onCreated={() => {
-            setLeadAtivoId(null);
-            recarregar();
-          }}
-        />
-      )}
-
-      <Separator />
-
-      {!readonly && <ConversationTagsEditor
+    "tags-da-conversa": !readonly ? (
+      <ConversationTagsEditor
         conversationId={conversation.id}
         orgId={conversation.organization_id}
         tags={conversation.tags ?? []}
-      />}
+      />
+    ) : null,
 
-      <Separator />
-
-      {/* ANTES dos negócios de propósito (doutrina cap. 5): lead é o negócio,
-          conversa é o canal, demanda é o que precisa acabar. Quem abre esta
-          conversa está atendendo alguém que pediu alguma coisa — a primeira
-          pergunta a responder é o que ainda está pendente, não quanto vale. */}
+    /* ANTES dos negócios de propósito (doutrina cap. 5): quem abre esta
+       conversa está atendendo alguém que pediu alguma coisa — a primeira
+       pergunta a responder é o que ainda está pendente, não quanto vale. */
+    demandas: (
       <section data-testid="inbox-demandas">
-        <h3 className="text-xs font-semibold text-text">
+        <h3 className={TITULO_DA_SECAO}>
           {t("Demandas abertas")}
         </h3>
         {sectionsLoading ? (
@@ -773,18 +1194,18 @@ export function CRMSidePanel({ conversation }: Props) {
                       {t(ESTADO_LEGIVEL[d.estado] ?? d.estado)}
                     </span>
                     <span className="shrink-0 tabular-nums text-muted-foreground">
-                      {t("há")} {horasDesde(d.aberta_em)}h
+                      {t("há {tempo}").replace("{tempo}", `${horasDesde(d.aberta_em)}h`)}
                     </span>
                   </div>
                   {/* O invariante 4 na frase, não só na cor: quem enxerga mal
                       cor precisa ler a mesma informação. */}
                   <div className={cn("mt-0.5", semPasso ? "font-medium" : "text-muted-foreground")}>
-                    {d.proximo_passo ?? t("Sem próximo passo definido")}
+                    {d.proximo_passo === PROXIMO_PASSO_DA_MENSAGEM_NOVA
+                      ? t("Responder à nova mensagem do cliente")
+                      : (d.proximo_passo ?? t("Sem próximo passo definido"))}
                   </div>
                   {/* A SAÍDA. Sem ela esta seção só denunciava: o atendente via o
-                      vazamento e tinha de sair da tela para resolver — peça que
-                      só recebe é ilha pelo invariante 1, e foi o gate dos mapas
-                      de arquitetura que apontou isso. */}
+                      vazamento e tinha de sair da tela para resolver. */}
                   {d.id === conversation.current_demanda_id && <Badge variant="outline">{t("Demanda vigente neste canal")}</Badge>}
                   {!readonly && <EncerrarDemanda
                     draft={desfechoDraft?.conversationId === conversation.id && desfechoDraft.contactId === contactId && desfechoDraft.demandaId === d.id ? desfechoDraft : null}
@@ -806,25 +1227,50 @@ export function CRMSidePanel({ conversation }: Props) {
           />
         )}
       </section>
+    ),
 
-      <Separator />
+    /* A TAREFA DO ATENDIMENTO (#2818): logo DEPOIS da demanda, porque é dela que
+       a tarefa pende. Só a demanda vigente AINDA ABERTA. */
+    tarefas: (
+      <TarefasDaDemanda
+        demandaId={demandas?.find((d) => d.id === conversation.current_demanda_id)?.id ?? null}
+        contactId={contactId}
+        leadId={negocioAtivoId}
+        podeEditar={podeCriarTarefa}
+      />
+    ),
 
+    /* O FOLLOW-UP NA CONVERSA (#3178): a seção se AUTO-OCULTA quando não há
+       enrollment vivo nem fluxo ativo. Iniciar e parar são `manager`+. */
+    followup: contactId && !contact?.is_anonymized ? (
+      <FollowupDoContato
+        contactId={contactId}
+        podeEscrever={
+          !readonly && ((user.is_platform_admin && !user.support) || roleAtLeast(activeOrg?.role, "manager"))
+        }
+      />
+    ) : null,
+
+    memoria: (
       <section data-testid="inbox-memoria">
-        <h3 className="text-xs font-semibold">{t("Memória do contato")}</h3>
+        <h3 className={TITULO_DA_SECAO}>{t("Memória do contato")}</h3>
         <p className="mt-1 text-xs text-muted-foreground">{t("Fatos duráveis registrados nas notas. Pendências pertencem à demanda vigente.")}</p>
         {!sectionsLoading && fatos.map((f) => <details key={f.id} className="mt-2 text-xs"><summary className="wrap-anywhere">{f.headline}</summary><p className="mt-1 whitespace-pre-wrap wrap-anywhere">{f.body}</p></details>)}
         {!sectionsLoading && fatos.length === 0 && <p className="mt-2 text-xs text-muted-foreground">{t("Nenhum fato durável registrado.")}</p>}
         {!sectionsLoading && historico.length > 0 && <div className="mt-3 text-xs"><h4>{t("Histórico encerrado — sem tarefas pendentes")}</h4>{historico.map((h) => <p key={h.id}>{t(DESFECHO_LEGIVEL[h.desfecho] ?? h.desfecho)}{h.fechada_em ? ` · ${shortDate(h.fechada_em, localeDaData)}` : ""}</p>)}</div>}
       </section>
-      <Separator />
+    ),
 
-      {/* O que os roteiros de atendimento coletaram (módulo opcional; desligado
-          ou sem roteiro, não desenha nada). */}
-      {contactId && !contact?.is_anonymized && <RoteirosDoContato contactId={contactId} variante="painel" />}
+    /* O que os roteiros de atendimento coletaram (módulo opcional; desligado
+       ou sem roteiro, não desenha nada). */
+    roteiros: contactId && !contact?.is_anonymized ? (
+      <RoteirosDoContato contactId={contactId} variante="painel" />
+    ) : null,
 
+    leads: (
       <section data-testid="inbox-campos-lead">
-        <h3 className="text-xs font-semibold text-text">
-          {t("Leads recentes")}
+        <h3 className={TITULO_DA_SECAO}>
+          {t("Negócios recentes")}
         </h3>
         {sectionsLoading ? (
           <Skeleton className="mt-2 h-14 w-full" />
@@ -834,16 +1280,28 @@ export function CRMSidePanel({ conversation }: Props) {
             selecionadoId={leadAtivoId}
             onSelecionar={setLeadAtivoId}
             onSalvo={recarregar}
+            podeLevarParaOutroFunil={podeLevarParaOutroFunil}
+            onTrocouDeNegocio={aoTrocarDeNegocio}
           /></fieldset>
         ) : (
-          <SemLista vazio="Sem leads." erro={erro} onTentarDeNovo={() => setTentativa((n) => n + 1)} />
+          <SemLista
+            vazio={t("Sem negócios.")}
+            erro={erro}
+            onTentarDeNovo={() => setTentativa((n) => n + 1)}
+          />
         )}
       </section>
+    ),
 
-      <Separator />
+    /* AS ÚLTIMAS COMPRAS (issue #3179): o que este cliente JÁ comprou —
+       negócios ganhos em TODOS os funis. */
+    compras: contactId && !contact?.is_anonymized ? (
+      <UltimasComprasDoContato contactId={contactId} />
+    ) : null,
 
-      <section>
-        <h3 className="text-xs font-semibold text-text">
+    pedidos: (
+      <section data-testid="inbox-pedidos">
+        <h3 className={TITULO_DA_SECAO}>
           {t("Pedidos recentes")}
         </h3>
         {sectionsLoading ? (
@@ -871,11 +1329,11 @@ export function CRMSidePanel({ conversation }: Props) {
           <SemLista vazio="Sem pedidos." erro={erro} onTentarDeNovo={() => setTentativa((n) => n + 1)} />
         )}
       </section>
+    ),
 
-      <Separator />
-
-      <section>
-        <h3 className="text-xs font-semibold text-text">
+    atividade: (
+      <section data-testid="inbox-atividade">
+        <h3 className={TITULO_DA_SECAO}>
           {t("Atividade")}
         </h3>
         {sectionsLoading ? (
@@ -885,8 +1343,7 @@ export function CRMSidePanel({ conversation }: Props) {
             {activities.map((a) => (
               <li key={a.id} className="rounded-md border border-border p-2 text-xs">
                 {/* Rótulo do vocabulário único (activity-vocabulary), nunca o
-                    tipo cru: a tela e o banco divergiram justamente por manter
-                    duas listas. Marcador por ator, forma e não cor (§5). */}
+                    tipo cru. Marcador por ator, forma e não cor (§5). */}
                 <div className="flex items-center gap-1.5 font-medium">
                   <span
                     className={cn(
@@ -912,21 +1369,83 @@ export function CRMSidePanel({ conversation }: Props) {
           <SemLista vazio="Sem atividade." erro={erro} onTentarDeNovo={() => setTentativa((n) => n + 1)} />
         )}
       </section>
+    ),
 
-      <Separator />
-
-      {/* Perguntar ao acervo — a MESMA busca que a IA faz, com a origem de cada
-          trecho. Não é busca própria: o componente só pergunta e mostra, e quem
-          decide limiar/top-K é a rota, que chama `buscarConhecimento`. Colocada
-          DEPOIS das seções de trabalho: é consulta, não é o que o atendente abre
-          a conversa para fazer. */}
-      <section>
-        <h3 className="text-xs font-semibold">{t("Acervo")}</h3>
+    /* Perguntar ao acervo — a MESMA busca que a IA faz, com a origem de cada
+       trecho. Colocada DEPOIS das seções de trabalho: é consulta. */
+    acervo: (
+      <section data-testid="inbox-bloco-acervo">
+        <h3 className={TITULO_DA_SECAO}>{t("Acervo")}</h3>
         <p className="mt-1 mb-2 text-xs text-muted-foreground">
           {t("Pergunte como a IA perguntaria — a resposta vem com a origem de cada trecho.")}
         </p>
         <AcervoSearch />
       </section>
+    ),
+  };
+
+  return (
+    <aside className="flex h-full min-h-0 flex-col font-inbox text-ibx-text">
+      {/* A FAIXA DO ALTO (#3008): o botão que abre a personalização da lateral
+          e, quando há, o recolher do painel. */}
+      <div
+        // `z-10` (#3008): no celular a lateral mora num Sheet, cujo X (z-20) vem
+        // antes no DOM — a faixa fica num degrau abaixo dele.
+        className="relative z-10 flex shrink-0 items-center justify-between gap-2 border-b border-ibx-line px-3 py-1"
+        data-testid="inbox-cabecalho-do-painel"
+      >
+        <DialogoDosModulos modulos={modulos} onSalvos={setModulos} />
+        {onAlternarRecolhido ? (
+          <BotaoDeRecolherDoPainel recolhido={false} onAlternar={onAlternarRecolhido} />
+        ) : (
+          <span aria-hidden />
+        )}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4">
+        {/* A ORDEM E A VISIBILIDADE ESCOLHIDAS (#3008). Cada módulo leva a
+            própria linha; o vazio some inteiro. */}
+        {modulos
+          .filter((modulo) => modulo.visivel)
+          .map((modulo) => (
+            <div
+              key={modulo.id}
+              data-modulo={modulo.id}
+              className={cn(
+                "border-t border-ibx-line first:border-t-0 empty:hidden",
+                modulo.id !== "contato" && "py-4",
+              )}
+            >
+              {conteudo[modulo.id]}
+            </div>
+          ))}
+      </div>
+      {/* Montado sempre, fora da ordem: o botão que o abre mora no módulo
+          Contato, e ele não pode depender de outro módulo estar visível. */}
+      {contactId && defaultPipeline.data && (
+        <NewLeadDialog
+          open={leadDialogOpen}
+          onOpenChange={setLeadDialogOpen}
+          pipelineId={defaultPipeline.data.pipeline.id}
+          stages={defaultPipeline.data.stages}
+          // #3038: os campos exigidos pela etapa vão no `settings` do funil padrão.
+          settings={defaultPipeline.data.pipeline.settings}
+          contactId={contactId}
+          onCreated={() => {
+            setLeadAtivoId(null);
+            recarregar();
+          }}
+        />
+      )}
+      {contactId && (
+        <div className="shrink-0 border-t border-ibx-line p-3">
+          <Link
+            href={`/app/contacts/${contactId}`}
+            className="flex h-9 w-full items-center justify-center gap-1 rounded-[10px] border border-ibx-border text-[13px] font-medium text-ibx-text transition-colors hover:border-ibx-border-hover hover:bg-ibx-field focus-visible:outline-2 focus-visible:outline-ibx-accent"
+          >
+            {t("Ver contato completo")} <span aria-hidden>→</span>
+          </Link>
+        </div>
+      )}
     </aside>
   );
 }

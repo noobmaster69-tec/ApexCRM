@@ -16,11 +16,13 @@ import {
 } from "@/lib/waha/resolve-contact-whatsapp-id";
 import {
   bareWaMessageId,
+  canonicalWahaExternalId,
   chatIdFromWaMessageId,
   parseWahaMessageId,
   wahaEchoExternalIds,
 } from "@/lib/waha/message-id";
-import { resolveWahaChatId } from "@/lib/waha/send";
+import { consultarNomeDaAgenda } from "@/lib/contacts/nome-da-agenda";
+import { marcarConversaComoLida, resolveWahaChatId } from "@/lib/waha/send";
 import type { FetchedMedia } from "@/lib/messaging/media/types";
 import { DETALHE_CREDENCIAL_RECUSADA } from "../health";
 import type { ChannelAdapter, ChannelHealth, OutboundEnvelope, RecipientInput } from "../types";
@@ -84,6 +86,20 @@ export const wahaAdapter: ChannelAdapter = {
     return wahaEchoExternalIds(input.externalId, input.recipient);
   },
 
+  /**
+   * A forma canônica de `messages.external_id`: a CAUDA do id (`3EB0…`) em
+   * conversa individual, o id INTACTO em grupo — a que o eco grava em cada um
+   * (regra e porquê em `canonicalWahaExternalId`). O envio devolve a cauda no
+   * NOWEB e o `_serialized` completo no WEBJS — gravar o que veio faria os DOIS
+   * lados escreverem strings diferentes do mesmo id, o `unique (organization_id,
+   * external_id)` nunca disparasse e o eco que chegasse perto do carimbo virasse
+   * a segunda linha (#196). Reduzir aqui (não no handler) mantém a regra do id
+   * dentro da fronteira de canal.
+   */
+  canonicalExternalId(externalId: string): string {
+    return canonicalWahaExternalId(externalId);
+  },
+
   // Mesmo pre-check que o handler já fazia com `getWahaClient() !== null`,
   // movido para trás do seam. `getWahaClient` lê o env a cada chamada (não
   // memoiza), então o estado aqui é sempre o corrente.
@@ -138,6 +154,25 @@ export const wahaAdapter: ChannelAdapter = {
   },
 
   /**
+   * Agenda do aparelho primeiro (`name`), apelido do perfil se a agenda não
+   * tiver. Transporte ausente é `null` — a varredura carimba sem tratar como
+   * "não existe".
+   */
+  async resolveAddressBookName(input: {
+    sessionRef: string;
+    phone: string | null;
+    lid: string | null;
+  }): Promise<{ agenda: string | null; perfil: string | null } | null> {
+    const client = getWahaClient();
+    if (!client) return null;
+    return consultarNomeDaAgenda(
+      (contactId) => client.getContact(input.sessionRef, contactId),
+      input.phone,
+      input.lid,
+    );
+  },
+
+  /**
    * "digitando…" no aparelho do cliente, antes da 1ª bolha do turno da IA.
    *
    * Transporte não configurado é NOOP, não erro — mesmo critério do `send`
@@ -148,6 +183,39 @@ export const wahaAdapter: ChannelAdapter = {
     const client = getWahaClient();
     if (!client) return;
     await client.setPresence(input.sessionRef, input.recipient, "typing");
+  },
+
+  async signalPresence(input: {
+    sessionRef: string;
+    recipient: string;
+    presence: "typing" | "recording" | "paused";
+  }): Promise<void> {
+    const client = getWahaClient();
+    if (!client) return;
+    await client.setPresence(input.sessionRef, input.recipient, input.presence);
+  },
+
+  async checkRecipient(input: { sessionRef: string; phone: string }): Promise<boolean | null> {
+    const client = getWahaClient();
+    if (!client) return null;
+    const r = await client.checkContactExists(input.sessionRef, input.phone);
+    return typeof r.numberExists === "boolean" ? r.numberExists : null;
+  },
+
+  async markSeen(input: { sessionRef: string; recipient: string; messageIds?: readonly string[] }): Promise<void> {
+    const client = getWahaClient();
+    if (!client) return;
+    await client.sendSeen(input.sessionRef, input.recipient, input.messageIds);
+  },
+
+  async reactToMessage(input: {
+    sessionRef: string;
+    recipient: string | null;
+    externalId: string;
+    emoji: string;
+  }): Promise<void> {
+    const { client, messageId } = enderecoDaMensagem(input);
+    await client.setReaction(input.sessionRef, messageId, input.emoji);
   },
 
   async editMessage(input: {
@@ -214,6 +282,24 @@ export const wahaAdapter: ChannelAdapter = {
 
       return { reachable: false, status: null, detail: msg.slice(0, 200) };
     }
+  },
+
+  /**
+   * Uma PÁGINA da agenda do aparelho pareado (`GET /api/contacts/all`) — #2736.
+   *
+   * Só quem conversa com um aparelho de verdade tem esta lista do lado de lá,
+   * então só este adapter implementa o método: quem chama testa a presença
+   * dele em vez de perguntar QUAL provider é. A ordenação estável que faz o
+   * offset andar sem pular nem repetir, e a tolerância de formato, moram no
+   * método do cliente (`listarAgendaDoAparelho`), com o próprio contrato.
+   */
+  async listPhonebook(input: { sessionRef: string; limit: number; offset: number }) {
+    const client = getWahaClient();
+    if (!client) throw new Error("waha_not_configured");
+    return client.listarAgendaDoAparelho(input.sessionRef, {
+      limit: input.limit,
+      offset: input.offset,
+    });
   },
 
   async listGroups(input: { sessionRef: string }) {
@@ -293,6 +379,25 @@ export const wahaAdapter: ChannelAdapter = {
         envelope.replyToExternalId ? idCompletoDaMensagem(envelope.replyToExternalId, to) : null,
       );
     }
+
+    // O visto azul no aparelho do cliente (issue #2981): responder sem ter
+    // "lido" é o que denuncia automação. Vem DEPOIS de o transporte aceitar a
+    // mensagem, no MESMO endereço resolvido do envio — marcar outro deixaria a
+    // conversa respondida sem visto —, e o helper falha macio: a resposta já
+    // saiu, e um recibo de leitura que falha nunca custa a mensagem.
+    //
+    // `void`, e não `await`: o pedido do visto sai aqui mesmo, logo depois do
+    // aceite, mas NÃO segura o retorno. Quem chama só grava o `external_id`
+    // depois que este `send` volta, e o `message.ack` do webhook encontra a
+    // linha SÓ por esse id (`handleAck` em `lib/waha/ingest.ts`): um ack de
+    // "entregue" que chegasse durante o visto se perderia, e a mensagem ficaria
+    // em "enviada" (o efeito descrito em `session-reconciler.ts`). O helper
+    // nunca rejeita, então não há rejeição solta.
+    void marcarConversaComoLida({
+      organizationId: envelope.organizationId,
+      sessionName: envelope.sessionRef,
+      chatId: to,
+    });
 
     return { externalId: parseWahaMessageId(res) };
   },

@@ -6,6 +6,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { idsDoContatoEGemeos } from "@/lib/channels/contato-por-telefone";
+import { ehOperante } from "@/lib/organizacao/operante";
 
 import { enviarTextoFixoPendente } from "./enviar-texto-fixo";
 import {
@@ -89,14 +90,18 @@ async function aplicarTextoAosEnrollmentsEmEspera(
 ): Promise<number> {
   const { data, error } = await admin
     .from("followup_enrollments")
-    .select("*")
+    .select("*, followup_flow_pointers!inner(surface)")
     .eq("organization_id", orgId)
     .in("contact_id", contactIds)
-    .eq("status", "waiting_reply");
+    .eq("status", "waiting_reply")
+    // Fork jhoow: o FLUXO espera resposta no próprio motor (drain → `fluxo_step`);
+    // o motor de follow-up não sabe ler o grafo dele.
+    .neq("followup_flow_pointers.surface", "fluxo");
   if (error) throw new Error(error.message);
   let aplicados = 0;
-  for (const row of data ?? []) {
-    const enrollment = row as EnrollmentRow;
+  for (const linha of data ?? []) {
+    const { followup_flow_pointers: _surface, ...row } = linha as Record<string, unknown>;
+    const enrollment = row as unknown as EnrollmentRow;
     // Sem sent_at não dá pra saber se a mensagem é desta pergunta — fail-closed
     // (igual ao relógio): não avança com texto velho.
     if (!enviadaEm || !inboundEhDestaPergunta(enviadaEm, enrollment.updated_at)) continue;
@@ -141,6 +146,29 @@ export async function aplicarTextoNosFollowups(
   admin: SupabaseClient,
   sinal: SinalDeInboundFollowup,
 ): Promise<void> {
+  // Org parada não avança fluxo nem envia (spec cobrança do revendedor §1.3). O
+  // handler de reatividade continua rodando para ela por causa do opt-out e do
+  // handoff (`applyReactivityEvent`); só este passo, que enfileira e envia, para.
+  const { data: org, error: orgErr } = await admin
+    .from("organizations")
+    .select("status")
+    .eq("id", sinal.organizationId)
+    .maybeSingle();
+  if (orgErr) throw new Error(orgErr.message);
+  if (!ehOperante((org as { status?: string } | null)?.status)) return;
+
+  // Contato pessoal (spec 21, caminho 4): o texto dele não alimenta follow-up
+  // nenhum — nem acorda espera, nem responde pergunta. O que estava vivo já
+  // caiu no marcar (etapa 4) ou na reatividade acima; aqui é só não tocar.
+  const { data: contato, error: contatoErr } = await admin
+    .from("contacts")
+    .select("is_personal")
+    .eq("organization_id", sinal.organizationId)
+    .eq("id", sinal.contactId)
+    .maybeSingle();
+  if (contatoErr) throw new Error(contatoErr.message);
+  if ((contato as { is_personal?: boolean } | null)?.is_personal === true) return;
+
   const contactIds = await idsDoContatoEGemeos(admin, sinal.organizationId, sinal.contactId);
   const ultimo = await ultimoInboundDoContato(admin, sinal.organizationId, contactIds);
   const texto = (sinal.texto?.trim() || ultimo.texto).trim();

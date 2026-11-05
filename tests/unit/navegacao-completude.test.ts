@@ -32,6 +32,12 @@ const BASE = path.join(RAIZ, "app", "app");
  */
 const NAV_ALLOWLIST: Record<string, string> = {
   "/app": "redirect para /app/inbox — não é tela, é o ponto de entrada",
+  "/app/crm":
+    "hub do CRM — fork jhoow (P5): o link 'Ver tudo em CRM' saiu do menu porque TODAS as telas do grupo aparecem nele; a página segue no ar para links salvos",
+  "/app/ai":
+    "hub da IA — fork jhoow (P5): o link 'Ver tudo em IA' saiu do menu porque TODAS as telas do grupo aparecem nele; a página segue no ar para links salvos",
+  "/app/analise":
+    "hub de Análise — fork jhoow (P5): o link 'Ver tudo em Análise' saiu do menu porque TODAS as telas do grupo aparecem nele; a página segue no ar para links salvos",
   "/app/ai/agents/new":
     "sub-fluxo de criar agente, alcançado pelo botão dentro da lista de Agentes",
   "/app/team/invite": "sub-fluxo de convite, alcançado de dentro de Equipe",
@@ -40,12 +46,20 @@ const NAV_ALLOWLIST: Record<string, string> = {
   "/app/campaigns/settings":
     "padrões de campanha da organização, alcançados pelo botão dentro da lista de Campanhas — é ajuste que se faz uma vez, não tela de uso diário",
   "/app/settings/tenant/whatsapp": "redirect legado para /app/connections; mantido por links salvos",
+  "/app/kanban":
+    "redirect legado para /app/crms (a lista de funis virou a grade de CRMs, migration 9004); mantido por links salvos, notificações já entregues e extensões",
+  "/app/pipelines":
+    "redirect para /app/crms; nunca foi tela (o quadro é /app/pipelines/[id]) — existe para quem digita o endereço ou chega por link antigo",
   "/app/settings/canal-oficial":
     "redirect para /app/connections?aba=oficial desde o PR #105 — conectar canal passou a ter um lugar só. Conexões é a porta; a aba é navegação interna dela",
   "/app/settings/templates":
     "redirect para /app/connections?aba=oficial&sub=templates — template da Meta só existe por causa do canal oficial, e vive como sub-aba dele",
   "/app/settings/atualizacao":
-    "porta é o rodapé de versão (VersionFooter), que aparece justamente quando há versão nova — melhor que um card fixo. Além disso é só do dono do servidor (is_platform_admin), papel que o registro não modela",
+    "porta é o item de versão do menu do perfil (RodapeDaLateral, ItemDaVersao), que vira link justamente quando há versão nova — melhor que um card fixo. Além disso é só do dono do servidor (is_platform_admin), papel que o registro não modela",
+  "/app/settings/integracoes/mcp/autorizar":
+    "tela de consentimento OAuth (9023): quem chega aqui é a ferramenta de IA que mandou o admin aprovar a conexão, com client_id e PKCE na URL — aberta sem eles, só mostra o erro",
+  "/app/settings/integracoes/mcp/como-funciona":
+    "ajuda das conexões MCP, alcançada pelo link 'Como funciona' dentro de Conexões MCP",
   "/app/proposals/novo":
     "sub-fluxo de criação de proposta, alcançado pelo botão 'Nova proposta' em /app/proposals",
 };

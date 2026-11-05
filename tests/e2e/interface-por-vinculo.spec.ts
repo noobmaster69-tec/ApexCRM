@@ -121,18 +121,14 @@ test("interface por membro atualiza ao vivo, preserva formulário e convite apli
     await expect(nav(member).getByRole("link", { name: "Inbox", exact: true })).toHaveCount(0);
     await member.goto("/app");
     await member.waitForURL("**/app/products");
-    await nav(member).getByRole("link", { name: "Ver tudo em CRM" }).click();
-    await expect(member.getByRole("link", { name: /Produtos/ }).last()).toBeVisible();
+    // Fork jhoow (P5): sem hub, a porta escolhida está direto no menu.
+    await expect(nav(member).getByRole("link", { name: "Produtos", exact: true })).toBeVisible();
     await expect(member.getByRole("link", { name: /Contatos/ })).toHaveCount(0);
-    await member.keyboard.press("ControlOrMeta+k");
-    await expect(member.getByRole("option").filter({ hasText: "Produtos" })).toBeVisible();
-    await expect(member.getByRole("option").filter({ hasText: "Inbox" })).toHaveCount(0);
-    await member.keyboard.press("Escape");
     mkdirSync(evidence, { recursive: true });
     await member.screenshot({ path: `${evidence}/interface-hub-only.png` });
     await member.setViewportSize({ width: 390, height: 844 });
     await member.getByRole("button", { name: "Abrir navegação" }).click();
-    await expect(member.getByRole("link", { name: "Ver tudo em CRM" }).last()).toBeVisible();
+    await expect(member.getByRole("link", { name: "Produtos", exact: true }).last()).toBeVisible();
     expect(
       await member.evaluate(
         () => document.body.scrollWidth <= document.documentElement.clientWidth + 1,
@@ -178,7 +174,7 @@ test("interface por membro atualiza ao vivo, preserva formulário e convite apli
     // A coluna também descreve a seleção para quem só pode consultar a equipe.
     await customize(page, emails[2]!, "Produtos");
     await page.getByRole("combobox", { name: `Papel de ${emails[2]}` }).click();
-    await page.getByRole("option", { name: "manager", exact: true }).click();
+    await page.getByRole("option", { name: "Gerente", exact: true }).click();
     await expect(page.getByText("Papel atualizado.", { exact: true })).toBeVisible();
     await other.goto("/app/team");
     await expect(other.getByRole("row").filter({ hasText: emails[2] }).getByText("Personalizada", { exact: true })).toBeVisible();

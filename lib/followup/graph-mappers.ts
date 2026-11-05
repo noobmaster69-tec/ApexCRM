@@ -75,12 +75,30 @@ export function toFlowNode(n: RFNode): FlowNode {
       return { ...shared, type, config: n.data.config as ConfigOf<"action"> };
     case "internal_task":
       return { ...shared, type, config: n.data.config as ConfigOf<"internal_task"> };
+    case "move_lead":
+      return { ...shared, type, config: n.data.config as ConfigOf<"move_lead"> };
+    case "edit_lead_tag":
+      return { ...shared, type, config: n.data.config as ConfigOf<"edit_lead_tag"> };
     case "end":
       return { ...shared, type, config: n.data.config as ConfigOf<"end"> };
     case "collect":
       return { ...shared, type, config: n.data.config as ConfigOf<"collect"> };
     case "skill":
       return { ...shared, type, config: n.data.config as ConfigOf<"skill"> };
+    // Blocos de FLUXOS (fork jhoow): o config é validado por `flowGraphSchema`
+    // ao salvar; aqui só se devolve a forma.
+    case "mensagem":
+    case "etiquetas":
+    case "aguardar_resposta":
+    case "notificacao":
+    case "condicional":
+    case "distribuidor":
+    case "conexao_fluxo":
+    case "pixel":
+    case "intervalo":
+    case "bloco_ia":
+    case "kanban":
+      return { ...shared, type, config: n.data.config } as FlowNode;
     default: {
       const exhaustive: never = type;
       throw new Error(`unknown node type: ${String(exhaustive)}`);

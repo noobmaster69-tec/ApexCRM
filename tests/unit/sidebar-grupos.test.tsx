@@ -25,6 +25,7 @@ vi.mock("@/hooks/auth/AuthProvider", () => ({
   usePermission: () => false,
 }));
 vi.mock("next/navigation", () => ({
+  useRouter: () => ({ prefetch: vi.fn() }),
   usePathname: () => "/app/inbox",
 }));
 vi.mock("@/components/connections/ConnectionHealthDot", () => ({
@@ -43,13 +44,12 @@ vi.mock("@/components/shell/ContadorDaFila", () => ({
     <span data-testid="marcador-fila" data-compacto={String(compacto)} />
   ),
 }));
-vi.mock("@/app/actions/shell/toggleSidebar", () => ({
-  toggleSidebar: vi.fn(),
-}));
-// Busca a versão via react-query; sem QueryClientProvider ele lança, e o
-// rodapé de versão não é o que estes testes examinam.
-vi.mock("@/components/shell/VersionFooter", () => ({
-  VersionFooter: () => null,
+// O rodapé lê pelo React Query e por provedores que estes casos não montam (ele
+// tem o próprio teste, `rodape-da-lateral.test.tsx`). O dublê desenha só o que
+// se mede aqui: que a lateral entrega a ele o hub de Configurações do registro.
+vi.mock("@/components/shell/RodapeDaLateral", () => ({
+  RodapeDaLateral: ({ configuracoes }: { configuracoes: { href: string; label: string } | null }) =>
+    configuracoes ? <a href={configuracoes.href}>{configuracoes.label}</a> : null,
 }));
 
 function comoPapel(role: ActiveOrg["role"]) {
@@ -69,23 +69,20 @@ describe("Sidebar agrupado", () => {
       .filter(Boolean);
     // Organização não tem título aqui: seu hub (Configurações) vive no rodapé
     // fixo, fora da área que rola — medido, ele caía fora da dobra até em 1080px.
-    expect(titulos).toEqual(["Atendimento", "CRM", "Agente de IA", "Canais", "Análise"]);
+    // Fork jhoow (Etapa 2): "Operações" (Fluxos) logo depois de Atendimento.
+    // O grupo CRM foi desmontado (CRMs e Contatos em Atendimento; o resto em Operações).
+    expect(titulos).toEqual(["Atendimento", "Operações", "Agente de IA", "Canais", "Análise"]);
   });
 
-  it("leva às Etapas do funil pelo CRM, e não por Configurações", () => {
+  it("leva às Etapas do funil pelo menu (Operações), e não por Configurações", () => {
     comoPapel("admin");
     render(<Sidebar collapsed={false} />);
-    // ⚠️ O CAMINHO MUDOU, A PROPRIEDADE NÃO. Etapas do funil saiu do menu para
-    // dentro do hub do CRM quando Tarefas virou o quinto destino do grupo e o
-    // menu passou a rolar. A porta continua sendo CRM — "Ver tudo em CRM" leva
-    // a `/app/crm`, e é lá que a tela aparece —, nunca Configurações, que é o
-    // enterro que originou toda esta reorganização.
-    //
-    // O que este teste prende é a porta EXISTIR no grupo certo do sidebar; que
-    // ela desemboca na tela é o e2e `navegacao.spec.ts` que percorre, clicando.
-    const hub = screen.getByRole("link", { name: /Ver tudo em CRM/ });
-    expect(hub).toHaveAttribute("href", "/app/crm");
-    expect(screen.queryByRole("link", { name: "Etapas do funil" })).toBeNull();
+    // Fork jhoow (P5): sem hub, a tela está DIRETO no menu — desde que o grupo
+    // CRM foi desmontado, em Operações. A propriedade que este teste sempre
+    // prendeu continua: a porta nunca é Configurações.
+    const operacoes = document.querySelector('[aria-labelledby="nav-grupo-operacoes"]');
+    const etapas = screen.getByRole("link", { name: "Etapas do funil" });
+    expect(operacoes?.contains(etapas)).toBe(true);
   });
 
   it("o número de Casos mora no item de Casos, e o da Fila no item de Inbox", () => {
@@ -97,8 +94,8 @@ describe("Sidebar agrupado", () => {
     expect(fila).toHaveLength(1);
     expect(casos[0]!.closest("a")).toHaveAttribute("href", "/app/ai/cases");
     expect(fila[0]!.closest("a")).toHaveAttribute("href", "/app/inbox");
-    // Roteadores saiu do menu para Casos caber (a folga era menos de uma linha).
-    expect(screen.queryByRole("link", { name: "Roteadores" })).toBeNull();
+    // Fork jhoow (P5): toda tela do grupo IA está no menu — Roteadores voltou.
+    expect(screen.getByRole("link", { name: "Roteadores" })).toBeInTheDocument();
     cleanup();
     // Recolhido, o contador vira ponto — é o componente que decide, com esta dica.
     render(<Sidebar collapsed />);
@@ -108,10 +105,10 @@ describe("Sidebar agrupado", () => {
   it("e os dois itens de funil não disputam o mesmo nome", () => {
     comoPapel("admin");
     render(<Sidebar collapsed={false} />);
-    expect(screen.getByRole("link", { name: "Funis" })).toHaveAttribute("href", "/app/kanban");
+    expect(screen.getByRole("link", { name: "CRMs" })).toHaveAttribute("href", "/app/crms");
   });
 
-  it("desenterra Audit Log — e Nuvemshop ficou de fora, por escolha", () => {
+  it("desenterra Audit Log — e Nuvemshop está no menu (fork jhoow, P5)", () => {
     comoPapel("admin");
     render(<Sidebar collapsed={false} />);
     // ⚠️ O CAMINHO MUDOU, A PROPRIEDADE NÃO. O que esta linha sempre prendeu é
@@ -126,19 +123,13 @@ describe("Sidebar agrupado", () => {
     //
     // Canal oficial não está aqui de propósito: virou aba de Conexões no PR
     // #105, e Conexões é a porta.
-    const hubAnalise = screen.getByRole("link", { name: /Ver tudo em Análise/ });
-    expect(hubAnalise).toHaveAttribute("href", "/app/analise");
-    expect(screen.queryByRole("link", { name: /Audit Log/ })).toBeNull();
+    // Fork jhoow (P5): sem hub, Audit Log está direto no grupo Análise.
+    const analise = document.querySelector('[aria-labelledby="nav-grupo-analise"]');
+    expect(analise?.contains(screen.getByRole("link", { name: /Audit Log/ }))).toBe(true);
 
-    // NUVEMSHOP SAIU, e esta linha é a reversão explícita de uma decisão que
-    // este mesmo teste travava: a integração tinha sido "desenterrada" para o
-    // menu justamente por não ter link nenhum. O dono do produto pediu para
-    // ocultá-la — não usa a integração —, então o que era garantia virou o
-    // contrário, e fica dito aqui para ninguém "consertar" de volta sem saber.
-    //
-    // Some do MENU, não do produto: a rota e a página seguem de pé e o ⌘K
-    // continua achando (`searchable()` filtra por papel, nunca por `sidebar`).
-    expect(screen.queryByRole("link", { name: /Nuvemshop/ })).toBeNull();
+    // NUVEMSHOP VOLTOU AO MENU, por decisão do dono do produto no fork (P5:
+    // "todas as telas no menu"). Quem não usa a esconde na preferência de menu.
+    expect(screen.getByRole("link", { name: /Nuvemshop/ })).toBeInTheDocument();
   });
 
   it("Configurações fica no rodapé, nunca dependendo de scroll", () => {
@@ -160,10 +151,10 @@ describe("Sidebar agrupado", () => {
     expect(titulos).toContain("Atendimento");
   });
 
-  it("oferece o hub dos grupos que têm um", () => {
+  it("não há mais 'Ver tudo em …' no menu (fork jhoow, P5)", () => {
     comoPapel("admin");
     render(<Sidebar collapsed={false} />);
-    expect(screen.getByRole("link", { name: /Ver tudo em IA/ })).toHaveAttribute("href", "/app/ai");
+    expect(screen.queryByRole("link", { name: /Ver tudo em/ })).toBeNull();
   });
 
   it("colapsado esconde os títulos mas mantém os links", () => {
@@ -177,7 +168,7 @@ describe("Sidebar agrupado", () => {
     comoPapel("admin");
     render(<Sidebar collapsed={false} />);
     expect(screen.getByRole("link", { name: /Inbox/ })).toHaveAttribute("aria-current", "page");
-    // "Kanban" saiu da interface; o item da mesma URL agora se chama "Funis".
-    expect(screen.getByRole("link", { name: "Funis" })).not.toHaveAttribute("aria-current");
+    // "Kanban" saiu da interface; o item virou "Funis" e, com os CRMs (9004), "CRMs".
+    expect(screen.getByRole("link", { name: "CRMs" })).not.toHaveAttribute("aria-current");
   });
 });

@@ -11,6 +11,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { showApiError } from "@/components/feedback/ApiErrorToast";
 import { apiClient } from "@/lib/api/client";
 import type { ContagemDaCampanha, TaxasDaCampanha } from "@/lib/campanhas/metricas";
+import type { ContagemDaLinha, TotaisDoPeriodo } from "@/lib/campanhas/resumo";
+import type { FonteDaCampanha } from "@/lib/campanhas/modelo";
 import type { StatusDaCampanha } from "@/lib/campanhas/tipos";
 
 export interface CampanhaDaLista {
@@ -22,11 +24,16 @@ export interface CampanhaDaLista {
   snapshot_eligible: number;
   snapshot_excluded: number;
   scheduled_at: string | null;
+  /** Fuso da campanha (9015) — o agendamento aparece nele. */
+  timezone?: string | null;
   started_at: string | null;
   completed_at: string | null;
   cancelled_at: string | null;
   created_at: string;
   created_by: string | null;
+  /** Migration 0710: `template` = modelo aprovado pelo número oficial. */
+  message_mode?: "text" | "template";
+  provider_template_name?: string | null;
 }
 
 export interface CampanhaDetalhada extends CampanhaDaLista {
@@ -45,11 +52,40 @@ export interface CampanhaDetalhada extends CampanhaDaLista {
   prepared_at: string | null;
   paused_at: string | null;
   failure_code: string | null;
+  /** A frase do motivo, quando a campanha parou sozinha por uma falha do envio inteiro. */
+  failure_detail?: string | null;
+  provider_template_language?: string | null;
+  provider_template_variables?: Record<string, FonteDaCampanha>;
   intervalo_segundos: number | null;
   janela_inicio_hora: number | null;
   janela_fim_hora: number | null;
   teto_diario: number | null;
   teto_horario: number | null;
+  /** Item 4 (9014): o que a campanha faz com cada contato. */
+  mode?: "text" | "flow";
+  flow_id?: string | null;
+  /** Item 7 (9015). */
+  min_interval_seconds?: number;
+  max_interval_seconds?: number;
+  timezone?: string | null;
+  next_send_at?: string | null;
+  /** Item 3 (9016): etapa onde o card entra no envio. A de resposta é stage_id. */
+  recipients_pipeline_id?: string | null;
+  recipients_stage_id?: string | null;
+  /** 9018: janela em minutos do dia e o motivo real da última espera da rodada. */
+  janela_inicio_minuto?: number | null;
+  janela_fim_minuto?: number | null;
+  wait_reason?: string | null;
+  wait_until?: string | null;
+  /** 9019: idioma da campanha. */
+  language?: string | null;
+  /** 9020: cota por período. */
+  cota_quantidade?: number | null;
+  cota_periodo?: "hora" | "dia" | "semana" | "mes" | null;
+  /** Migration 0711: `rapida` = tudo de uma vez pelo número oficial; `gradual` = uma por minuto. */
+  velocidade?: "gradual" | "rapida";
+  /** Migration 0765: texto sai em balões, um por parágrafo. */
+  split_messages?: boolean;
 }
 
 export interface Destinatario {
@@ -61,6 +97,8 @@ export interface Destinatario {
   eligibility_status: string;
   exclusion_reason: string | null;
   legenda_da_exclusao: string | null;
+  /** A frase da falha (em português; a tela traduz), quando a plataforma disse por quê. */
+  motivo_da_falha?: string | null;
   sent_at: string | null;
   delivered_at: string | null;
   read_at: string | null;
@@ -69,6 +107,8 @@ export interface Destinatario {
 }
 
 export interface Metricas {
+  /** Item 4: só em campanha que inicia fluxo. */
+  fluxo?: { iniciados: number; concluiram: number } | null;
   contagem: ContagemDaCampanha;
   taxas: TaxasDaCampanha;
   progresso: number;
@@ -80,6 +120,8 @@ export interface PreviaDaAudiencia {
   elegiveis: number;
   excluidos: number;
   motivos: Record<string, number>;
+  /** O recorte bateu o teto de 20.000 negócios e há linha além dele (#2404). */
+  truncado: boolean;
   amostra: Array<{ nome: string | null; motivo: string | null }>;
   legenda: Record<string, string>;
 }
@@ -110,6 +152,78 @@ export function useCampanhas(filtros: { status?: string; limit?: number }) {
       }
     },
     getNextPageParam: (ultima) => (ultima.meta?.has_more ? ultima.meta.cursor : undefined),
+  });
+}
+
+/** Uma linha da tabela de Campanhas — `GET /api/v1/campaigns/resumo`. */
+export interface CampanhaDoResumo {
+  id: string;
+  nome: string;
+  status: StatusDaCampanha;
+  tipo: "fluxo" | "mensagem";
+  conteudo_origem: "fluxo" | "modelo" | "texto";
+  conteudo: string | null;
+  lista: {
+    tipo: "lista" | "funil" | "etiquetas" | "crm";
+    id: string | null;
+    nome: string | null;
+    /** Contatos elegíveis da lista montada (0 enquanto não preparada). */
+    total: number;
+    preparada: boolean;
+  };
+  criada_em: string;
+  iniciada_em: string | null;
+  concluida_em: string | null;
+  cancelada_em: string | null;
+  agendada_em: string | null;
+  proximo_envio_em: string | null;
+  ritmo: {
+    cadencia_segundos: number | null;
+    janela_inicio_minuto: number | null;
+    janela_fim_minuto: number | null;
+    fuso: string | null;
+    cota_quantidade: number | null;
+    cota_periodo: string | null;
+    teto_diario: number | null;
+  };
+  contagem: ContagemDaLinha;
+  leitura_disponivel: boolean;
+}
+
+export interface ResumoDasCampanhas {
+  periodo: { de: string; ate: string };
+  resumo: TotaisDoPeriodo;
+  campanhas: CampanhaDoResumo[];
+  total_na_conta: number;
+  parcial: boolean;
+}
+
+/**
+ * O resumo do período. Reconsulta a cada 30 s enquanto houver campanha enviando
+ * (o destaque ao vivo tem a própria consulta, de 5 s); o react-query para de
+ * reconsultar sozinho com a aba escondida.
+ */
+export function useResumoDasCampanhas(periodo: { de: string; ate: string } | null) {
+  return useQuery({
+    queryKey: ["campanhas-resumo", periodo?.de ?? null, periodo?.ate ?? null],
+    enabled: periodo !== null,
+    queryFn: async () => {
+      const qs = new URLSearchParams({ de: periodo!.de, ate: periodo!.ate });
+      return (await apiClient.get<{ data: ResumoDasCampanhas }>(`/api/v1/campaigns/resumo?${qs.toString()}`)).data;
+    },
+    placeholderData: (anterior) => anterior,
+    refetchInterval: (q) => (q.state.data?.campanhas.some((c) => c.status === "running") ? 30_000 : false),
+  });
+}
+
+/** As métricas da campanha que está no destaque "Enviando agora": a cada 5 s, só com a aba visível. */
+export function useMetricasAoVivo(id: string | null) {
+  return useQuery({
+    queryKey: ["campanha-metricas", id],
+    enabled: id !== null,
+    queryFn: async () => (await apiClient.get<{ data: Metricas }>(`/api/v1/campaigns/${id}/metrics`)).data,
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -171,6 +285,26 @@ export function useAcaoDeCampanha(id: string) {
       void qc.invalidateQueries({ queryKey: ["campanha-metricas", id] });
       void qc.invalidateQueries({ queryKey: ["campanha-destinatarios", id] });
       void qc.invalidateQueries({ queryKey: ["campanhas"] });
+      void qc.invalidateQueries({ queryKey: ["campanhas-resumo"] });
+    },
+    onError: (err) => showApiError(err),
+  });
+}
+
+/** A mesma ação, para a lista: o id vai junto com o pedido (menu de cada linha). */
+export function useAcaoNaLista() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (entrada: { id: string; acao: AcaoDeCampanha; corpo?: Record<string, unknown> }) =>
+      await apiClient.post<{ data: Record<string, unknown> }>(
+        `/api/v1/campaigns/${entrada.id}/${entrada.acao}`,
+        entrada.corpo ?? {},
+      ),
+    onSuccess: (_r, entrada) => {
+      void qc.invalidateQueries({ queryKey: ["campanha", entrada.id] });
+      void qc.invalidateQueries({ queryKey: ["campanha-metricas", entrada.id] });
+      void qc.invalidateQueries({ queryKey: ["campanhas"] });
+      void qc.invalidateQueries({ queryKey: ["campanhas-resumo"] });
     },
     onError: (err) => showApiError(err),
   });
@@ -182,6 +316,14 @@ export function usePreviaDaAudiencia() {
       audience_filter: Record<string, unknown>;
       message_body: string;
       campaign_id?: string;
+      /** Item 6: com consentimento, a prévia já conta quem não consentiu. */
+      base_legal?: "consent" | "legitimate_interest";
+      modelo?: {
+        channel_session_id: string;
+        name: string;
+        language: string;
+        variables: Record<string, FonteDaCampanha>;
+      };
     }) => (await apiClient.post<{ data: PreviaDaAudiencia }>("/api/v1/campaigns/preview", corpo)).data,
     onError: (err) => showApiError(err),
   });
@@ -207,5 +349,44 @@ export function useEditarCampanha(id: string) {
       void qc.invalidateQueries({ queryKey: ["campanhas"] });
     },
     onError: (err) => showApiError(err),
+  });
+}
+
+/** Uma variável de um modelo, como a campanha a mostra (rota `campaigns/modelos`). */
+export interface VariavelDoModelo {
+  chave: string;
+  rotulo: string;
+  tipo: "texto" | "midia" | "sufixo_de_link" | "cupom" | "nao_suportada";
+  origens: FonteDaCampanha["kind"][];
+  contexto_antes: string;
+  contexto_depois: string;
+}
+
+export interface ModeloParaCampanha {
+  name: string;
+  language: string;
+  status: string;
+  category: string | null;
+  aprovado: boolean;
+  parameter_format: string | null;
+  components: unknown;
+  saved_values: Record<string, string>;
+  variaveis: VariavelDoModelo[];
+}
+
+/**
+ * O que uma campanha pode mandar pelo número escolhido: o modo dele e, no
+ * oficial, os modelos espelhados da conexão. `enabled` só com número escolhido.
+ */
+export function useModelosDaCampanha(channelSessionId: string) {
+  return useQuery({
+    queryKey: ["campanhas", "modelos", channelSessionId],
+    enabled: channelSessionId !== "",
+    queryFn: async () =>
+      (
+        await apiClient.get<{ data: { modo: "text" | "template" | null; modelos: ModeloParaCampanha[] } }>(
+          `/api/v1/campaigns/modelos?channel_session_id=${encodeURIComponent(channelSessionId)}`,
+        )
+      ).data,
   });
 }

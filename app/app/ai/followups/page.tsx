@@ -4,6 +4,7 @@ import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
+import { SUPERFICIES_DO_RELOGIO } from "@/lib/followup/api-schemas";
 import type { FollowupFlowPointerRow } from "@/hooks/followup/useFollowupFlows";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FlowsList } from "./_components/FlowsList";
@@ -29,8 +30,9 @@ export default async function FollowupFlowsPage() {
     .from("followup_flow_pointers")
     .select(FLOW_COLUMNS)
     .eq("organization_id", activeOrg.orgId)
-    // Roteiro de atendimento não é follow-up (prova do #1130): tem tela própria.
-    .neq("surface", "atendimento")
+    // Roteiro de atendimento não é follow-up (prova do #1130), e fluxo do
+    // construtor (fork jhoow) também não: cada um tem tela própria.
+    .in("surface", [...SUPERFICIES_DO_RELOGIO])
     .order("updated_at", { ascending: false });
 
   const flows = (data ?? []) as unknown as FollowupFlowPointerRow[];
@@ -49,7 +51,7 @@ export default async function FollowupFlowsPage() {
       <Tabs defaultValue="fluxos" className="flex flex-1 flex-col">
         <TabsList>
           <TabsTrigger value="fluxos">{t("Fluxos")}</TabsTrigger>
-          <TabsTrigger value="fila">Fila</TabsTrigger>
+          <TabsTrigger value="fila">{t("Fila")}</TabsTrigger>
         </TabsList>
         <TabsContent value="fluxos">
           <FlowsList initialData={flows} canWrite={canWrite} />

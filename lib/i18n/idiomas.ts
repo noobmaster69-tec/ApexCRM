@@ -78,7 +78,7 @@ export function normalizarIdioma(bruto: string | null | undefined): Idioma {
  * por preferência (`es-MX,es;q=0.9,en;q=0.8`), e o primeiro idioma que este
  * produto sabe servir na ordem do visitante vence, mesmo que não seja o de
  * maior `q`. Pura por design: sem `next/headers` aqui, porque este arquivo é
- * importado por componente cliente (`SeletorDeIdioma.tsx`) — quem lê o
+ * importado por componente cliente (`RodapeDaLateral.tsx`) — quem lê o
  * cabeçalho é `idiomaDoVisitante` em `lib/i18n/idiomaAnonimo.ts`, server-only.
  */
 export function parseAcceptLanguage(header: string | null | undefined): Idioma | null {
@@ -101,4 +101,28 @@ export function parseAcceptLanguage(header: string | null | undefined): Idioma |
     if (servido) return servido.codigo;
   }
   return null;
+}
+
+/**
+ * A lista de idiomas do navegador (`["es-MX", "es", "en"]`) para um idioma servido.
+ * Reusa `parseAcceptLanguage` para que `es-MX` ou `es-419` caiam em `es` e não
+ * no padrão, que é o que `normalizarIdioma` faria com o código regional.
+ */
+export function idiomaDelNavegador(languages: readonly string[]): Idioma {
+  return parseAcceptLanguage(languages.join(",")) ?? IDIOMA_PADRAO;
+}
+
+/**
+ * O idioma do DICIONÁRIO para a etiqueta BCP-47 de um DESTINATÁRIO — o `pt-PT`
+ * do país de Portugal, o `es` de um país que fale espanhol.
+ *
+ * Não é `normalizarIdioma`: aqui a etiqueta não é uma preferência de interface
+ * (que só pode ser um dos códigos servidos) e sim a LÍNGUA de um país, que pode
+ * ser uma variante regional que o seletor de idioma não oferece (`pt-PT`,
+ * `es-419`). A degradação é a mesma de `idiomaDelNavegador`, pela mesma razão:
+ * o primário casa o idioma servido, e uma língua que o produto ainda não traduz
+ * cai no padrão em vez de devolver a chave crua na tela (issue #2347, item 2).
+ */
+export function idiomaDoTexto(tag: string | null | undefined): Idioma {
+  return parseAcceptLanguage(tag) ?? IDIOMA_PADRAO;
 }

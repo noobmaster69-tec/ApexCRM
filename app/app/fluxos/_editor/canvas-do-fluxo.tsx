@@ -1,0 +1,46 @@
+"use client";
+
+import { createContext, useContext } from "react";
+
+/**
+ * O que um cartão de bloco do canvas de FLUXOS precisa e não mora no nó (fork
+ * jhoow, item 5): as ações do cabeçalho (✏️ 📋 🗑️), a contagem do Distribuidor
+ * e os nomes de funil/fluxo que as prévias mostram. O React Flow renderiza os
+ * nós sem passar props do canvas — o contexto é a ponte.
+ */
+export interface CanvasDoFluxo {
+  editar: (id: string) => void;
+  duplicar: (id: string) => void;
+  excluir: (id: string) => void;
+  /** nó do distribuidor → saída → quantos contatos passaram por ela. */
+  distribuicoes: Record<string, Record<string, number>>;
+  nomeDoFunil: (id: string) => string | null;
+  nomeDoFluxo: (id: string) => string | null;
+  /** Link compartilhado (item 2): cartões sem ✏️ 📋 🗑️. */
+  somenteLeitura?: boolean;
+  /**
+   * O fluxo aberto: a miniatura da imagem enviada pede o link assinado por ele.
+   * Ausente (link compartilhado), a imagem do Storage fica no ícone.
+   */
+  flowId?: string;
+  /**
+   * Inícios a mais de fluxo legado que têm seta saindo: contorno de alerta e
+   * 🗑️ no cartão. O principal nunca entra aqui e não se exclui.
+   */
+  iniciosDuplicados?: ReadonlySet<string>;
+}
+
+const NADA: CanvasDoFluxo = {
+  editar: () => {},
+  duplicar: () => {},
+  excluir: () => {},
+  distribuicoes: {},
+  nomeDoFunil: () => null,
+  nomeDoFluxo: () => null,
+};
+
+export const CanvasDoFluxoContext = createContext<CanvasDoFluxo>(NADA);
+
+export function useCanvasDoFluxo(): CanvasDoFluxo {
+  return useContext(CanvasDoFluxoContext);
+}

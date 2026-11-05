@@ -1,0 +1,685 @@
+/*
+ * A CASCA DO APP (Etapa 7): lateral + conteúdo, sem barra no topo.
+ *
+ * Os tokens (`--side-*`, `--tile-*`, `--nav-active-*`, `--shell-*`, `--menu-*`,
+ * `--badge-danger`) moram em `app/globals.css`, nos três blocos de tema, com o
+ * mesmo conjunto de chaves no claro e no escuro. Aqui só se usa.
+ *
+ * Recolhida (68px) é `data-recolhida="true"` no `<aside>`. Antes de o React
+ * saber a largura da janela (primeira pintura sem escolha salva), quem recolhe
+ * na faixa 1024–1279px é a media query sobre `data-automatica="true"` — assim
+ * a lateral não nasce aberta e fecha na frente da pessoa.
+ */
+
+.sh-app {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--app-bg);
+  font-family: var(--font-inbox);
+  font-size: 14px;
+}
+
+/* ── Lateral ─────────────────────────────────────────────────────────────── */
+.sh-side {
+  position: relative;
+  z-index: 30;
+  width: 248px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--side-bg);
+  border-right: 1px solid var(--side-border);
+  color: var(--shell-text-2);
+  font-family: var(--font-inbox);
+  font-size: 14px;
+}
+/* Só anima depois de montada: o primeiro quadro nunca desliza. */
+.sh-side[data-pronta="true"] {
+  transition: width 200ms;
+}
+.sh-side[data-recolhida="true"] {
+  width: 68px;
+}
+@media (min-width: 1024px) and (max-width: 1279.98px) {
+  .sh-side[data-automatica="true"]:not([data-pronta="true"]) {
+    width: 68px;
+  }
+  .sh-side[data-automatica="true"]:not([data-pronta="true"]) :is(.sh-item__rotulo, .sh-secao, .sh-perfil__textos, .sh-perfil__seta, .sh-cab__recolher) {
+    display: none;
+  }
+}
+/* Abaixo de 1024px a lateral fixa sai; quem navega é a gaveta. */
+@media (max-width: 1023.98px) {
+  .sh-side--fixa {
+    display: none;
+  }
+}
+
+.sh-cab {
+  height: 60px;
+  padding: 0 16px;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sh-side[data-recolhida="true"] .sh-cab {
+  justify-content: center;
+  padding: 0;
+}
+.sh-cab__marca {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: 24px;
+}
+.sh-cab__simbolo {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sh-botao-recolher {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--shell-muted);
+}
+.sh-botao-recolher:hover {
+  background: var(--side-hover);
+  color: var(--shell-text);
+}
+
+/* ── Navegação ───────────────────────────────────────────────────────────── */
+.sh-nav {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.sh-nav:hover {
+  scrollbar-color: var(--border-hover) transparent;
+}
+.sh-nav::-webkit-scrollbar {
+  width: 4px;
+}
+.sh-nav::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+}
+.sh-nav:hover::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+}
+.sh-grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sh-secao {
+  padding: 14px 10px 5px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--shell-section);
+}
+.sh-divisoria {
+  height: 1px;
+  margin: 8px 10px;
+  background: var(--side-divider);
+}
+.sh-item {
+  position: relative;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--shell-text-2);
+  font-weight: 400;
+  text-decoration: none;
+  outline: none;
+}
+.sh-item:hover {
+  background: var(--side-hover);
+}
+.sh-item:focus-visible {
+  outline: 2px solid var(--shell-accent);
+  outline-offset: -2px;
+}
+.sh-item[aria-current="page"] {
+  background: var(--nav-active-bg);
+  color: var(--nav-active-text);
+  font-weight: 600;
+}
+.sh-item__icone {
+  width: 18px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sh-item__rotulo {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sh-side[data-recolhida="true"] .sh-item {
+  width: 40px;
+  padding: 0;
+  margin: 0 auto;
+  justify-content: center;
+}
+.sh-badge {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--badge-danger);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.sh-ponto {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+.sh-ponto[data-saude="connected"] {
+  background: var(--shell-success);
+}
+.sh-ponto[data-saude="down"] {
+  background: var(--shell-danger);
+}
+.sh-ponto[data-saude="connecting"] {
+  background: #f5a524;
+}
+.sh-ponto[data-saude="none"],
+.sh-ponto[data-saude="unknown"] {
+  background: var(--shell-muted);
+  opacity: 0.5;
+}
+.sh-side[data-recolhida="true"] .sh-item :is(.sh-badge, .sh-ponto) {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+}
+.sh-side[data-recolhida="true"] .sh-item .sh-badge {
+  min-width: 16px;
+  height: 14px;
+  padding: 0 3px;
+  font-size: 9px;
+}
+
+/* ── Rodapé ──────────────────────────────────────────────────────────────── */
+.sh-rodape {
+  flex-shrink: 0;
+  padding: 10px;
+  border-top: 1px solid var(--side-border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sh-side[data-recolhida="true"] .sh-rodape {
+  align-items: center;
+}
+/* O » da lateral recolhida, acima dos ícones, com uma divisória de 1px. */
+.sh-rodape__expandir {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--side-border);
+  align-self: stretch;
+}
+.sh-icones {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+.sh-side[data-recolhida="true"] .sh-icones {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+.sh-tile {
+  position: relative;
+  height: 38px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tile-bg);
+  border: 1px solid var(--tile-border);
+  color: var(--shell-text-2);
+  cursor: pointer;
+}
+.sh-tile:hover {
+  background: var(--tile-hover);
+}
+.sh-tile:focus-visible,
+.sh-perfil:focus-visible,
+.sh-botao-recolher:focus-visible,
+.sh-abrir-gaveta:focus-visible {
+  outline: 2px solid var(--shell-accent);
+  outline-offset: 2px;
+}
+.sh-tile[data-ativo="true"] {
+  background: var(--nav-active-bg);
+  color: var(--nav-active-text);
+}
+.sh-tile:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.sh-side[data-recolhida="true"] .sh-tile {
+  width: 40px;
+  background: transparent;
+  border-color: transparent;
+}
+.sh-side[data-recolhida="true"] .sh-tile:hover {
+  background: var(--tile-hover);
+}
+.sh-side[data-recolhida="true"] .sh-tile[data-ativo="true"] {
+  background: var(--nav-active-bg);
+}
+.sh-tile__badge {
+  position: absolute;
+  top: 4px;
+  right: 10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--badge-danger);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.sh-side[data-recolhida="true"] .sh-tile__badge {
+  right: 2px;
+  top: 2px;
+}
+.sh-tile__codigo {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sh-perfil {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--tile-bg);
+  border: 1px solid var(--tile-border);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sh-perfil:hover {
+  border-color: var(--border-hover);
+}
+.sh-perfil:disabled {
+  cursor: default;
+}
+.sh-side[data-recolhida="true"] .sh-perfil {
+  width: auto;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  border-radius: 50%;
+}
+.sh-perfil__textos {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sh-perfil__nome,
+.sh-perfil__org {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sh-perfil__nome {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--shell-text);
+}
+.sh-perfil__org {
+  font-size: 12px;
+  color: var(--shell-muted);
+}
+.sh-perfil__seta {
+  flex-shrink: 0;
+  color: var(--shell-muted);
+}
+
+.sh-avatar {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+.sh-avatar__pessoa {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--avatar-bg);
+  color: var(--avatar-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.sh-avatar__pessoa img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sh-avatar__org {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--shell-accent);
+  border: 2px solid var(--tile-bg);
+  color: #ffffff;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+}
+.sh-side[data-recolhida="true"] .sh-avatar__org {
+  border-color: var(--side-bg);
+}
+.sh-avatar__org img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ── Menus e popovers da lateral (portal) ────────────────────────────────── */
+.sh-menu {
+  z-index: 60;
+  min-width: 228px;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--menu-bg);
+  border: 1px solid var(--menu-border);
+  box-shadow: var(--menu-shadow);
+  color: var(--shell-text);
+  font-family: var(--font-inbox);
+  font-size: 13px;
+  outline: none;
+}
+.sh-menu--perfil {
+  width: var(--radix-dropdown-menu-trigger-width);
+}
+.sh-menu--notificacoes {
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 0;
+}
+.sh-menu__pessoa {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 6px;
+  min-width: 0;
+}
+.sh-menu__pessoa-nome {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--shell-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sh-menu__pessoa-email {
+  font-size: 12px;
+  color: var(--shell-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sh-menu__titulo {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--menu-heading);
+}
+.sh-menu__lista {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.sh-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  outline: none;
+  color: var(--shell-text);
+  text-decoration: none;
+}
+.sh-menu__item[data-highlighted] {
+  background: var(--menu-hover);
+}
+.sh-menu__item[data-ativa="true"] {
+  background: var(--menu-active-bg);
+}
+.sh-menu__item[data-disabled] {
+  cursor: default;
+  opacity: 0.6;
+}
+.sh-menu__check {
+  flex-shrink: 0;
+  color: var(--menu-active-check);
+}
+.sh-menu__nome {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.sh-menu__quadrado {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--shell-accent);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+}
+.sh-menu__quadrado img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sh-menu__quadrado--novo {
+  background: transparent;
+  border: 1px dashed var(--border-hover);
+  color: var(--shell-muted);
+}
+.sh-menu__divisoria {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--menu-divider);
+}
+.sh-menu__item--sair {
+  color: var(--menu-danger);
+}
+.sh-menu__item--sair[data-highlighted] {
+  background: var(--menu-danger-hover);
+}
+.sh-menu__sub {
+  display: block;
+  font-size: 11px;
+  color: var(--shell-muted);
+}
+.sh-menu__codigo {
+  width: 24px;
+  flex-shrink: 0;
+  font-family: var(--font-inbox-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--shell-muted);
+}
+.sh-menu__cabecalho {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--menu-bg);
+  border-bottom: 1px solid var(--menu-divider);
+  font-size: 14px;
+  font-weight: 600;
+}
+.sh-menu__cabecalho a {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--nav-active-text);
+}
+.sh-menu__corpo {
+  padding: 12px;
+}
+
+/* ── Gaveta (< 1024px) ───────────────────────────────────────────────────── */
+.sh-abrir-gaveta {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 40;
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--tile-bg);
+  border: 1px solid var(--tile-border);
+  color: var(--shell-text-2);
+}
+@media (max-width: 1023.98px) {
+  .sh-abrir-gaveta {
+    display: flex;
+  }
+}
+.sh-gaveta {
+  width: 248px;
+  max-width: calc(100vw - 32px);
+  padding: 0;
+  gap: 0;
+  border-right: 1px solid var(--side-border);
+  background: var(--side-bg);
+}
+.sh-gaveta .sh-side {
+  width: 100%;
+  border-right: 0;
+}
+
+/* ── Conteúdo ────────────────────────────────────────────────────────────── */
+.sh-coluna {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.sh-faixas {
+  flex-shrink: 0;
+}
+.sh-faixas:empty {
+  display: none;
+}
+.sh-main {
+  --main-pt: 36px;
+  --main-px: 40px;
+  --main-pb: 32px;
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--main-pt) var(--main-px) var(--main-pb);
+}
+@media (max-width: 1023.98px) {
+  .sh-main {
+    --main-pt: 64px;
+    --main-px: 16px;
+    --main-pb: 24px;
+  }
+}
+/*
+ * Tela de altura total (Inbox, construtor de fluxo, quadro do CRM): desfaz o
+ * respiro do `<main>` e ocupa exatamente a área dele — sem rolagem dupla.
+ */
+.sh-tela-cheia {
+  margin: calc(-1 * var(--main-pt)) calc(-1 * var(--main-px)) calc(-1 * var(--main-pb));
+  height: calc(100% + var(--main-pt) + var(--main-pb));
+}
+/* Abaixo de 1024px o botão da gaveta (fixo em 12px/12px) não pode cobrir o
+   começo da tela: a faixa de cima fica livre para ele. */
+@media (max-width: 1023.98px) {
+  .sh-tela-cheia {
+    padding-top: 64px;
+  }
+}
+/* Superfície que alcança a borda do <main> e rola junto (sem altura fixa). */
+.sh-sangria {
+  margin: calc(-1 * var(--main-pt)) calc(-1 * var(--main-px)) calc(-1 * var(--main-pb));
+  min-height: calc(100% + var(--main-pt) + var(--main-pb));
+}

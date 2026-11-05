@@ -1,0 +1,107 @@
+"use client";
+
+import { useMemo } from "react";
+import {
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  BackgroundVariant,
+  MiniMap,
+  useNodesState,
+  type EdgeTypes,
+  type NodeTypes,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+
+import { toFlowNode, toReactFlow } from "@/lib/followup/graph-mappers";
+import type { FlowGraph } from "@/lib/followup/graph-schema";
+import { TIPOS_DE_BLOCO_DO_FLUXO } from "@/lib/followup/blocos-do-fluxo";
+import { useT } from "@/hooks/i18n/useT";
+import { BlocoDoFluxoNode, FimDoFluxoNode, InicioDoFluxoNode } from "@/app/app/fluxos/_blocos/BlocoDoFluxoNode";
+
+import { ArestaDoFluxo } from "./ArestaDoFluxo";
+import { rotuloDaArestaDoFluxo } from "./aresta-do-fluxo";
+import { CanvasDoFluxoContext, type CanvasDoFluxo } from "./canvas-do-fluxo";
+import { ControlesDoCanvas } from "./ControlesDoCanvas";
+import { corDoBloco } from "./cores-dos-blocos";
+import "./fluxo-editor.css";
+
+const nodeTypes: NodeTypes = {
+  ...Object.fromEntries(TIPOS_DE_BLOCO_DO_FLUXO.map((tipo) => [tipo, BlocoDoFluxoNode])),
+  trigger: InicioDoFluxoNode,
+  end: FimDoFluxoNode,
+};
+const edgeTypes: EdgeTypes = { fluxo: ArestaDoFluxo };
+
+const LEITURA: CanvasDoFluxo = {
+  editar: () => {},
+  duplicar: () => {},
+  excluir: () => {},
+  distribuicoes: {},
+  nomeDoFunil: () => null,
+  nomeDoFluxo: () => null,
+  somenteLeitura: true,
+};
+
+/**
+ * O fluxo aberto pelo link de Compartilhar (fork jhoow, item 2): o mesmo
+ * desenho do editor — cartões com prévia, linhas com o nome da saída, mini-mapa
+ * — sem nada que edite. Arrastar o canvas e dar zoom continuam valendo.
+ */
+export function FluxoSomenteLeitura({ grafo }: { grafo: FlowGraph }) {
+  const t = useT();
+  const { nodes: iniciais, edges } = useMemo(() => {
+    const rf = toReactFlow(grafo);
+    const porId = new Map(rf.nodes.map((n) => [n.id, n]));
+    return {
+      nodes: rf.nodes,
+      edges: rf.edges.map((e) => {
+        const origem = porId.get(e.source);
+        const rotulo = rotuloDaArestaDoFluxo(origem ? toFlowNode(origem) : undefined, e.data?.condition);
+        return { ...e, type: "fluxo", label: rotulo ? t(rotulo) : undefined, style: { stroke: corDoBloco(origem?.type) } };
+      }),
+    };
+  }, [grafo, t]);
+  // Estado de nós de verdade, mesmo sem edição: o React Flow grava o tamanho
+  // MEDIDO de cada cartão por `onNodesChange`. Com os nós fixos numa prop, o
+  // tamanho nunca chegava a eles e o mini-mapa ficava vazio (prova de 5 out).
+  const [nodes, , onNodesChange] = useNodesState(iniciais);
+
+  return (
+    <ReactFlowProvider>
+      <CanvasDoFluxoContext.Provider value={LEITURA}>
+        <div className="fx relative h-full w-full" data-testid="fluxo-somente-leitura">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodesChange={onNodesChange}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            deleteKeyCode={null}
+            fitView
+            fitViewOptions={{ maxZoom: 1 }}
+          >
+            <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="#27272d" bgColor="#121214" />
+            <ControlesDoCanvas />
+            <MiniMap
+              nodeColor={(node) => corDoBloco(node.type)}
+              nodeBorderRadius={4}
+              nodeStrokeWidth={0}
+              maskColor="rgba(0,0,0,0.45)"
+              maskStrokeColor="rgba(255,255,255,0.35)"
+              maskStrokeWidth={1.5}
+              bgColor="#18181b"
+              style={{ width: 200, height: 110 }}
+              position="bottom-right"
+              pannable
+              zoomable
+            />
+          </ReactFlow>
+        </div>
+      </CanvasDoFluxoContext.Provider>
+    </ReactFlowProvider>
+  );
+}

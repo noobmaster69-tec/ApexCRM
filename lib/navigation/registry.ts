@@ -12,6 +12,7 @@ import {
   ClipboardText,
   ClockCountdown,
   ClockCounterClockwise,
+  DeviceMobile,
   FileText,
   Flag,
   FlowArrow,
@@ -41,14 +42,17 @@ import {
   Users,
   UsersThree,
   WebhooksLogo,
+  Lightning,
 } from "@/lib/ui/icons";
 
 import {
   NAV_CATALOG,
   NAV_GROUPS,
+  GRUPO_NO_RODAPE,
   type NavMetadata,
   type NavGroup,
   type NavGroupId,
+  sobeAoMenuLateral,
 } from "./catalogo";
 import type { ModuloOpcional } from "@/lib/instalacao/modulos";
 import type { CapacidadeDaOrganizacao } from "@/lib/organizacao/capacidades";
@@ -67,6 +71,7 @@ const ICONS = {
   ClipboardText,
   ClockCountdown,
   ClockCounterClockwise,
+  DeviceMobile,
   FileText,
   Flag,
   FlowArrow,
@@ -96,6 +101,7 @@ const ICONS = {
   Users,
   UsersThree,
   WebhooksLogo,
+  Lightning,
 };
 export interface NavDestination extends Omit<NavMetadata, "icon"> {
   icon: PhosphorIcon;
@@ -113,7 +119,14 @@ export const NAV_DESTINATIONS: NavDestination[] = NAV_CATALOG.map((d) => ({
  */
 export { canSee } from "./interface";
 
-/** Projeção do sidebar: só o uso diário, agrupado, sem grupo vazio. */
+/**
+ * Projeção do sidebar: TODA tela visível do grupo, agrupada, sem grupo vazio.
+ *
+ * Fork jhoow (P5): antes era "só o uso diário" (`sidebar: true`), com o resto
+ * atrás do hub. Os hubs saíram do menu, então o menu passa a listar tudo, e
+ * quem esconde é a preferência de menu da pessoa. O grupo do rodapé
+ * (Organização) continua sendo só o link de Configurações.
+ */
 export function sidebarGroups(
   isPlatformAdmin: boolean,
   role: Role | null,
@@ -126,9 +139,11 @@ export function sidebarGroups(
   );
   return NAV_GROUPS.map((group) => ({
     group,
+    // O uso diário (`sidebar: true`) continua no topo do grupo, na ordem de
+    // sempre; o resto vem depois, na ordem do catálogo (`sort` é estável).
     items: NAV_DESTINATIONS.filter(
-      (d) => d.group === group.id && (d.sidebar || (!group.hub && !!settings?.destinos)) && visible.has(d.href),
-    ),
+      (d) => d.group === group.id && group.id !== GRUPO_NO_RODAPE && visible.has(d.href),
+    ).sort((a, b) => Number(!a.sidebar) - Number(!b.sidebar)),
   })).filter(
     (g) =>
       g.items.length > 0 ||
@@ -163,18 +178,4 @@ export function hubSections(
     else porSecao.set(secao, [d]);
   }
   return [...porSecao.entries()].map(([section, items]) => ({ section, items }));
-}
-
-/** Projeção do ⌘K: todo destino visível, do sidebar ou não. */
-export function searchable(
-  isPlatformAdmin: boolean,
-  role: Role | null,
-  settings?: InterfaceSettings,
-  modulos?: readonly ModuloOpcional[],
-  capacidades?: readonly CapacidadeDaOrganizacao[],
-): NavDestination[] {
-  const visible = new Set<string>(
-    destinosDaInterface(settings, isPlatformAdmin, role, modulos, capacidades).map((d) => d.href),
-  );
-  return NAV_DESTINATIONS.filter((d) => visible.has(d.href));
 }

@@ -34,9 +34,108 @@ export interface EtapaEditavel extends EtapaDoMapa {
    * de nome/papel/ordem deste arquivo nunca a leem — quem lê é a previsão.
    */
   win_probability?: number | null;
+  /**
+   * Janela de "esfriando" em horas (`crm_stages.expected_duration_hours`), a
+   * coluna que o radar lê (`resolveStageWindow`). `null` = a etapa nunca
+   * configurou e vale o padrão de 24 h/72 h. Opcional pela mesma razão do
+   * campo acima: as regras deste arquivo não a decidem — quem decide é a
+   * validação de 1 a 8760, em `validarJanelaDeEsfriamento`.
+   */
+  expected_duration_hours?: number | null;
   slug: string;
   position: number;
   is_archived: boolean;
+  /**
+   * A Etapa de entrada do funil principal (migration 9007): primeira coluna,
+   * fixa, onde cai todo contato novo do CRM. Opcional porque quem monta a lista
+   * à mão (testes, telas antigas) não precisa conhecê-la — ausente vale `false`.
+   */
+  is_entry?: boolean;
+}
+
+/**
+ * A frase da recusa sobre a Etapa de entrada, num lugar só: ela aparece no
+ * renomear, no reordenar, na marcação e no arquivamento, e quatro cópias
+ * divergiriam no primeiro ajuste de texto.
+ */
+function entradaFixa(nome: string, oQue: string): string {
+  return `«${nome}» é a Etapa de entrada deste funil — é onde todo contato novo chega — e ${oQue}.`;
+}
+
+/**
+ * Recusa o que não se faz com a Etapa de entrada: trocar o nome ou a posição.
+ * Cor, chance e aviso na Central seguem livres. Marcar ganho/perda e arquivar
+ * são recusados em `validarMarcacao` e `validarArquivamento`, junto com as
+ * outras regras daquelas operações.
+ *
+ * O banco recusa o mesmo (gatilho `trg_crm_stages_guarda_entrada`, 9007); aqui
+ * é para a frase sair em português, citando a etapa.
+ */
+export function validarEdicaoDaEntrada(
+  etapa: EtapaEditavel,
+  pedido: { name?: string; depois_de?: string | null },
+): Resultado {
+  if (!etapa.is_entry) return { ok: true };
+  if (pedido.name !== undefined && pedido.name.trim() !== etapa.name) {
+    return { ok: false, erro: entradaFixa(etapa.name, "o nome dela não muda") };
+  }
+  if (pedido.depois_de !== undefined) {
+    return { ok: false, erro: entradaFixa(etapa.name, "ela fica sempre na primeira coluna") };
+  }
+  return { ok: true };
+}
+
+/**
+ * Onde a etapa movida cai na régua das ativas (sem ela): o índice do vizinho da
+ * esquerda, `-1` = primeira coluna.
+ *
+ * ⚠️ NINGUÉM PASSA À FRENTE DA ENTRADA. "Primeira coluna" num funil com Etapa
+ * de entrada quer dizer "logo depois dela": é o que quem arrastou para a ponta
+ * esquerda esperava ver, e a alternativa (recusar) faria o arraste mais natural
+ * do quadro dar erro.
+ *
+ * Devolve `null` quando o vizinho pedido não está mais no funil.
+ */
+/**
+ * Onde entra a coluna NOVA: os vizinhos da esquerda e da direita (`null` =
+ * ponta), para `posicaoEntre`.
+ *
+ * ⚠️ ANTES DAS FINAIS QUE FECHAM O FUNIL, como no Kommo: se as últimas colunas
+ * forem a de ganho e/ou a de perda, a nova entra antes delas — senão, num funil
+ * que nasce só com "Ganho" e "Perdido", toda coluna criada cairia DEPOIS de
+ * "Perdido". Ganho no meio do funil (o seed de e-commerce tem "Pago" antes de
+ * "Em separação") não conta: só as finais que estão na ponta.
+ *
+ * Arquivadas não ocupam lugar no quadro; a Etapa de entrada não conta como
+ * "última" mesmo com posição alta, porque a leitura a põe sempre na frente.
+ */
+export function vizinhasDaEtapaNova(etapas: EtapaEditavel[]): { antes: number | null; depois: number | null } {
+  const quadro = ativas(etapas)
+    .filter((e) => !e.is_entry)
+    .sort((a, b) => a.position - b.position);
+  let i = quadro.length;
+  while (i > 0 && (quadro[i - 1]!.is_won || quadro[i - 1]!.is_lost)) i--;
+  const depois = quadro[i]?.position ?? null;
+  // Sem coluna aberta antes das finais, o vizinho da esquerda é a entrada — só
+  // se a posição dela estiver mesmo à esquerda (uma posição mexida à mão não
+  // pode jogar a coluna nova para depois da final).
+  const entrada = ativas(etapas).find((e) => e.is_entry);
+  const entradaAntes = entrada && (depois === null || entrada.position < depois) ? entrada.position : null;
+  const antes = i > 0 ? quadro[i - 1]!.position : entradaAntes;
+  // Funil sem final nenhuma na ponta: depois da MAIOR posição de todas, inclusive
+  // as arquivadas — mesma régua de antes desta função, para não reocupar o
+  // lugar de uma coluna arquivada.
+  if (depois === null) {
+    const maior = etapas.length > 0 ? Math.max(...etapas.map((e) => e.position)) : null;
+    return { antes: maior, depois: null };
+  }
+  return { antes, depois };
+}
+
+export function indiceDoVizinho(ativas: EtapaEditavel[], depoisDe: string | null): number | null {
+  if (depoisDe === null) return ativas[0]?.is_entry ? 0 : -1;
+  const i = ativas.findIndex((e) => e.id === depoisDe);
+  return i < 0 ? null : i;
 }
 
 export type Resultado = { ok: true } | { ok: false; erro: string };
@@ -104,6 +203,34 @@ export function validarNomeDeEtapa(
     };
   }
 
+  return { ok: true };
+}
+
+/** A janela de "esfriando" aceita, em horas: de uma hora a um ano. */
+export const JANELA_MIN_H = 1;
+export const JANELA_MAX_H = 8760;
+
+/**
+ * Recusa a janela de esfriamento que o radar não saberia interpretar.
+ *
+ * A coluna é `crm_stages.expected_duration_hours numeric`, SEM CHECK — a
+ * migration que colocaria o `between 1 and 8760` ficou fora deste escopo, então
+ * esta função e o Zod das rotas são a ÚNICA rede antes do banco. Fora da faixa
+ * o problema é real em duas direções: `0` ou negativo faz o radar nunca
+ * esfriar (todo lead eternamente "em dia"), e um número enorme empurra a
+ * janela crítica para anos — alarme que ninguém nunca vê, que é o mesmo
+ * defeito dos alarmes falsos que esta issue veio consertar.
+ *
+ * `null` não passa por aqui: é o valor que LIMPA a configuração e volta ao
+ * padrão de 24 h/72 h, e limpar é sempre legítimo.
+ */
+export function validarJanelaDeEsfriamento(horas: number): Resultado {
+  if (!Number.isInteger(horas) || horas < JANELA_MIN_H || horas > JANELA_MAX_H) {
+    return {
+      ok: false,
+      erro: `A janela de esfriamento vai de ${JANELA_MIN_H} a ${JANELA_MAX_H} horas (uma hora a um ano).`,
+    };
+  }
   return { ok: true };
 }
 
@@ -198,6 +325,10 @@ export function validarMarcacao(
       ok: false,
       erro: `A etapa «${etapa.name}» não pode ser de ganho e de perda ao mesmo tempo — escolha uma.`,
     };
+  }
+
+  if (etapa.is_entry && (desejado.won || desejado.lost)) {
+    return { ok: false, erro: entradaFixa(etapa.name, "por isso não fecha negócio") };
   }
 
   for (const passo of ["won", "lost"] as const) {
@@ -325,6 +456,10 @@ export function validarArquivamento(
   const etapa = etapas.find((e) => e.id === etapaId);
   if (!etapa) {
     return { ok: false, erro: "Essa etapa não faz parte deste funil. Recarregue a página e tente de novo." };
+  }
+
+  if (etapa.is_entry) {
+    return { ok: false, erro: entradaFixa(etapa.name, "não sai do quadro") };
   }
 
   const restantes = ativas(etapas).filter((e) => e.id !== etapaId);

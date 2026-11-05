@@ -1,20 +1,19 @@
 /**
  * O FUNIL MOSTRA OS DADOS DO CLIENTE — telefone, e-mail e links (Instagram, site,
- * Google Meu Negócio…) no card e nas abas do dossiê.
+ * Google Meu Negócio…) nas abas do dossiê. O card compacto (estilo Leona) mostra
+ * só o telefone; e-mail e links saíram dele junto com o `ContatoNoCard`.
  *
- * Três garantias que um teste só de "renderiza" não daria:
+ * Garantias que um teste só de "renderiza" não daria:
  *
- *  1. o link é `<a href>`, então só http(s) pode virar clicável — a defesa vale
- *     no card mesmo que o valor chegue por outro caminho que não o servidor;
- *  2. salvar links troca o `custom_fields` INTEIRO (o PATCH substitui o objeto),
+ *  1. salvar links troca o `custom_fields` INTEIRO (o PATCH substitui o objeto),
  *     então o que não é link tem que ir junto — perder um campo personalizado da
  *     organização ao salvar um Instagram seria o pior tipo de defeito: silencioso;
- *  3. o card lê os links do QUADRO, não do contato: salvar sem reler o quadro
+ *  2. o card lê os dados do QUADRO, não do contato: salvar sem reler o quadro
  *     parece "não fez nada" onde a pessoa mais olha.
  *
  * Mais a fiação, lida da fonte (a mesma técnica dos irmãos deste diretório): a
- * rota lê os dados do contato na MESMA consulta dos marcadores, o card e o
- * dossiê renderizam os componentes.
+ * rota lê os dados do contato na MESMA consulta dos marcadores, o card mostra o
+ * telefone e o dossiê renderiza as abas.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -24,11 +23,24 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const useContact = vi.hoisted(() => vi.fn());
+const useContatosRelacionados = vi.hoisted(() => vi.fn());
+const adicionarParticipante = vi.hoisted(() => vi.fn());
+const removerParticipante = vi.hoisted(() => vi.fn());
+const useContactList = vi.hoisted(() => vi.fn());
 const mutateAsync = vi.hoisted(() => vi.fn());
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (texto: string) => texto }));
 vi.mock("@/hooks/contacts/useContact", () => ({ useContact }));
+vi.mock("@/hooks/contacts/useContactList", () => ({ useContactList }));
+// O ESCRITOR do vínculo (#3083 F1): o dossiê ganhou adicionar, remover e dar
+// papel. Aqui os dois hooks entram dublados — o que este arquivo prova é a
+// TELA (o controle existe, manda o que deve e some quando não há âncora).
+vi.mock("@/hooks/leads/useContatosRelacionados", () => ({ useContatosRelacionados }));
+vi.mock("@/hooks/leads/useParticipantesDoNegocio", () => ({
+  useAdicionarParticipante: () => ({ mutateAsync: adicionarParticipante, isPending: false }),
+  useRemoverParticipante: () => ({ mutate: removerParticipante, isPending: false }),
+}));
 vi.mock("@/hooks/contacts/useUpdateContact", () => ({
   useUpdateContact: () => ({ mutateAsync, isPending: false }),
 }));
@@ -45,7 +57,6 @@ vi.mock("next/link", () => ({
 }));
 
 import { ContatoDoNegocio } from "@/components/kanban/ContatoDoNegocio";
-import { ContatoNoCard } from "@/components/kanban/ContatoNoCard";
 
 const RAIZ = process.cwd();
 const fonte = (arquivo: string) => readFileSync(join(RAIZ, arquivo), "utf8");
@@ -64,79 +75,29 @@ const CONTATO = {
   custom_fields: { cor_favorita: "azul", link_instagram: "instagram.com/loja" } as Record<string, unknown>,
 };
 
+/** O candidato a PARTICIPANTE que a busca do dossiê oferece (#3083 F1). */
+const OUTRO = {
+  id: "c-2",
+  name: "João Souza",
+  display_name: null,
+  email: null,
+  phone_number: null,
+  updated_at: "2026-09-19T10:00:00Z",
+  custom_fields: {} as Record<string, unknown>,
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   useContact.mockReturnValue({ data: { data: CONTATO }, isLoading: false, isError: false });
   mutateAsync.mockResolvedValue({ data: CONTATO });
+  // Sem `leadId` a lista não consulta nada; quem passa a âncora devolve o que
+  // cada teste montar.
+  useContatosRelacionados.mockReturnValue({ data: { data: [] }, isLoading: false, isError: false });
+  useContactList.mockReturnValue({ data: { pages: [{ data: [OUTRO] }] }, isLoading: false });
+  adicionarParticipante.mockResolvedValue({ data: {} });
 });
 
 afterEach(cleanup);
-
-describe("ContatoNoCard", () => {
-  it("não renderiza nada quando o negócio não tem dado de contato", () => {
-    const { container } = render(<ContatoNoCard lead={{}} />);
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("⭐ mostra telefone, e-mail e um link por rede, abrindo em outra aba", () => {
-    render(
-      <ContatoNoCard
-        lead={{
-          contact_phone: "+5511999998888",
-          contact_email: "ana@exemplo.com",
-          contact_links: [
-            { tipo: "instagram", href: "https://www.instagram.com/loja" },
-            { tipo: "google_meu_negocio", href: "https://maps.app.goo.gl/x" },
-          ],
-        }}
-      />,
-    );
-
-    expect(screen.getByText("+5511999998888")).toBeInTheDocument();
-    expect(screen.getByText("ana@exemplo.com")).toBeInTheDocument();
-
-    const instagram = screen.getByRole("link", { name: "Abrir Instagram" });
-    expect(instagram).toHaveAttribute("href", "https://www.instagram.com/loja");
-    expect(instagram).toHaveAttribute("target", "_blank");
-    expect(instagram).toHaveAttribute("rel", expect.stringContaining("noopener"));
-    expect(screen.getByRole("link", { name: "Abrir Google Meu Negócio" })).toHaveAttribute(
-      "href",
-      "https://maps.app.goo.gl/x",
-    );
-  });
-
-  it("⭐ só renderiza link http(s) — javascript: que chegue por fora não vira clicável", () => {
-    render(
-      <ContatoNoCard
-        lead={{
-          contact_links: [
-            { tipo: "site", href: "javascript:alert(1)" },
-            { tipo: "instagram", href: "https://www.instagram.com/loja" },
-          ],
-        }}
-      />,
-    );
-
-    const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(1);
-    expect(links[0]).toHaveAttribute("href", "https://www.instagram.com/loja");
-  });
-
-  it("⭐ clicar num link NÃO abre o dossiê (o card inteiro tem onClick)", () => {
-    const abrirDossie = vi.fn();
-    render(
-      <div onClick={abrirDossie}>
-        <ContatoNoCard
-          lead={{ contact_links: [{ tipo: "site", href: "https://exemplo.com.br/" }] }}
-        />
-      </div>,
-    );
-
-    fireEvent.click(screen.getByRole("link", { name: "Abrir Site" }));
-
-    expect(abrirDossie).not.toHaveBeenCalled();
-  });
-});
 
 describe("ContatoDoNegocio — as abas do dossiê", () => {
   it("negócio sem contato vinculado avisa, sem consultar nada", () => {
@@ -246,6 +207,88 @@ describe("ContatoDoNegocio — as abas do dossiê", () => {
   });
 });
 
+describe("ContatoDoNegocio — o escritor das pessoas relacionadas (a #3083 F1)", () => {
+  it("⭐ lista vazia NÃO some: ela diz que está vazia e oferece o controle de adicionar", () => {
+    comQuery(<ContatoDoNegocio contactId="c-1" pipelineId="p-1" leadId="l-1" />);
+
+    // A seção existir com a lista vazia é o ponto: se ela devolvesse null (como
+    // na versão só-leitora), o único controle que ADICIONA a primeira pessoa
+    // ficaria inalcançável justo nos negócios que mais precisam dele.
+    expect(screen.getByTestId("pessoas-relacionadas")).toBeInTheDocument();
+    expect(screen.getByText("Nenhuma pessoa relacionada ainda.")).toBeInTheDocument();
+    expect(screen.getByTestId("adicionar-participante")).toBeInTheDocument();
+  });
+
+  it("sem a âncora do negócio, o bloco inteiro não renderiza — e ninguém consulta nada", () => {
+    comQuery(<ContatoDoNegocio contactId="c-1" pipelineId="p-1" />);
+
+    expect(useContatosRelacionados).toHaveBeenCalledWith(null);
+    expect(screen.queryByTestId("pessoas-relacionadas")).toBeNull();
+    expect(screen.queryByTestId("adicionar-participante")).toBeNull();
+    // A busca só existe com o formulário aberto: sem âncora, nenhuma chamada.
+    expect(useContactList).not.toHaveBeenCalled();
+  });
+
+  it("⭐ adicionar manda o POST com o papel digitado e relê a lista", async () => {
+    comQuery(<ContatoDoNegocio contactId="c-1" pipelineId="p-1" leadId="l-1" />);
+
+    // Fechado, o formulário não existe: a lista de contatos só é buscada quando
+    // alguém abre o controle.
+    expect(screen.queryByTestId("formulario-de-participante")).toBeNull();
+    fireEvent.click(screen.getByTestId("adicionar-participante"));
+
+    const form = screen.getByTestId("formulario-de-participante");
+    expect(within(form).getByText("João Souza")).toBeInTheDocument();
+    fireEvent.change(within(form).getByLabelText("Papel"), { target: { value: "Pagante" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Adicionar" }));
+
+    await waitFor(() =>
+      expect(adicionarParticipante).toHaveBeenCalledWith({ contact_id: "c-2", papel: "Pagante" }),
+    );
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Participante adicionado."));
+    // Fechou: o dossiê volta ao estado de leitura depois do gesto.
+    await waitFor(() => expect(screen.queryByTestId("formulario-de-participante")).toBeNull());
+  });
+
+  it("papel em branco vai como null — o servidor limpa o papel sem tirar a pessoa", async () => {
+    comQuery(<ContatoDoNegocio contactId="c-1" pipelineId="p-1" leadId="l-1" />);
+    fireEvent.click(screen.getByTestId("adicionar-participante"));
+    const form = screen.getByTestId("formulario-de-participante");
+
+    fireEvent.click(within(form).getByRole("button", { name: "Adicionar" }));
+
+    await waitFor(() =>
+      expect(adicionarParticipante).toHaveBeenCalledWith({ contact_id: "c-2", papel: null }),
+    );
+  });
+
+  it("⭐ remover manda o DELETE do contato daquela linha", () => {
+    useContatosRelacionados.mockReturnValue({
+      data: {
+        data: [{ contact_id: "c-2", nome: "João Souza", papel: "Pagante", anonimizado: false }],
+      },
+      isLoading: false,
+      isError: false,
+    });
+    comQuery(<ContatoDoNegocio contactId="c-1" pipelineId="p-1" leadId="l-1" />);
+
+    expect(screen.getByText("João Souza")).toBeInTheDocument();
+    expect(screen.getByText("(Pagante)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remover João Souza" }));
+
+    expect(removerParticipante).toHaveBeenCalledWith(
+      "c-2",
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+    // A confirmação só sai depois que o servidor removeu: é o onSuccess da
+    // mutação que a dispara, não o clique.
+    expect(toast.success).not.toHaveBeenCalled();
+    const [, opcoes] = removerParticipante.mock.calls[0] ?? [];
+    opcoes?.onSuccess();
+    expect(toast.success).toHaveBeenCalledWith("Participante removido.");
+  });
+});
+
 describe("a fiação — quem usa a regra a chama", () => {
   it("⭐ a rota lê o dado do contato na MESMA consulta dos marcadores e o aplica nos leads", () => {
     const rota = fonte("app/api/v1/pipelines/[id]/board/route.ts");
@@ -254,8 +297,10 @@ describe("a fiação — quem usa a regra a chama", () => {
     expect(inicio, "a etapa dos marcadores sumiu da rota").toBeGreaterThan(-1);
     const etapa = rota.slice(inicio, fim);
 
-    expect(etapa, "a consulta não traz telefone, e-mail e custom_fields").toMatch(
-      /\.select\(\s*"id, tags, phone_number, email, custom_fields, is_anonymized"\s*\)/,
+    // `display_name` e `avatar_storage_path`: a foto e o nome do WhatsApp do
+    // topo do card (estilo Kommo) saem desta MESMA leitura.
+    expect(etapa, "a consulta não traz telefone, e-mail, custom_fields, nome do WhatsApp e foto").toMatch(
+      /\.select\(\s*"id, tags, phone_number, email, custom_fields, is_anonymized, display_name, avatar_storage_path"\s*\)/,
     );
     expect(etapa, "anexarDadosDoContato não é chamada na etapa").toMatch(
       /anexarDadosDoContato\(\s*leadsDoQuadro,\s*linhas\s*\)/,
@@ -265,8 +310,8 @@ describe("a fiação — quem usa a regra a chama", () => {
     expect(rota).toMatch(/leads:\s*leadsComMarcadores\.leads/);
   });
 
-  it("o card e o dossiê renderizam os componentes novos", () => {
-    expect(fonte("components/kanban/KanbanCard.tsx")).toMatch(/<ContatoNoCard\s+lead=\{lead\}/);
+  it("o card mostra o telefone e o dossiê renderiza as abas", () => {
+    expect(fonte("components/kanban/KanbanCard.tsx")).toMatch(/phoneForDisplay\(lead\.contact_phone\)/);
     expect(fonte("components/kanban/LeadDossier.tsx")).toMatch(
       /<ContatoDoNegocio\s+contactId=\{lead\.contact_id\}\s+pipelineId=\{pipelineId\}/,
     );

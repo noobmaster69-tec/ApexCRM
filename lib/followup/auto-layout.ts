@@ -47,7 +47,24 @@ const TYPE_ORDER: Record<NodeType, number> = {
   // automático ordena por papel no fluxo, e este nó é o epílogo.
   internal_task: 10,
   action: 8,
+  // #2065 — ações que também não falam com o cliente: entram junto do envio,
+  // porque são o MEIO do caminho (mover o card, etiquetar) e não o epílogo.
+  move_lead: 8.5,
+  edit_lead_tag: 8.6,
   end: 9,
+  // Blocos de FLUXOS (fork jhoow): todos no mesmo papel — o layout segue a
+  // ordem das arestas, que é o que conta num fluxo de venda.
+  mensagem: 8,
+  etiquetas: 8,
+  aguardar_resposta: 8,
+  notificacao: 8,
+  condicional: 8,
+  distribuidor: 8,
+  conexao_fluxo: 8,
+  pixel: 8,
+  intervalo: 8,
+  bloco_ia: 8,
+  kanban: 8,
 };
 
 export type NodeSize = { width: number; height: number };

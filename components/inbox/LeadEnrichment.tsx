@@ -5,6 +5,7 @@ import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AuditoriaDoSite } from "@/components/prospecting/AuditoriaDoSite";
 import { safePublicLink, type ProspectEnrichment } from "@/lib/prospecting/schema";
 
 function BusinessLink({ value, label }: { value: string | null; label?: string }) {
@@ -28,18 +29,20 @@ export function LeadEnrichment({
   loading,
   error,
   onRetry,
+  sobrescritaVocabulario,
 }: {
   data: (ProspectEnrichment & { collected_at: string }) | null;
   loading: boolean;
   error: boolean;
   onRetry: () => void;
+  sobrescritaVocabulario?: Record<string, string> | null;
 }) {
   const t = useT();
   const locale = useLocaleDeData();
   const collected = data ? new Date(data.collected_at) : null;
   return (
-    <section data-testid="inbox-enrichment" className="min-w-0 rounded-lg border p-3 text-xs">
-      <h3 className="font-semibold">{t("Sobre a empresa")}</h3>
+    <section data-testid="inbox-enrichment" className="min-w-0 text-[13px]">
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ibx-muted">{t("Empresa")}</h3>
       {error ? (
         <div className="mt-2 space-y-2">
           <p className="text-muted-foreground">
@@ -52,7 +55,7 @@ export function LeadEnrichment({
       ) : loading ? (
         <Skeleton className="mt-2 h-20 w-full" />
       ) : !data ? (
-        <p className="mt-2 text-muted-foreground">
+        <p className="mt-2 text-ibx-muted">
           {t("Sem dados de enriquecimento para este contato.")}
         </p>
       ) : (
@@ -113,6 +116,18 @@ export function LeadEnrichment({
                 />
               ))}
             </div>
+          )}
+          {data.site && (
+            <AuditoriaDoSite
+              site={data.site}
+              nota={data.rating}
+              numAvaliacoes={data.reviews}
+              temInstagram={/instagram/i.test(data.socials.join(","))}
+              ofertas={["site"]}
+              nicho={data.category ?? ""}
+              status=""
+              sobrescritaVocabulario={sobrescritaVocabulario ?? null}
+            />
           )}
           <div className="space-y-1 border-t pt-2 text-muted-foreground">
             <p>

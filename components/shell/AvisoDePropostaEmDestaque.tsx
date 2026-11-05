@@ -15,7 +15,8 @@ const KIND_PROPOSTA_PRONTA = "proposta_pronta_para_revisao";
  * C6 — aviso de proposta que se vê. Quando nasce um
  * `proposta_pronta_para_revisao` com o CRM aberto, um cartão fixo aparece no
  * canto inferior direito. A primeira carga só REGISTRA os ids — sem ela, todo
- * aviso antigo gritaria a cada F5. Mesmo gate de permissão do `AlertsBell`.
+ * aviso antigo gritaria a cada F5. Mesmo gate de permissão do botão de
+ * Notificações da lateral (`RodapeDaLateral`).
  *
  * ⚠️ O CARTÃO É A NOTIFICAÇÃO; o som e o celular são o PLUS, e moram no sino.
  * O som da organização toca por `useSonsDaCentral` (a regra de quais avisos
@@ -24,7 +25,8 @@ const KIND_PROPOSTA_PRONTA = "proposta_pronta_para_revisao";
  * mesmo aviso, com um som que a organização não escolheu.
  *
  * ⚠️ O CARTÃO VIVE NUM PORTAL, E PORQUE ESTE COMPONENTE ESTÁ NO MEIO DELE.
- * Ele é montado dentro do `<header>` do `TopBar`, e o header tem
+ * Ele era montado dentro do `<header>` da barra do topo (removida na Etapa 7;
+ * hoje mora na casca, `AppShell`), e o header tinha
  * `backdrop-blur`: filtro, blur, transform, perspective, contain e
  * `will-change` criam BLOCO CONTAINING para os filhos, e a partir daí o
  * `position: fixed` do cartão passou a se posicionar em relação ao HEADER, não
@@ -100,7 +102,7 @@ function AvisoVisivel() {
     <div
       role="alert"
       data-testid="aviso-proposta-destaque"
-      className="fixed right-4 bottom-4 z-50 w-80 rounded-lg border border-border bg-card p-4 shadow-lg"
+      className="fixed right-4 bottom-4 z-50 w-80 max-md:bottom-[calc(var(--rodape-ocupado,0px)+1rem)] rounded-lg border border-border bg-card p-4 shadow-lg"
     >
       {/* O TÍTULO sai como veio — é linha de `agent_inbox_items`, com dado de
           gente (nome da proposta, do cliente). Mesma regra do AgentInboxList:

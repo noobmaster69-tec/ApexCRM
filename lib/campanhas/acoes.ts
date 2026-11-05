@@ -12,20 +12,37 @@
  * a rota traduz para `fail()` sem interpretar exceção, e o motivo chega ao
  * operador com o texto real (Regra nº 1).
  */
+import { inscreverNoFluxo } from "@/lib/fluxos/disparar";
 import { randomUUID } from "node:crypto";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ApiErrorCode } from "@/lib/api/errors";
 import { sendMessageHandler } from "@/app/api/v1/messages/_handler";
+import { PACING_DEFAULTS } from "@/lib/agent-engine/pacing/defaults";
 import { beginServiceAtOrigin } from "@/lib/atendimento/origem";
 
-import { baseLegalValida, motivoParaExcluir, recusouMarketing } from "./elegibilidade";
+import { baseLegalValida, consentiuMarketing, marcadoNaoContatar, motivoParaExcluir, recusouMarketing } from "./elegibilidade";
+import { fusoDoContato } from "./fuso";
+import { idiomaDoEnvio } from "./idioma";
+import { lerVariaveisDaOrganizacao, paraRenderizar } from "@/lib/variables/definicoes";
+import { baloesDaCampanha, enviarEmBaloes, pausaEntreBaloes } from "./baloes";
 import { ehStatusDaCampanha, podeTransitar } from "./maquina-de-estados";
 import { prepararCampanha } from "./preparacao";
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { camposDoDestinatario } from "./consulta-de-audiencia";
+import { codigoDaPlataforma, fraseDaFalha } from "@/lib/channels/erro-da-plataforma";
+import {
+  camposDoNegocioUsados,
+  type ConteudoDoEnvio,
+  resolverValoresDaCampanha,
+  textoDoModeloParaAConversa,
+  variaveisDaCampanhaSchema,
+} from "./modelo";
+import { conferirModeloDaCampanha } from "./modelo-da-conexao";
+import type { ModeloPreparado } from "./preparacao";
 import { renderizar } from "./renderizador";
-import type { StatusDaCampanha } from "./tipos";
+import type { ModoDaMensagem, StatusDaCampanha, VelocidadeDaCampanha } from "./tipos";
 
 export interface CampanhaCarregada {
   id: string;
@@ -46,6 +63,32 @@ export interface CampanhaCarregada {
   teto_diario: number | null;
   teto_horario: number | null;
   description: string | null;
+  /** Item 4 (9014): `flow` inscreve cada contato no fluxo `flow_id` em vez de mandar o texto. */
+  mode: "text" | "flow";
+  flow_id: string | null;
+  /** Item 7 / 9018 / 3: o resto do que uma cópia tem de herdar. */
+  timezone?: string | null;
+  min_interval_seconds?: number | null;
+  max_interval_seconds?: number | null;
+  janela_inicio_minuto?: number | null;
+  janela_fim_minuto?: number | null;
+  pipeline_id?: string | null;
+  stage_id?: string | null;
+  agent_id?: string | null;
+  recipients_pipeline_id?: string | null;
+  recipients_stage_id?: string | null;
+  language?: string | null;
+  cota_quantidade?: number | null;
+  cota_periodo?: string | null;
+  /** Migration 0710: `template` = modelo aprovado pelo número oficial. */
+  message_mode: ModoDaMensagem;
+  provider_template_name: string | null;
+  provider_template_language: string | null;
+  provider_template_variables: unknown;
+  /** Migration 0711: `rapida` = rajada na rodada (só com modelo). */
+  velocidade: VelocidadeDaCampanha;
+  /** Migration 0765: texto sai em balões, um por parágrafo. */
+  split_messages: boolean;
 }
 
 export type Recusa = { ok: false; codigo: ApiErrorCode; mensagem: string; status: number };
@@ -54,7 +97,10 @@ export type Desfecho<T = unknown> = ({ ok: true } & T) | Recusa;
 const COLUNAS =
   "id, organization_id, name, status, channel_session_id, message_body, base_legal, lia_ref, " +
   "audience_filter, audience_version, content_version, scheduled_at, description, " +
-  "intervalo_segundos, janela_inicio_hora, janela_fim_hora, teto_diario, teto_horario";
+  "intervalo_segundos, janela_inicio_hora, janela_fim_hora, teto_diario, teto_horario, mode, flow_id, " +
+  "timezone, min_interval_seconds, max_interval_seconds, janela_inicio_minuto, janela_fim_minuto, " +
+  "pipeline_id, stage_id, agent_id, recipients_pipeline_id, recipients_stage_id, language, cota_quantidade, cota_periodo, " +
+  "message_mode, provider_template_name, provider_template_language, provider_template_variables, velocidade, split_messages";
 
 export async function carregarCampanha(
   admin: SupabaseClient,
@@ -94,7 +140,25 @@ function recusaDeTransicao(de: StatusDaCampanha, para: StatusDaCampanha): Recusa
 
 /** O que toda campanha precisa ter antes de qualquer envio — inclusive o de teste. */
 function faltaParaEnviar(c: CampanhaCarregada): Recusa | null {
-  if ((c.message_body ?? "").trim() === "") {
+  if (c.mode === "flow") {
+    if (!c.flow_id) {
+      return {
+        ok: false,
+        codigo: "campanha_conteudo_invalido",
+        mensagem: "Escolha o fluxo que a campanha vai iniciar.",
+        status: 422,
+      };
+    }
+  } else if (c.message_mode === "template") {
+    if ((c.provider_template_name ?? "").trim() === "" || (c.provider_template_language ?? "").trim() === "") {
+      return {
+        ok: false,
+        codigo: "campanha_conteudo_invalido",
+        mensagem: "Escolha o modelo aprovado antes de preparar a campanha.",
+        status: 422,
+      };
+    }
+  } else if ((c.message_body ?? "").trim() === "") {
     return {
       ok: false,
       codigo: "campanha_conteudo_invalido",
@@ -115,6 +179,71 @@ function faltaParaEnviar(c: CampanhaCarregada): Recusa | null {
   return null;
 }
 
+/**
+ * Item 4: o fluxo da campanha está PUBLICADO e ativo? Conferido no preparar, no
+ * iniciar e no teste — o motor só roda versão publicada, e uma campanha que
+ * inscreve em fluxo pausado deixaria a lista inteira parada sem aviso.
+ */
+async function fluxoPronto(admin: SupabaseClient, c: CampanhaCarregada): Promise<Recusa | null> {
+  if (c.mode !== "flow" || !c.flow_id) return null;
+  const { data } = await admin
+    .from("followup_flow_pointers")
+    .select("status, active_version_id, archived_at")
+    .eq("organization_id", c.organization_id)
+    .eq("id", c.flow_id)
+    .eq("surface", "fluxo")
+    .maybeSingle();
+  const f = data as { status: string; active_version_id: string | null; archived_at: string | null } | null;
+  if (!f || f.status !== "active" || !f.active_version_id || f.archived_at) {
+    return {
+      ok: false,
+      codigo: "campanha_conteudo_invalido",
+      mensagem: "O fluxo escolhido não está publicado e ativo. Publique-o em Fluxos antes.",
+      status: 422,
+    };
+  }
+  return null;
+}
+
+/**
+ * O modelo da campanha oficial, conferido AGORA — entre salvar e preparar a
+ * plataforma pode ter pausado o modelo, ou alguém pode ter apagado a definição.
+ * A mesma conferência de salvar (`conferirModeloDaCampanha`). Campanha de texto
+ * devolve `{ ok: true }` sem modelo.
+ */
+export async function modeloDaCampanha(
+  admin: SupabaseClient,
+  c: CampanhaCarregada,
+): Promise<Desfecho<{ modelo?: ModeloPreparado }>> {
+  if (c.message_mode !== "template") return { ok: true };
+  const variaveis = variaveisDaCampanhaSchema.safeParse(c.provider_template_variables ?? {});
+  if (!variaveis.success) {
+    return {
+      ok: false,
+      codigo: "campanha_modelo_variaveis",
+      mensagem: "O mapa de variáveis do modelo está ilegível. Escolha as origens de novo.",
+      status: 422,
+    };
+  }
+  const conferencia = await conferirModeloDaCampanha(
+    admin,
+    {
+      organizationId: c.organization_id,
+      channelSessionId: c.channel_session_id,
+      name: c.provider_template_name ?? "",
+      language: c.provider_template_language ?? "",
+    },
+    variaveis.data,
+  );
+  if (!conferencia.ok) {
+    return { ok: false, codigo: conferencia.codigo, mensagem: conferencia.mensagem, status: 422 };
+  }
+  return {
+    ok: true,
+    modelo: { definicao: conferencia.definicao, contrato: conferencia.contrato, variaveis: variaveis.data },
+  };
+}
+
 /** Já saiu alguma mensagem desta campanha? Reconstruir snapshot depois disso é proibido. */
 async function jaEnviou(admin: SupabaseClient, campanhaId: string): Promise<boolean> {
   const { count } = await admin
@@ -130,8 +259,10 @@ export async function prepararAcao(
   c: CampanhaCarregada,
   agora: Date,
 ): Promise<Desfecho<{ resumo: { total: number; elegiveis: number; excluidos: number } }>> {
-  const recusa = recusaDeTransicao(c.status, "preparing") ?? faltaParaEnviar(c);
+  const recusa = recusaDeTransicao(c.status, "preparing") ?? faltaParaEnviar(c) ?? (await fluxoPronto(admin, c));
   if (recusa) return recusa;
+  const doModelo = await modeloDaCampanha(admin, c);
+  if (!doModelo.ok) return doModelo;
   if (await jaEnviou(admin, c.id)) {
     return {
       ok: false,
@@ -162,9 +293,12 @@ export async function prepararAcao(
       campanhaId: c.id,
       organizationId: c.organization_id,
       filtro: c.audience_filter,
-      corpo: c.message_body ?? "",
+      // Modo fluxo não tem texto: o corpo vazio não exige variável nenhuma.
+      corpo: c.mode === "flow" ? "" : (c.message_body ?? ""),
       contentVersion: c.content_version,
+      exigeConsentimento: c.base_legal === "consent",
       agora,
+      ...(doModelo.modelo ? { modelo: doModelo.modelo } : {}),
     });
     if (resumo.total === 0) {
       await voltarAoRascunho(admin, c.id, "audiencia_vazia");
@@ -226,8 +360,12 @@ export async function iniciarAcao(
   c: CampanhaCarregada,
   agora: Date,
 ): Promise<Desfecho<{ retomada: boolean }>> {
-  const recusa = recusaDeTransicao(c.status, "running") ?? faltaParaEnviar(c);
+  const recusa = recusaDeTransicao(c.status, "running") ?? faltaParaEnviar(c) ?? (await fluxoPronto(admin, c));
   if (recusa) return recusa;
+  // O modelo pode ter sido pausado pela plataforma desde a preparação — e é
+  // exatamente o motivo mais comum de uma campanha oficial ter parado sozinha.
+  const doModelo = await modeloDaCampanha(admin, c);
+  if (!doModelo.ok) return doModelo;
 
   const { count } = await admin
     .from("campaign_recipients")
@@ -251,6 +389,10 @@ export async function iniciarAcao(
       started_at: agora.toISOString(),
       paused_at: null,
       scheduled_at: null,
+      // Retomar é a decisão de quem corrigiu a causa: o motivo da pausa
+      // automática (`pausarPorFalha`, na rodada) sai da tela junto.
+      failure_code: null,
+      failure_detail: null,
     })
     .eq("id", c.id)
     .eq("status", c.status)
@@ -264,6 +406,7 @@ export async function agendarAcao(
   c: CampanhaCarregada,
   quando: Date,
   agora: Date,
+  fuso?: string,
 ): Promise<Desfecho> {
   const recusa = recusaDeTransicao(c.status, "scheduled") ?? faltaParaEnviar(c);
   if (recusa) return recusa;
@@ -277,7 +420,14 @@ export async function agendarAcao(
   }
   const { data } = await admin
     .from("campaigns")
-    .update({ status: "scheduled", scheduled_at: quando.toISOString(), paused_at: null })
+    .update({
+      status: "scheduled",
+      scheduled_at: quando.toISOString(),
+      paused_at: null,
+      // O fuso em que a data foi escolhida — a tela mostra "03/12/2026 12:00 em
+      // Portugal" igual ao que foi digitado. O instante é o UTC, sempre.
+      ...(fuso ? { timezone: fuso } : {}),
+    })
     .eq("id", c.id)
     .eq("status", c.status)
     .select("id");
@@ -343,6 +493,10 @@ export async function duplicarAcao(
       description: c.description,
       channel_session_id: c.channel_session_id,
       message_body: c.message_body,
+      message_mode: c.message_mode,
+      provider_template_name: c.provider_template_name,
+      provider_template_language: c.provider_template_language,
+      provider_template_variables: c.provider_template_variables ?? {},
       base_legal: c.base_legal,
       lia_ref: c.lia_ref,
       audience_filter: c.audience_filter,
@@ -351,6 +505,26 @@ export async function duplicarAcao(
       janela_fim_hora: c.janela_fim_hora,
       teto_diario: c.teto_diario,
       teto_horario: c.teto_horario,
+      // A cópia herda TUDO o que é configuração (modo, fluxo, ritmo sorteado,
+      // fuso, janela em minutos, funil/etapa e agente) — antes perdia os itens
+      // 3, 4 e 7 e voltava ao texto simples de 60–180s sem funil.
+      mode: c.mode ?? "text",
+      flow_id: c.flow_id ?? null,
+      timezone: c.timezone ?? null,
+      min_interval_seconds: c.min_interval_seconds ?? 60,
+      max_interval_seconds: c.max_interval_seconds ?? 180,
+      janela_inicio_minuto: c.janela_inicio_minuto ?? null,
+      janela_fim_minuto: c.janela_fim_minuto ?? null,
+      pipeline_id: c.pipeline_id ?? null,
+      stage_id: c.stage_id ?? null,
+      agent_id: c.agent_id ?? null,
+      recipients_pipeline_id: c.recipients_pipeline_id ?? null,
+      recipients_stage_id: c.recipients_stage_id ?? null,
+      language: c.language ?? null,
+      cota_quantidade: c.cota_quantidade ?? null,
+      cota_periodo: c.cota_periodo ?? null,
+      velocidade: c.velocidade,
+      split_messages: c.split_messages,
       created_by: autorId,
       // Nada de destinatário, resultado, agenda ou carimbo de execução: a cópia
       // é uma INTENÇÃO nova, e herdar números faria a tela mostrar entrega de
@@ -384,12 +558,12 @@ export async function testarAcao(
   agora: Date,
   fuso: string,
 ): Promise<Desfecho<{ status: string }>> {
-  const recusa = faltaParaEnviar(c);
+  const recusa = faltaParaEnviar(c) ?? (await fluxoPronto(admin, c));
   if (recusa) return recusa;
 
   const { data: contato } = await admin
     .from("contacts")
-    .select("id, name, display_name, phone_number, is_blocked, is_anonymized, consent")
+    .select("id, name, display_name, phone_number, is_blocked, is_personal, is_anonymized, consent, email, custom_fields, locale, source, last_activity_at")
     .eq("organization_id", c.organization_id)
     .eq("id", contactId)
     .maybeSingle();
@@ -407,8 +581,14 @@ export async function testarAcao(
     display_name: string | null;
     phone_number: string | null;
     is_blocked: boolean;
+    is_personal: boolean;
     is_anonymized: boolean;
     consent: unknown;
+    email: string | null;
+    custom_fields: Record<string, unknown> | null;
+    locale: string | null;
+    source: string | null;
+    last_activity_at: string | null;
   };
 
   // O teste respeita os MESMOS vetos: mandar teste para quem pediu para parar
@@ -417,9 +597,12 @@ export async function testarAcao(
     contactId: linha.id,
     telefone: linha.phone_number,
     bloqueado: linha.is_blocked,
+    pessoal: linha.is_personal === true,
     anonimizado: linha.is_anonymized,
     recusouMarketing: recusouMarketing(linha.consent),
-  });
+    consentiu: consentiuMarketing(linha.consent),
+    naoContatar: marcadoNaoContatar(linha.custom_fields),
+  }, { exigeConsentimento: c.base_legal === "consent" });
   if (motivo) {
     return {
       ok: false,
@@ -429,44 +612,137 @@ export async function testarAcao(
     };
   }
 
-  const render = renderizar(
-    c.message_body ?? "",
-    { nome: nomeDoContato(linha) },
-    { agora, fuso },
-  );
-  if (render.faltando.length > 0) {
-    return {
-      ok: false,
-      codigo: "campanha_conteudo_invalido",
-      mensagem: `Falta ${render.faltando.join(", ")} no cadastro deste contato — escolha outro para o teste.`,
-      status: 422,
+  // Item 4 (fork): o teste de campanha em modo fluxo inscreve ESTE contato no fluxo.
+  if (c.mode === "flow" && c.flow_id) {
+    const boundaryDoTeste = await beginServiceAtOrigin(admin, c.organization_id, linha.id, c.channel_session_id);
+    const r = await inscreverNoFluxo(admin, {
+      organizationId: c.organization_id,
+      fluxoId: c.flow_id,
+      contactId: linha.id,
+      conversationId: boundaryDoTeste.conversation_id,
+      origem: { origem: "campanha_teste", campaign_id: c.id },
+    });
+    if (!r.ok) {
+      return {
+        ok: false,
+        codigo: "campanha_conteudo_invalido",
+        mensagem:
+          r.codigo === "ja_em_outro_fluxo"
+            ? `Este contato já está num fluxo${r.detalhe ? ` («${r.detalhe}»)` : ""}. Escolha outro para o teste.`
+            : "Não foi possível colocar o contato de teste no fluxo.",
+        status: 422,
+      };
+    }
+    return { ok: true, status: "em_fluxo" };
+  }
+
+  const doModelo = await modeloDaCampanha(admin, c);
+  if (!doModelo.ok) return doModelo;
+  const modelo = doModelo.modelo;
+
+  // Os campos personalizados que o TEXTO usa entram aqui pelo MESMO caminho da
+  // prévia: teste que não resolvia `{{lead.gancho}}` reprovaria o texto que o
+  // envio manda certo. Com modelo, quem diz se o negócio entra é o mapa.
+  const campos = await camposDoDestinatario(admin, {
+    organizationId: c.organization_id,
+    contactId: linha.id,
+    corpo: modelo ? "" : (c.message_body ?? ""),
+    lerCamposDoNegocio: modelo ? camposDoNegocioUsados(modelo.variaveis).length > 0 : false,
+  });
+
+  let conteudo: ConteudoDoEnvio;
+  if (modelo) {
+    // O MESMO resolvedor da preparação: o teste manda o que o despacho mandaria.
+    const r = resolverValoresDaCampanha(modelo.contrato, modelo.variaveis, {
+      nomeDoContato: nomeDoContato(linha),
+      camposDoNegocio: (campos.lead ?? {}) as Record<string, unknown>,
+    });
+    if (!r.ok) {
+      return {
+        ok: false,
+        codigo: "campanha_conteudo_invalido",
+        mensagem: `Este contato não preenche o modelo (${r.problemas.join("; ")}) — escolha outro para o teste.`,
+        status: 422,
+      };
+    }
+    conteudo = {
+      type: "template",
+      template_name: modelo.definicao.name,
+      template_language: modelo.definicao.language,
+      template_values: r.values,
+      body: textoDoModeloParaAConversa(modelo.definicao, r.values),
     };
+  } else {
+    // O teste renderiza com os MESMOS dados do envio real (fork: antes ia só o
+    // nome, e {nome_empresa} preenchido na ficha voltava "Falta nome_empresa").
+    const render = renderizar(
+      c.message_body ?? "",
+      {
+        nome: nomeDoContato(linha),
+        ...campos,
+        telefone: linha.phone_number,
+        email: linha.email,
+        campos: (linha.custom_fields ?? {}) as Record<string, unknown>,
+        locale: linha.locale,
+        origem: linha.source,
+        ultimaInteracao: linha.last_activity_at,
+        campanhaId: c.id,
+        ...paraRenderizar(await lerVariaveisDaOrganizacao(admin, c.organization_id)),
+      },
+      {
+        agora,
+        fuso: fusoDoContato(linha.phone_number, linha.custom_fields, fuso),
+        idioma: idiomaDoEnvio(linha.custom_fields, c.language, linha.locale),
+      },
+    );
+    if (render.faltando.length > 0) {
+      return {
+        ok: false,
+        codigo: "campanha_conteudo_invalido",
+        mensagem: `Falta ${render.faltando.join(", ")} no cadastro deste contato — escolha outro para o teste.`,
+        status: 422,
+      };
+    }
+    conteudo = { type: "text", body: render.texto };
   }
 
   const boundary = await beginServiceAtOrigin(admin, c.organization_id, linha.id, c.channel_session_id);
-  const mensagem = await sendMessageHandler(
-    admin,
-    {
-      organization_id: c.organization_id,
-      serviceBoundary: boundary,
-      proactiveContext: { organizationId: c.organization_id, contactId: linha.id },
-      actor: { type: "webhook_source", id: `campaign-test:${c.id}` },
-      requestId: `campaign-test:${c.id}:${randomUUID()}`,
-    } as Parameters<typeof sendMessageHandler>[1],
-    {
-      conversation_id: boundary.conversation_id,
-      type: "text",
-      body: render.texto,
-      metadata: { source: "campaign_test", campaign_id: c.id },
-    } as Parameters<typeof sendMessageHandler>[2],
-  );
+  // O teste divide como a rodada divide (`baloes.ts`): quem testa precisa ver
+  // no aparelho os mesmos balões que o destinatário vai receber.
+  const baloes = conteudo.type === "text" ? baloesDaCampanha(conteudo.body, c.split_messages === true) : [conteudo.body];
+  const { desfecho: mensagem } = await enviarEmBaloes(baloes, {
+    enviar: (texto) =>
+      sendMessageHandler(
+        admin,
+        {
+          organization_id: c.organization_id,
+          serviceBoundary: boundary,
+          proactiveContext: { organizationId: c.organization_id, contactId: linha.id },
+          actor: { type: "webhook_source", id: `campaign-test:${c.id}` },
+          requestId: `campaign-test:${c.id}:${randomUUID()}`,
+        } as Parameters<typeof sendMessageHandler>[1],
+        {
+          conversation_id: boundary.conversation_id,
+          ...conteudo,
+          ...(conteudo.type === "text" ? { body: texto } : {}),
+          metadata: { source: "campaign_test", campaign_id: c.id },
+        } as Parameters<typeof sendMessageHandler>[2],
+      ),
+    esperar: () => new Promise((ok) => setTimeout(ok, pausaEntreBaloes(PACING_DEFAULTS))),
+  });
 
   const status = (mensagem as { status?: string }).status ?? "desconhecido";
   if (status === "failed") {
+    // O motivo da plataforma, quando há: "falhou no canal" não diz ao operador
+    // se o problema é o modelo, o número ou este contato.
+    const m = mensagem as { error_code?: string | null; error_message?: string | null };
+    const frase = fraseDaFalha(codigoDaPlataforma(m.error_code, m.error_message), m.error_message);
     return {
       ok: false,
       codigo: "campanha_canal_indisponivel",
-      mensagem: "O envio de teste falhou no canal. Verifique a conexão antes de iniciar a campanha.",
+      mensagem: frase
+        ? `O envio de teste falhou: ${frase}`
+        : "O envio de teste falhou no canal. Verifique a conexão antes de iniciar a campanha.",
       status: 409,
     };
   }

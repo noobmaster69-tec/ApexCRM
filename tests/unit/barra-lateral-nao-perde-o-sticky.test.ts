@@ -64,7 +64,9 @@ describe("a rede contra scroll horizontal não pode matar o sticky", () => {
       join(__dirname, "..", "..", "components", "shell", "Sidebar.tsx"),
       "utf8",
     );
-    expect(sidebar).toContain("sticky top-0");
+    // Fork jhoow: as faixas de aviso moram DENTRO da coluna de conteúdo, ao lado
+    // da barra — ela gruda no topo da casca, sem descontar a altura delas.
+    expect(sidebar).toContain('sticky top-0 h-full shrink-0"');
     expect(sidebar).not.toMatch(/className=\{?[^}]*"fixed /);
   });
 });

@@ -27,13 +27,32 @@ const DOT_LABEL: Record<ConnectionHealth, string> = {
  * Bolinha de saúde exibida ao lado do item "Conexões" na sidebar. Poll leve
  * (30s) para o usuário ver de relance quando um número cai — sem precisar abrir nada.
  */
-export function ConnectionHealthDot({ className }: { className?: string }) {
+export function ConnectionHealthDot({
+  className,
+  variante,
+}: {
+  className?: string;
+  /**
+   * `lateral` (Etapa 7): o ponto de 7px da navegação (`.sh-ponto` em
+   * `components/shell/shell.css`), com o estado também em texto para leitor de
+   * tela — dentro do link, ele entra no nome acessível de "Conexões".
+   */
+  variante?: "lateral";
+}) {
   const t = useT();
   const { data, isError } = useChannelSessions({ refetchInterval: 30_000 });
   // Listagem que falhou não vira "Nenhuma conexão": a bolinha é o único sinal
   // ambiente de canal caído, e dizer "nenhuma" a quem tem número ligado é o
   // mesmo engano da Central de Conexões — o operador conclui que perdeu tudo.
   const health = isError ? "unknown" : deriveOverallHealth(data);
+  if (variante === "lateral") {
+    return (
+      <>
+        <span aria-hidden className={cn("sh-ponto", className)} data-saude={health} title={t(DOT_LABEL[health])} />
+        <span className="sr-only">{`, ${t(DOT_LABEL[health])}`}</span>
+      </>
+    );
+  }
   return (
     <span
       className={cn(

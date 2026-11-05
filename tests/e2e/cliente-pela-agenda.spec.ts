@@ -193,6 +193,7 @@ test("ligar 'Clientes pela agenda' transforma quem tem horário marcado em clien
   await page.goto("/app/settings");
   await page.getByRole("link", { name: /Tipos de agendamento/ }).first().click();
   await expect(page).toHaveURL(/\/app\/settings\/tenant\/agenda/, { timeout: 30_000 });
+  await page.getByText("Regras gerais da agenda", { exact: true }).click();
   const secao = page.getByTestId("cliente-pela-agenda");
   await expect(secao).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("cliente-pela-agenda-estado")).toContainText("Desligado:");
@@ -272,7 +273,7 @@ test("ligar 'Clientes pela agenda' transforma quem tem horário marcado em clien
   await expect(fichaDeCliente).not.toContainText(diaDoHorario!);
   await evidencia(page, info, "6-ficha-cliente-desde");
 
-  await page.goto("/app/kanban");
+  await page.goto("/app/crms/padrao");
   // ⚠️ `toBeVisible` ANTES do texto, e não é redundância — medido nesta spec. A
   // página de Funis tem `loading.tsx`: o conteúdo chega por streaming dentro de
   // um `<div hidden>` e só depois substitui o esqueleto. `toContainText` não

@@ -69,17 +69,55 @@ export const PISOS = { texto: 4.5, componente: 3.0 } as const;
 export type TipoDePapel = keyof typeof PISOS;
 
 /**
- * `--color-accent-fg` é CALCULADO, nunca fixo: `#ffffff` sobre um accent amarelo é
- * ilegível, e é justamente a marca amarela que o cliente cola sem avisar.
+ * A FRENTE DO TEXTO SOBRE UMA COR PINTADA — o par que a régua escolhe, com o
+ * `PISOS.texto` (4,5) como CONTRATO declarado (issue #2373).
  *
- * Preto ou branco sempre resolve — o mínimo teórico de `max(razão vs preto, vs branco)`
- * é 4,58, acima do piso de 4,5. Este par nunca reprova; ele existe para garantir que o
- * cálculo aconteça, não para pegar defeito.
+ * Existe com este nome (e não só como `melhorFrenteSobre`) porque é dele que o
+ * chip da etiqueta depende: cor de etiqueta é informação de produto, e a frente
+ * que o chip pinta precisa ser reivindicável apontando para a régua, não para o
+ * gosto de quem configurou a cor. `lib/tags/cor-da-etiqueta.ts` chama ESTA
+ * função, e `tests/unit/chip-contraste-da-etiqueta.test.ts` recalcula o piso de
+ * cada tom saindo dela.
+ *
+ * **Por que o piso é inegociável para hex válido.** Preto ou branco sempre
+ * resolve: `razaoDeContraste(#ffffff, f)` decresce em `L` e
+ * `razaoDeContraste(#000000, f)` cresce, então `max(dos dois)` só toca o próprio
+ * mínimo onde as duas curvas se cruzam — `(L+0,05)² = 0,0525`, `L = 0,17912`,
+ * razão **4,582671**. Medido, não deduzido de memória: varredura de
+ * `L` em 100001 passos devolve 4,582671. Ou seja, **toda cor hex já passa em
+ * 4,5** — e é por isso que o defeito da #2373 não pode ser "a cor escolhida":
+ * sobrando a cor, ele só pode estar no CAMINHO DE RENDER (frente `#ffffff`
+ * fixa, texto herdado de `text-text-muted`, ou um ponto de render que pinta
+ * fora da régua). Por isso o contrato vive aqui, e por isso a sabotagem do
+ * teste troca a frente por branco fixo num tom claro: com a paleta intacta,
+ * é esse — e só esse — o defeito que derruba o piso de texto.
+ *
+ * Para entrada que NÃO é hex válido (`fundo` malformado vira `NaN` em
+ * `hexParaLinear`), as duas razões viram `NaN`, a comparação cai no ramo preto
+ * e nenhum piso é garantido — por isso quem chama valida a forma antes:
+ * `estiloDoChip` só pinta com cor que passou por `normalizarCorDeEtiqueta`.
  */
-export function melhorFrenteSobre(fundo: string): string {
+export function escolheAFrente(fundo: string): string {
   return razaoDeContraste("#ffffff", fundo) >= razaoDeContraste("#000000", fundo)
     ? "#ffffff"
     : "#000000";
+}
+
+/**
+ * `--color-accent-fg` é CALCULADO, nunca fixo: `#ffffff` sobre um accent amarelo é
+ * ilegível, e é justamente a marca amarela que o cliente cola sem avisar.
+ *
+ * É o MESMO par de `escolheAFrente` — um só cálculo, dois nomes porque são dois
+ * contratos: este é o da marca do cliente (o par nunca reprova, ele existe para
+ * garantir que o cálculo aconteça), aquele é a frente do texto de produto que a
+ * régua responde por.
+ */
+export function melhorFrenteSobre(fundo: string): string {
+  // Fork jhoow (Onix + Azul): BRANCO sempre que o branco alcança o piso de
+  // texto (4,5:1); preto só quando não alcança. No azul da marca (#386bf8) o
+  // preto ganharia por pouco e o botão ficaria com letra escura. A etiqueta
+  // continua em `escolheAFrente` (maior contraste), como no oficial.
+  return razaoDeContraste("#ffffff", fundo) >= PISOS.texto ? "#ffffff" : "#000000";
 }
 
 // ── Dicromacia (Machado, Oliveira & Fernandes 2009 — severidade 1.0) ─────────
@@ -297,6 +335,8 @@ function lerFonte(valor: string): Fonte | null {
 
 const CHAVES_DE_BASE = ["--color-bg", "--color-surface", "--color-surface-elevated"] as const;
 const SEMANTICAS = ["success", "warning", "error", "info"] as const;
+/** Tokens da rampa que pintam LETRA, não borda nem ícone (Onix + Azul). */
+const TOKENS_DE_TEXTO: ReadonlySet<string> = new Set(["--color-accent-text", "--color-link"]);
 
 /**
  * Extrai do TEXTO do `app/globals.css` tudo o que a derivação precisa medir.
@@ -305,6 +345,8 @@ const SEMANTICAS = ["success", "warning", "error", "info"] as const;
  *  - token terminado em `-fg` é TEXTO, medido contra o token de mesmo nome sem o sufixo;
  *  - token terminado em `-soft` é SUPERFÍCIE (algo é pintado nela), não papel;
  *  - regra que declara `background`+`color` juntos é um par de TEXTO já pronto (`::selection`);
+ *  - `--color-accent-text` e `--color-link` são TEXTO (letra azul do item ativo e
+ *    link), medidos contra todas as superfícies do tema com o piso de texto;
  *  - qualquer outra referência direta a `var(--color-accent-NNN)` é COMPONENTE, medido
  *    contra todas as superfícies do tema.
  *
@@ -391,7 +433,8 @@ function montarTema(
       continue;
     }
     if (fonte.tipo === "grau") {
-      papeis.push({ token: d.prop, tipo: "componente", fonte, contra: null });
+      const tipo = TOKENS_DE_TEXTO.has(d.prop) ? "texto" : "componente";
+      papeis.push({ token: d.prop, tipo, fonte, contra: null });
     }
   }
 
@@ -449,7 +492,7 @@ function montarTema(
     indices: {
       accent: accent.indice,
       hover: hover.indice,
-      // `--color-accent-soft` no escuro é `rgba(130,160,119,0.16)` — verde Sage CRU, que
+      // `--color-accent-soft` no escuro é um `rgba()` literal (o azul do produto a 16%), que
       // sobreviveria intacto a qualquer override da rampa. Sem índice, ele é reancorado
       // no stop do accent (ver `resolverSoft`); é a única forma de ele acompanhar a marca.
       soft: soft.tipo === "grau" ? soft.indice : null,

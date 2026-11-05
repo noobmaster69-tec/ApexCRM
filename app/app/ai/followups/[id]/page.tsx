@@ -4,6 +4,7 @@ import { rascunhoDoFluxo } from "@/lib/followup/rascunho";
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
+import { SUPERFICIES_DO_RELOGIO } from "@/lib/followup/api-schemas";
 import type { FollowupFlowDetailRow } from "@/hooks/followup/useFollowupFlow";
 import { FlowBuilder } from "./_components/FlowBuilder";
 
@@ -33,8 +34,9 @@ export default async function FollowupFlowBuilderPage({
       .select(DETAIL_COLUMNS)
       .eq("id", id)
       .eq("organization_id", activeOrg.orgId)
-      // Roteiro de atendimento não abre no editor de follow-up (prova do #1130).
-      .neq("surface", "atendimento")
+      // Roteiro de atendimento não abre no editor de follow-up (prova do #1130),
+      // nem fluxo do construtor (fork jhoow) — ele abre em /app/fluxos/[id].
+      .in("surface", [...SUPERFICIES_DO_RELOGIO])
       .maybeSingle(),
     supabase
       .from("followup_flow_versions")

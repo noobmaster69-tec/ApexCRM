@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   ReactFlow,
   ReactFlowProvider,
   Background,
+  BackgroundVariant,
   Controls,
+  MiniMap,
   ConnectionLineType,
   addEdge,
   useNodesState,
@@ -13,6 +16,7 @@ import {
   useReactFlow,
   type Connection,
   type EdgeMouseHandler,
+  type EdgeTypes,
   type NodeMouseHandler,
   type NodeTypes,
 } from "@xyflow/react";
@@ -61,10 +65,29 @@ import { ActionNode } from "./nodes/ActionNode";
 import { EndNode } from "./nodes/EndNode";
 import { CollectNode } from "./nodes/CollectNode";
 import { InternalTaskNode } from "./nodes/InternalTaskNode";
+import { MoveLeadNode } from "./nodes/MoveLeadNode";
+import { EditLeadTagNode } from "./nodes/EditLeadTagNode";
 import { SkillNode } from "./nodes/SkillNode";
+import { BlocoDoFluxoNode, FimDoFluxoNode, InicioDoFluxoNode } from "@/app/app/fluxos/_blocos/BlocoDoFluxoNode";
+import { CanvasDoFluxoContext, type CanvasDoFluxo } from "@/app/app/fluxos/_editor/canvas-do-fluxo";
+import { useListaRemota } from "@/app/app/fluxos/_blocos/useListaRemota";
+import { useDistribuicoes } from "@/hooks/fluxos/useDistribuicoes";
+import { ArestaDoFluxo, ArestaDoFluxoContext } from "@/app/app/fluxos/_editor/ArestaDoFluxo";
+import { rotuloDaArestaDoFluxo } from "@/app/app/fluxos/_editor/aresta-do-fluxo";
+import { DockDeBlocos, DND_MIME_DO_BLOCO } from "@/app/app/fluxos/_editor/DockDeBlocos";
+import { ControlesDoCanvas } from "@/app/app/fluxos/_editor/ControlesDoCanvas";
+import { BarraDoFluxo } from "@/app/app/fluxos/_editor/BarraDoFluxo";
+import { posicaoNoCentro } from "@/app/app/fluxos/_editor/posicao-no-centro";
+import { afastarSobrepostos } from "@/app/app/fluxos/_editor/sem-sobreposicao";
+import { corDoBloco } from "@/app/app/fluxos/_editor/cores-dos-blocos";
+import { BlocoDoFluxoModal } from "@/app/app/fluxos/_editor/BlocoDoFluxoModal";
+import { etapasDoFluxo } from "@/app/app/fluxos/_editor/layout-do-fluxo";
+import { arrumarInicio, inicioPrincipal } from "@/lib/fluxos/inicio-unico";
+import { viewportMantendoOCentro } from "@/app/app/fluxos/_editor/centro-ao-redimensionar";
+import "@/app/app/fluxos/_editor/fluxo-editor.css";
 
 const EMPTY_GRAPH: FlowGraph = { nodes: [], edges: [] };
-const DND_MIME = "application/x-followup-node-type";
+const DND_MIME = DND_MIME_DO_BLOCO;
 
 // Defined outside the component — React Flow warns (and re-mounts nodes) if
 // nodeTypes is a fresh object every render.
@@ -81,10 +104,37 @@ const nodeTypes: NodeTypes = {
   // rótulo e sem formulário. Completar o nó é esta linha mais o formulário do
   // painel (`forms/InternalTaskForm`).
   internal_task: InternalTaskNode,
+  // #2065 — as duas caixas novas da issue: sem estas linhas o React Flow cai
+  // no fallback da caixa desconhecida (o mesmo defeito do #1540 medido ali em
+  // cima), sem rótulo e sem formulário.
+  move_lead: MoveLeadNode,
+  edit_lead_tag: EditLeadTagNode,
   end: EndNode,
   collect: CollectNode,
   skill: SkillNode,
+  // Fork jhoow — os blocos de FLUXOS usam um cartão só (ícone, cor e saídas
+  // vêm de NODE_VISUALS e de nodeBranches). Todos os 11 entram aqui, mesmo os
+  // que ainda não têm executor: um rascunho que os contenha não cai na caixa
+  // desconhecida do React Flow.
+  mensagem: BlocoDoFluxoNode,
+  etiquetas: BlocoDoFluxoNode,
+  aguardar_resposta: BlocoDoFluxoNode,
+  notificacao: BlocoDoFluxoNode,
+  condicional: BlocoDoFluxoNode,
+  distribuidor: BlocoDoFluxoNode,
+  conexao_fluxo: BlocoDoFluxoNode,
+  pixel: BlocoDoFluxoNode,
+  intervalo: BlocoDoFluxoNode,
+  bloco_ia: BlocoDoFluxoNode,
+  kanban: BlocoDoFluxoNode,
 };
+
+// Fluxos (fork jhoow, item 5): Início e Fim também no cartão do Leona.
+const nodeTypesDoFluxo: NodeTypes = { ...nodeTypes, trigger: InicioDoFluxoNode, end: FimDoFluxoNode };
+
+// Fluxos (fork jhoow, item 6): a linha sem painel de condição — selecionar,
+// apagar com Delete ou com o X do hover. Follow-up segue com a aresta padrão.
+const edgeTypes: EdgeTypes = { fluxo: ArestaDoFluxo };
 
 interface Props {
   flowId: string;
@@ -95,10 +145,18 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
   const t = useT();
   const { nomes } = useEtapasDoFluxo();
   const { data: flow } = useFollowupFlow(flowId, { initialData });
+  // FLUXOS: um Início por fluxo. Abrir arruma o legado — sem Início ganha um,
+  // duplicado sem seta saindo sai — e o rascunho difere do salvo, então o
+  // autosave grava a arrumação (`lib/fluxos/inicio-unico.ts`).
+  const arrumacao = useMemo(
+    () => (initialData.surface === "fluxo" ? arrumarInicio(initialData.draft_graph ?? EMPTY_GRAPH) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   // `initial` seeds React Flow state ONCE on mount — it must NOT react to
   // `flow` changing on every refetch (that would clobber in-progress edits).
   const initial = useMemo(
-    () => toReactFlow(initialData.draft_graph ?? EMPTY_GRAPH),
+    () => toReactFlow(arrumacao?.graph ?? initialData.draft_graph ?? EMPTY_GRAPH),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -110,21 +168,52 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
   // apagava — `fromReactFlow` só conhece nós e arestas.
   const [settings, setSettings] = useState<FlowGraph["settings"]>(initialData.draft_graph?.settings);
   const surface = initialData.surface ?? "followup";
+  const isFluxo = surface === "fluxo";
   // Continue after the largest persisted suffix. Starting again at 1 makes a
   // newly-created node/edge reuse an existing React Flow key and visually
   // replace a connection in older drafts.
   const nextId = useRef(nextSequenceId(initial.nodes.map((node) => node.id)));
   const nextEdgeId = useRef(nextSequenceId(initial.edges.map((edge) => edge.id)));
-  const { screenToFlowPosition, fitView } = useReactFlow();
+  const { screenToFlowPosition, fitView, setViewport, getViewport } = useReactFlow();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [arestaEmFoco, setArestaEmFoco] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   const liveGraph = useMemo(() => {
     const base = fromReactFlow(nodes, edges);
     return settings ? { ...base, settings } : base;
   }, [nodes, edges, settings]);
   const dirty = useMemo(() => !graphsEqual(liveGraph, savedGraph), [liveGraph, savedGraph]);
+
+  const removidosAoAbrir = arrumacao?.removidos ?? 0;
+  useEffect(() => {
+    if (removidosAoAbrir === 0) return;
+    toast.info(
+      removidosAoAbrir === 1
+        ? t("Removemos 1 bloco de Início duplicado.")
+        : t("Removemos {n} blocos de Início duplicados.").replace("{n}", String(removidosAoAbrir)),
+    );
+    // Só na abertura.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // O Início principal (o que tem seta saindo) não se exclui; os outros são
+  // duplicados de fluxo legado, com alerta no cartão e 🗑️.
+  const inicioPrincipalId = useMemo(() => (isFluxo ? (inicioPrincipal(liveGraph)?.id ?? null) : null), [isFluxo, liveGraph]);
+  const iniciosDuplicados = useMemo(
+    () =>
+      new Set(isFluxo ? nodes.filter((n) => n.type === "trigger" && n.id !== inicioPrincipalId).map((n) => n.id) : []),
+    [isFluxo, nodes, inicioPrincipalId],
+  );
+  const onBeforeDelete = useCallback(
+    async ({ nodes: nos, edges: arestas }: { nodes: RFNode[]; edges: RFEdge[] }) => ({
+      nodes: nos.filter((n) => n.id !== inicioPrincipalId),
+      edges: arestas,
+    }),
+    [inicioPrincipalId],
+  );
 
   const markNodeErrors = useCallback(
     (errorsByNode: Record<string, string[]>) => {
@@ -165,7 +254,34 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
     [setEdges],
   );
 
+  // Fluxos (rodada 1, item 2): o cartão da Mensagem mostra tudo e cresce. Quando
+  // a altura MEDIDA de um cartão sobe (abrir o fluxo conta como a primeira
+  // medida), quem ficou coberto por ele desce — sem isto, fluxo desenhado com
+  // cartões menores abre com um bloco por cima do outro.
+  const alturasMedidas = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (!isFluxo) return;
+    const cresceram = new Set<string>();
+    for (const n of nodes) {
+      const h = n.measured?.height;
+      if (h === undefined) continue;
+      const antes = alturasMedidas.current.get(n.id);
+      if (antes === undefined || h > antes + 0.5) cresceram.add(n.id);
+      alturasMedidas.current.set(n.id, h);
+    }
+    if (cresceram.size === 0) return;
+    const novas = afastarSobrepostos(nodes, cresceram);
+    if (novas.size === 0) return;
+    setNodes((nds) => nds.map((n) => (novas.has(n.id) ? { ...n, position: novas.get(n.id)! } : n)));
+  }, [isFluxo, nodes, setNodes]);
+
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null;
+  const etapaDoSelecionado = useMemo(
+    () => (isFluxo && selectedNodeId ? etapasDoFluxo(nodes, edges).get(selectedNodeId) : undefined),
+    // Só na abertura do modal: a posição no caminho não muda enquanto se edita o bloco.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isFluxo, selectedNodeId],
+  );
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId) ?? null;
   const selectedEdgeSource = selectedEdge ? (nodes.find((n) => n.id === selectedEdge.source) ?? null) : null;
   const selectedEdgeTarget = selectedEdge ? (nodes.find((n) => n.id === selectedEdge.target) ?? null) : null;
@@ -180,6 +296,19 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
       edges.map((e) => {
         const condition = e.data?.condition ?? { type: "always" as const };
         const source = nodes.find((n) => n.id === e.source);
+        if (isFluxo) {
+          // Fluxos: a linha não tem condição própria — só a saída de um bloco
+          // com várias saídas ganha nome (Sim/Não, Saída N). Sem "Sempre".
+          const rotulo = rotuloDaArestaDoFluxo(source ? toFlowNode(source) : undefined, condition, nomes);
+          return {
+            ...e,
+            type: "fluxo" as const,
+            label: rotulo ? t(rotulo) : undefined,
+            // A linha leva a cor do bloco de ORIGEM (a 65%, no ArestaDoFluxo).
+            style: { stroke: corDoBloco(source?.type) },
+            selected: e.id === selectedEdgeId,
+          };
+        }
         const branch = source
           ? nodeBranches(toFlowNode(source)).find(
               (b) => b.id === branchIdForCondition(toFlowNode(source), condition),
@@ -192,7 +321,7 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
           selected: e.id === selectedEdgeId,
         };
       }),
-    [edges, nodes, selectedEdgeId, t, nomes],
+    [edges, nodes, selectedEdgeId, t, nomes, isFluxo],
   );
 
   // Quais saídas do nó selecionado já têm aresta. Quem sabe isso é o canvas —
@@ -248,6 +377,7 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
         data: { label: t(visual.defaultLabel), config },
       };
       setNodes((nds) => nds.concat(newNode));
+      return id;
     },
     [setNodes, t, triggerKind],
   );
@@ -260,13 +390,41 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
     [nodes.length, addNodeAt],
   );
 
+  // Fluxos: o bloco clicado no dock nasce no CENTRO da área visível do canvas
+  // e, havendo um bloco selecionado com saída única, já nasce ligado a ele.
+  const onFerramentaAdd = useCallback(
+    (type: NodeType) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return onPaletteAdd(type);
+      const centro = screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+      if (isFluxo && type === "trigger") return;
+      const novo = addNodeAt(type, posicaoNoCentro(centro, nodes.map((n) => n.position)));
+      const origem = nodes.find((n) => n.selected);
+      // Bloco de várias saídas: qual delas? Quem decide é a pessoa, arrastando da linha certa.
+      if (!origem || type === "trigger" || origem.type === "end" || nodeBranches(toFlowNode(origem)).length !== 1) return;
+      setEdges((eds) =>
+        addEdge(
+          {
+            id: `edge-${nextEdgeId.current++}`,
+            source: origem.id,
+            target: novo,
+            data: { priority: 0, condition: { type: "always" } },
+          } satisfies RFEdge,
+          eds,
+        ),
+      );
+    },
+    [screenToFlowPosition, addNodeAt, onPaletteAdd, nodes, setEdges, isFluxo],
+  );
+
   const deleteNode = useCallback(
     (id: string) => {
+      if (id === inicioPrincipalId) return;
       setNodes((nds) => semNo(nds, id));
       setEdges((eds) => semArestasDoNo(eds, id));
       setSelectedNodeId((cur) => (cur === id ? null : cur));
     },
-    [setNodes, setEdges],
+    [setNodes, setEdges, inicioPrincipalId],
   );
 
   const deleteEdge = useCallback(
@@ -275,6 +433,64 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
       setSelectedEdgeId((cur) => (cur === id ? null : cur));
     },
     [setEdges],
+  );
+
+  // O rótulo e o X só existem no hover: sair da linha espera um instante antes
+  // de escondê-los, senão somem antes de o mouse chegar ao X.
+  const saidaDaAresta = useRef<number | undefined>(undefined);
+  const focarAresta = useCallback((id: string | null) => {
+    window.clearTimeout(saidaDaAresta.current);
+    if (id) setArestaEmFoco(id);
+    else saidaDaAresta.current = window.setTimeout(() => setArestaEmFoco(null), 150);
+  }, []);
+  const contextoDaAresta = useMemo(
+    () => ({ emFoco: arestaEmFoco, focar: focarAresta, excluir: deleteEdge }),
+    [arestaEmFoco, focarAresta, deleteEdge],
+  );
+  const onEdgeMouseEnter = useCallback<EdgeMouseHandler<RFEdge>>((_, edge) => focarAresta(edge.id), [focarAresta]);
+  const onEdgeMouseLeave = useCallback<EdgeMouseHandler<RFEdge>>(() => focarAresta(null), [focarAresta]);
+
+  // Fluxos (item 5): 📋 do cartão — cópia ao lado, com id novo e sem erros.
+  const duplicarNo = useCallback(
+    (id: string) => {
+      setNodes((nds) => {
+        const original = nds.find((n) => n.id === id);
+        // Início não se duplica: um por fluxo.
+        if (!original || original.type === "trigger") return nds;
+        const copia: RFNode = {
+          ...original,
+          id: `${original.type}-${nextId.current++}`,
+          position: { x: original.position.x + 40, y: original.position.y + 40 },
+          selected: false,
+          data: { ...original.data, config: structuredClone(original.data.config), errors: undefined },
+        };
+        return nds.concat(copia);
+      });
+    },
+    [setNodes],
+  );
+
+  const temDistribuidor = isFluxo && nodes.some((n) => n.type === "distribuidor");
+  const { data: distribuicoes } = useDistribuicoes(flowId, temDistribuidor);
+  const { itens: funis } = useListaRemota<{ id: string; name: string }>(isFluxo ? "/api/v1/pipelines" : null);
+  const { itens: fluxos } = useListaRemota<{ id: string; name: string }>(
+    isFluxo ? "/api/v1/ai/followup-flows?surface=fluxo" : null,
+  );
+  const canvasDoFluxo = useMemo<CanvasDoFluxo>(
+    () => ({
+      editar: (id) => {
+        setSelectedNodeId(id);
+        setSelectedEdgeId(null);
+      },
+      duplicar: duplicarNo,
+      excluir: deleteNode,
+      distribuicoes: distribuicoes ?? {},
+      nomeDoFunil: (id) => funis.find((f) => f.id === id)?.name ?? null,
+      nomeDoFluxo: (id) => fluxos.find((f) => f.id === id)?.name ?? null,
+      flowId,
+      iniciosDuplicados,
+    }),
+    [duplicarNo, deleteNode, distribuicoes, funis, fluxos, flowId, iniciosDuplicados],
   );
 
   const onDeleteSelection = useCallback(() => {
@@ -291,6 +507,7 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
         height: n.measured?.height ?? estimateNodeSize(toFlowNode(n)).height,
       });
     }
+    // Só o follow-up tem "Organizar": nos Fluxos o botão saiu (rodada 1, item 4).
     const laid = layoutFlowGraph(liveGraph, sizes, nomes);
     const pos = new Map(laid.nodes.map((n) => [n.id, n.position]));
     setNodes((nds) =>
@@ -302,7 +519,35 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
     window.setTimeout(() => {
       void fitView({ padding: 0.2, duration: 200 });
     }, 0);
-  }, [nodes, liveGraph, setNodes, fitView]);
+  }, [nodes, liveGraph, setNodes, fitView, nomes]);
+
+  // Fluxos (item 8): fluxo sem bloco nenhum abre com a origem (0,0) no MEIO da
+  // tela, a 100% — o padrão da lib a deixa no canto de cima, e o primeiro bloco
+  // nasce espremido na borda. Com blocos, quem enquadra é o `fitView`.
+  const onInit = useCallback(() => {
+    if (!isFluxo || initial.nodes.length > 0) return;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect) void setViewport({ x: rect.width / 2 - 120, y: rect.height / 2 - 50, zoom: 1 });
+  }, [isFluxo, initial.nodes.length, setViewport]);
+
+  // A lateral expande ou recolhe → a caixa do canvas muda de largura (a
+  // transição de 200ms empurra o canvas, sem sobrepor). A cada medida, a origem
+  // anda meia diferença: o mesmo ponto fica no centro, com o mesmo zoom.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let anterior: { width: number; height: number } | null = null;
+    const observador = new ResizeObserver(([entrada]) => {
+      if (!entrada) return;
+      const atual = { width: entrada.contentRect.width, height: entrada.contentRect.height };
+      if (anterior && atual.width > 0 && (atual.width !== anterior.width || atual.height !== anterior.height)) {
+        void setViewport(viewportMantendoOCentro(getViewport(), anterior, atual));
+      }
+      anterior = atual;
+    });
+    observador.observe(el);
+    return () => observador.disconnect();
+  }, [getViewport, setViewport]);
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -313,16 +558,28 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
     (e: React.DragEvent) => {
       e.preventDefault();
       const type = e.dataTransfer.getData(DND_MIME) as NodeType | "";
-      if (!type) return;
+      if (!type || (isFluxo && type === "trigger")) return;
       const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       addNodeAt(type, position);
     },
-    [screenToFlowPosition, addNodeAt],
+    [screenToFlowPosition, addNodeAt, isFluxo],
   );
 
   return (
-    <div className="flex h-full min-h-[600px] w-full flex-col">
-      {flow && (
+    <div className={`flex h-full w-full flex-col ${isFluxo ? "min-h-0" : "min-h-[600px]"} ${isFluxo ? "fx" : ""}`}>
+      {flow && isFluxo && (
+        <BarraDoFluxo
+          flowId={flowId}
+          flow={flow}
+          graph={liveGraph}
+          dirty={dirty}
+          pausarAutosave={selectedNode !== null}
+          onSaved={setSavedGraph}
+          onPublishErrors={markNodeErrors}
+          onPublishSuccess={clearNodeErrors}
+        />
+      )}
+      {flow && !isFluxo && (
         <PublishBar
           flowId={flowId}
           flow={flow}
@@ -338,12 +595,15 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
         />
       )}
       <div className="flex flex-1 overflow-hidden">
-        <NodePalette onAdd={onPaletteAdd} surface={surface} />
+        {/* Fluxos (item 4): sem paleta fixa — o botão Ferramentas no canto do
+            canvas a substitui e o canvas fica com a largura toda. */}
+        {!isFluxo && <NodePalette onAdd={onPaletteAdd} surface={surface} />}
         {/* Abaixo de `lg` a paleta fixa de 224px não cabe do lado do canvas —
             vira um drawer, disparado por este botão flutuante. */}
+        {!isFluxo && (
         <Sheet open={paletteOpen} onOpenChange={setPaletteOpen}>
           <SheetContent side="left" className="w-72 max-w-[85vw] gap-0 p-0 lg:hidden">
-            <SheetTitle className="sr-only">{t("Adicionar nó")}</SheetTitle>
+            <SheetTitle className="sr-only">{t("Ferramentas")}</SheetTitle>
             <NodePalette
               variant="mobile"
               surface={surface}
@@ -354,20 +614,39 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
             />
           </SheetContent>
         </Sheet>
+        )}
 
-        <div className="relative h-full flex-1" data-testid="flow-canvas" onDragOver={onDragOver} onDrop={onDrop}>
+        <div
+          ref={canvasRef}
+          className="relative h-full flex-1"
+          data-testid="flow-canvas"
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+        >
+          {isFluxo && <DockDeBlocos onAdd={onFerramentaAdd} desligado={selectedNode !== null} />}
+          <CanvasDoFluxoContext.Provider value={canvasDoFluxo}>
+          <ArestaDoFluxoContext.Provider value={contextoDaAresta}>
           <ReactFlow
             nodes={nodes}
             edges={edgesForRender}
-            nodeTypes={nodeTypes}
+            nodeTypes={isFluxo ? nodeTypesDoFluxo : nodeTypes}
+            edgeTypes={isFluxo ? edgeTypes : undefined}
+            onEdgeMouseEnter={isFluxo ? onEdgeMouseEnter : undefined}
+            onEdgeMouseLeave={isFluxo ? onEdgeMouseLeave : undefined}
+            // Fluxos: Delete também apaga (Backspace é o padrão da lib).
+            deleteKeyCode={isFluxo ? ["Backspace", "Delete"] : undefined}
+            onBeforeDelete={isFluxo ? onBeforeDelete : undefined}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={onNodeClick}
             onEdgeClick={onEdgeClick}
             onPaneClick={onPaneClick}
-            defaultEdgeOptions={{ type: "smoothstep" }}
-            connectionLineType={ConnectionLineType.SmoothStep}
+            onInit={onInit}
+            defaultEdgeOptions={{ type: isFluxo ? "fluxo" : "smoothstep" }}
+            connectionLineType={isFluxo ? ConnectionLineType.Bezier : ConnectionLineType.SmoothStep}
+            // Fluxos: duplo clique no canvas não faz nada (nem zoom).
+            zoomOnDoubleClick={!isFluxo}
             // Enquadrar só o que já existia ao abrir. Num fluxo vazio o XYFlow
             // guarda o enquadramento para quando o PRIMEIRO nó for medido — e
             // enquadrar um nó só é ampliá-lo ao zoom máximo (2x): quem acabou de
@@ -375,10 +654,51 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
             // nós seguintes nascendo fora da vista (medido no trace do e2e
             // followup-cartoes: scale 1 → 2 logo após o primeiro clique).
             fitView={initial.nodes.length > 0}
+            // Fluxo novo tem só Início e Fim: sem teto, o enquadramento os
+            // amplia ao zoom máximo. 1x é o tamanho em que os blocos se leem.
+            fitViewOptions={surface === "fluxo" ? { maxZoom: 1 } : undefined}
+            // Fluxos (fork jhoow): grade com encaixe e mini-mapa — fluxo de
+            // venda passa de 100 blocos, e sem mapa a pessoa se perde no canvas.
+            snapToGrid={isFluxo}
+            snapGrid={[22, 22]}
           >
-            <Background />
-            <Controls />
+            {isFluxo ? (
+              // Fundo e pontos do TEMA (Etapa 6): as variáveis trocam ao vivo com o tema.
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={22}
+                size={1.2}
+                color="var(--fx-canvas-dot)"
+                bgColor="var(--fx-canvas)"
+              />
+            ) : (
+              <Background />
+            )}
+            {!isFluxo && <Controls />}
+            {isFluxo && <ControlesDoCanvas />}
+            {isFluxo && (
+              // Cada bloco no mapa com a cor do tipo (BLOCK_THEME); o viewport
+              // com borda clara de 1.5px.
+              <MiniMap
+                nodeColor={(node) => corDoBloco(node.type)}
+                nodeBorderRadius={4}
+                nodeStrokeWidth={0}
+                maskColor="var(--fx-minimap-mask)"
+                maskStrokeColor="var(--fx-minimap-mask-stroke)"
+                maskStrokeWidth={1.5}
+                bgColor="var(--fx-minimap-bg)"
+                style={{ width: 200, height: 110 }}
+                position="bottom-right"
+                pannable
+                zoomable
+                ariaLabel={t("Mini Map")}
+                data-testid="fluxo-minimapa"
+              />
+            )}
           </ReactFlow>
+          </ArestaDoFluxoContext.Provider>
+          </CanvasDoFluxoContext.Provider>
+          {!isFluxo && (
           <Button
             type="button"
             variant="secondary"
@@ -386,8 +706,9 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
             className="absolute bottom-4 left-4 z-10 shadow-md lg:hidden"
             onClick={() => setPaletteOpen(true)}
           >
-            <Plus size={14} aria-hidden /> {t("Adicionar nó")}
+            <Plus size={14} aria-hidden /> {t("Ferramentas")}
           </Button>
+          )}
         </div>
 
         {/*
@@ -399,9 +720,37 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
           bottom sheet (`fixed`, ancorado embaixo, com teto de altura e X pra
           fechar) só nesse intervalo de tela.
         */}
-        {selectedNode && (
+        {/* Fluxos (item 7): o bloco abre num modal centralizado, não no painel. */}
+        {selectedNode && isFluxo && (
+          <BlocoDoFluxoModal
+            key={selectedNode.id}
+            node={selectedNode}
+            etapa={etapaDoSelecionado}
+            settings={settings}
+            onSalvar={() => setSelectedNodeId(null)}
+            onCancelar={(original, settingsOriginais) => {
+              updateNodeData(selectedNode.id, original);
+              setSettings(settingsOriginais);
+              setSelectedNodeId(null);
+            }}
+          >
+            <NodeConfigPanel
+              naModal
+              node={selectedNode}
+              onChange={(patch) => updateNodeData(selectedNode.id, patch)}
+              onDelete={() => deleteNode(selectedNode.id)}
+              ramosLigados={ramosLigadosDoSelecionado}
+              surface={surface}
+              flowId={flowId}
+              settings={settings}
+              onSettingsChange={setSettings}
+            />
+          </BlocoDoFluxoModal>
+        )}
+
+        {selectedNode && !isFluxo && (
           <aside
-            className="fixed inset-x-0 bottom-0 z-40 flex max-h-[75vh] flex-col overflow-hidden rounded-t-lg border-t border-border bg-surface shadow-lg lg:static lg:z-auto lg:h-full lg:w-96 lg:max-h-none lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none"
+            className="fixed inset-x-0 bottom-[var(--rodape-ocupado,0px)] z-40 flex max-h-[75vh] flex-col overflow-hidden rounded-t-lg border-t border-border bg-surface shadow-lg lg:static lg:z-auto lg:h-full lg:w-96 lg:max-h-none lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none"
             data-testid="node-config-sheet"
           >
             {/* Barra própria pro X, não sobreposta ao conteúdo — um botão
@@ -434,9 +783,10 @@ function FlowCanvasInner({ flowId, initialData }: Props) {
           </aside>
         )}
 
-        {selectedEdge && (
+        {/* Fluxos não têm painel de aresta (item 6): a linha só é selecionada. */}
+        {selectedEdge && !isFluxo && (
           <aside
-            className="fixed inset-x-0 bottom-0 z-40 flex max-h-[75vh] flex-col overflow-hidden rounded-t-lg border-t border-border bg-surface shadow-lg lg:static lg:z-auto lg:h-full lg:w-96 lg:max-h-none lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none"
+            className="fixed inset-x-0 bottom-[var(--rodape-ocupado,0px)] z-40 flex max-h-[75vh] flex-col overflow-hidden rounded-t-lg border-t border-border bg-surface shadow-lg lg:static lg:z-auto lg:h-full lg:w-96 lg:max-h-none lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none"
             data-testid="edge-config-sheet"
           >
             <div className="flex shrink-0 justify-end p-2 lg:hidden">

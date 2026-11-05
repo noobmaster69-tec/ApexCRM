@@ -144,14 +144,7 @@ test.describe("Jev — decisões rápidas, pela tela", () => {
     orgId = credsDoJev().orgId;
     await limparOJev(orgId);
 
-    await test.step("acha o Jev pela busca, e Provedores pelo menu", async () => {
-      // Ninguém procura "Provedores" quando ouviu falar do Jev.
-      await page.keyboard.press("ControlOrMeta+k");
-      await page.getByRole("combobox").fill("jev");
-      await page.getByRole("option", { name: /Provedores/ }).click();
-      await page.waitForURL(/\/app\/ai\/providers/);
-      await expect(page.getByTestId("cartao-do-jev")).toBeVisible({ timeout: 30_000 });
-
+    await test.step("acha Provedores pelo menu (a busca global saiu na Etapa 7)", async () => {
       await page.goto("/app/ai");
       await page.getByRole("link", { name: /Provedores/ }).first().click();
       await page.waitForURL(/\/app\/ai\/providers/);

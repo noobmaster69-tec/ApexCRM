@@ -7,6 +7,8 @@ import { BudgetCard } from "@/components/ai/BudgetCard";
 import { getBudgetStatus } from "@/lib/ai/budget/check";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { UsageDashboardClient } from "./_client";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { consumoDaTraducao, textoDoConsumo } from "@/lib/translation/consumo";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +53,7 @@ export default async function AiUsagePage({ searchParams }: PageProps) {
   };
 
   const budget = await getBudgetStatus(activeOrg.orgId);
+  const traducao = await consumoDaTraducao(createAdminClient(), activeOrg.orgId).catch(() => null);
   const isAdmin = ROLE_RANK[activeOrg.role] >= ROLE_RANK.admin;
   const idioma = user.idioma;
 
@@ -60,12 +63,17 @@ export default async function AiUsagePage({ searchParams }: PageProps) {
         <h1 className="text-2xl font-semibold tracking-tight">{traduzir("Uso de IA", idioma)}</h1>
         <p className="text-sm text-muted-foreground">
           {traduzir(
-            "Quanto a inteligência artificial custou, quantos atendimentos ela fez, quanto demorou para responder e quantas vezes precisou chamar uma pessoa — nos últimos 30 dias.",
+            "Quanto a inteligência artificial custou, quantas vezes foi chamada, quantos turnos o agente fez, quanto demora uma chamada e quantas vezes precisou chamar uma pessoa — nos últimos 30 dias.",
             idioma,
           )}
         </p>
       </header>
       <BudgetCard initialData={budget} isAdmin={isAdmin} />
+      {traducao && (
+        <p className="text-sm text-muted-foreground" data-testid="consumo-da-traducao">
+          {textoDoConsumo(traducao, (x) => traduzir(x, idioma))}
+        </p>
+      )}
       <UsageDashboardClient agents={agents} initial={initial} />
     </div>
   );

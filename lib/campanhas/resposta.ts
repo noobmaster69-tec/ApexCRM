@@ -50,6 +50,8 @@ const PROMOVIVEIS = new Set(["sent", "delivered", "read"]);
 
 export interface DestinatarioCandidato {
   id: string;
+  /** Item 3: a campanha do destinatário — para mover o card para a etapa de resposta. */
+  campaign_id?: string;
   status: string;
   sent_at: string | null;
   replied_at: string | null;
@@ -96,6 +98,8 @@ export interface ResumoDaResposta {
   atribuiu: boolean;
   /** Quantos destinatários pendentes foram fechados por opt-out. */
   optOut: number;
+  /** Item 3: a campanha cuja resposta foi carimbada (para o card ir à etapa de resposta). */
+  campanhaId?: string | null;
 }
 
 /**
@@ -112,6 +116,21 @@ export async function aplicarRespostaNaCampanha(
 ): Promise<ResumoDaResposta> {
   const { organizationId, contactId, recebidoEm } = entrada;
 
+  // Contato pessoal (spec 21, caminho 6): a resposta dele não carimba NADA —
+  // nem `replied_at`, nem saída. O que estava pendente já saiu no marcar com
+  // status próprio (etapa 4); carimbar aqui ressuscitaria métrica de quem a
+  // operação escondeu.
+  const { data: contato, error: contatoErro } = await admin
+    .from("contacts")
+    .select("is_personal")
+    .eq("organization_id", organizationId)
+    .eq("id", contactId)
+    .maybeSingle();
+  if (contatoErro) throw new Error(`resposta de campanha: leitura do contato — ${contatoErro.message}`);
+  if ((contato as { is_personal?: boolean } | null)?.is_personal === true) {
+    return { atribuiu: false, optOut: 0 };
+  }
+
   // A janela vem da ORGANIZAÇÃO, com o default do produto quando ninguém
   // escolheu. Ler config nunca derruba a atribuição: `lerConfiguracao` cai no
   // padrão em vez de lançar.
@@ -125,7 +144,7 @@ export async function aplicarRespostaNaCampanha(
 
   const { data, error } = await admin
     .from("campaign_recipients")
-    .select("id, status, sent_at, replied_at")
+    .select("id, campaign_id, status, sent_at, replied_at")
     .eq("organization_id", organizationId)
     .eq("contact_id", contactId)
     .is("replied_at", null)
@@ -153,7 +172,7 @@ export async function aplicarRespostaNaCampanha(
   }
 
   const optOut = await fecharPorOptOut(admin, organizationId, contactId, recebidoEm);
-  return { atribuiu, optOut };
+  return { atribuiu, optOut, campanhaId: atribuiu ? (alvo?.campaign_id ?? null) : null };
 }
 
 /**

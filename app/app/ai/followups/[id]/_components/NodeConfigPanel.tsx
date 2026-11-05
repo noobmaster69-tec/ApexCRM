@@ -11,6 +11,7 @@ import type { FollowupFlowSurface } from "@/lib/followup/api-schemas";
 import type { RFNode, RFNodeData } from "@/lib/followup/graph-mappers";
 import { Trash } from "@/lib/ui/icons";
 import { useT } from "@/hooks/i18n/useT";
+import { etapasPorFunil, nomeDaEtapa, useEtapasDeGatilho } from "@/hooks/followup/useEtapasDeGatilho";
 
 import { ActionForm } from "./forms/ActionForm";
 import { ClassifyForm } from "./forms/ClassifyForm";
@@ -19,9 +20,23 @@ import { ConditionForm } from "./forms/ConditionForm";
 import { EndForm } from "./forms/EndForm";
 import { InternalTaskForm } from "./forms/InternalTaskForm";
 import { MatchReplyForm } from "./forms/MatchReplyForm";
+import { MoveLeadForm } from "./forms/MoveLeadForm";
+import { EditLeadTagForm } from "./forms/EditLeadTagForm";
 import { RepeatForm } from "./forms/RepeatForm";
 import { SkillForm } from "./forms/SkillForm";
 import { WaitForm } from "./forms/WaitForm";
+import { MensagemForm } from "@/app/app/fluxos/_blocos/MensagemForm";
+import { EtiquetasForm } from "@/app/app/fluxos/_blocos/EtiquetasForm";
+import { AguardarRespostaForm } from "@/app/app/fluxos/_blocos/AguardarRespostaForm";
+import { IntervaloForm } from "@/app/app/fluxos/_blocos/IntervaloForm";
+import { CondicionalForm } from "@/app/app/fluxos/_blocos/CondicionalForm";
+import { DistribuidorForm } from "@/app/app/fluxos/_blocos/DistribuidorForm";
+import { ConexaoFluxoForm } from "@/app/app/fluxos/_blocos/ConexaoFluxoForm";
+import { KanbanForm } from "@/app/app/fluxos/_blocos/KanbanForm";
+import { NotificacaoForm } from "@/app/app/fluxos/_blocos/NotificacaoForm";
+import { PixelForm } from "@/app/app/fluxos/_blocos/PixelForm";
+import { BlocoIaForm } from "@/app/app/fluxos/_blocos/BlocoIaForm";
+import { EntradaDoFluxo } from "@/app/app/fluxos/_blocos/EntradaDoFluxo";
 import type { ConfigOf } from "./forms/shared";
 import { NODE_VISUALS } from "./nodes/nodeVisuals";
 
@@ -38,6 +53,12 @@ interface Props {
   /** Configurações do GRAFO, editadas no Início do roteiro. */
   settings?: FlowGraph["settings"];
   onSettingsChange?: (settings: FlowGraph["settings"]) => void;
+  /**
+   * Dentro do modal de bloco de Fluxos (item 7): o modal já tem o cabeçalho
+   * com ícone e título, e o rodapé Cancelar/Salvar — o painel some com os
+   * dele. Excluir fica no 🗑️ do cartão.
+   */
+  naModal?: boolean;
 }
 
 /**
@@ -58,6 +79,7 @@ export function NodeConfigPanel({
   flowId,
   settings,
   onSettingsChange,
+  naModal = false,
 }: Props) {
   const t = useT();
   const type = node.type as FlowNode["type"];
@@ -78,6 +100,7 @@ export function NodeConfigPanel({
 
   return (
     <div className="flex h-full flex-col gap-5 overflow-y-auto" data-testid="node-config-panel">
+      {!naModal && (
       <div className="space-y-1">
         <h2 className="flex items-center gap-2 text-base font-semibold text-text">
           <span className={`flex h-6 w-6 items-center justify-center rounded-full ${visual.chipClassName}`}>
@@ -89,7 +112,12 @@ export function NodeConfigPanel({
           {t("Alterações aplicam no rascunho ao digitar — salve na barra de publicação.")}
         </p>
       </div>
+      )}
 
+      {/* Fluxos (rodada 1, item 1): o bloco se chama pelo tipo e não se
+          renomeia. O `label` segue no grafo (validação, histórico, MCP) — só a
+          edição pela tela sai. */}
+      {surface !== "fluxo" && (
       <div className="space-y-2">
         <Label htmlFor="node-label">{t("Rótulo")}</Label>
         <Input
@@ -100,9 +128,13 @@ export function NodeConfigPanel({
         />
         {labelError && <p className="text-xs text-error-fg">{labelError}</p>}
       </div>
+      )}
 
-      <div className="space-y-4 border-t border-border pt-4">
-        {type === "trigger" && surface !== "atendimento" && (
+      <div className={surface === "fluxo" ? "space-y-4" : "space-y-4 border-t border-border pt-4"}>
+        {type === "trigger" && surface === "fluxo" && (
+          <EntradaDoFluxo settings={settings} onSettingsChange={onSettingsChange} />
+        )}
+        {type === "trigger" && surface !== "atendimento" && surface !== "fluxo" && (
           <div className="space-y-4">
             <p className="text-sm text-text-muted">
               {t(
@@ -158,6 +190,61 @@ export function NodeConfigPanel({
             onChange={(config) => onChange({ config })}
           />
         )}
+        {/* Fork jhoow — blocos de FLUXOS (os formulários moram em app/app/fluxos/_blocos). */}
+        {type === "mensagem" && (
+          <MensagemForm
+            config={node.data.config as ConfigOf<"mensagem">}
+            onChange={(config) => onChange({ config })}
+            {...(flowId !== undefined ? { flowId } : {})}
+          />
+        )}
+        {type === "etiquetas" && (
+          <EtiquetasForm config={node.data.config as ConfigOf<"etiquetas">} onChange={(config) => onChange({ config })} />
+        )}
+        {type === "aguardar_resposta" && (
+          <AguardarRespostaForm
+            config={node.data.config as ConfigOf<"aguardar_resposta">}
+            onChange={(config) => onChange({ config })}
+          />
+        )}
+        {type === "intervalo" && (
+          <IntervaloForm config={node.data.config as ConfigOf<"intervalo">} onChange={(config) => onChange({ config })} />
+        )}
+        {type === "condicional" && (
+          <CondicionalForm config={node.data.config as ConfigOf<"condicional">} onChange={(config) => onChange({ config })} />
+        )}
+        {type === "distribuidor" && (
+          <DistribuidorForm config={node.data.config as ConfigOf<"distribuidor">} onChange={(config) => onChange({ config })} />
+        )}
+        {type === "conexao_fluxo" && (
+          <ConexaoFluxoForm
+            config={node.data.config as ConfigOf<"conexao_fluxo">}
+            onChange={(config) => onChange({ config })}
+            {...(flowId !== undefined ? { flowId } : {})}
+          />
+        )}
+        {type === "kanban" && (
+          <KanbanForm config={node.data.config as ConfigOf<"kanban">} onChange={(config) => onChange({ config })} />
+        )}
+        {type === "notificacao" && (
+          <NotificacaoForm config={node.data.config as ConfigOf<"notificacao">} onChange={(config) => onChange({ config })} />
+        )}
+        {type === "pixel" && (
+          <PixelForm config={node.data.config as ConfigOf<"pixel">} onChange={(config) => onChange({ config })} />
+        )}
+        {type === "bloco_ia" && (
+          <BlocoIaForm config={node.data.config as ConfigOf<"bloco_ia">} onChange={(config) => onChange({ config })} />
+        )}
+        {/* #2065 — os dois nós de ação que não falam com o cliente. */}
+        {type === "move_lead" && (
+          <MoveLeadForm config={node.data.config as ConfigOf<"move_lead">} onChange={(config) => onChange({ config })} />
+        )}
+        {type === "edit_lead_tag" && (
+          <EditLeadTagForm
+            config={node.data.config as ConfigOf<"edit_lead_tag">}
+            onChange={(config) => onChange({ config })}
+          />
+        )}
         {type === "end" && (
           <EndForm
             config={node.data.config as ConfigOf<"end">}
@@ -168,6 +255,7 @@ export function NodeConfigPanel({
         )}
       </div>
 
+      {!naModal && (
       <div className="mt-auto border-t border-border pt-4">
         <Button
           type="button"
@@ -181,6 +269,7 @@ export function NodeConfigPanel({
           {t("Excluir nó")}
         </Button>
       </div>
+      )}
     </div>
   );
 }
@@ -258,6 +347,22 @@ function ConfiguracoesDoRoteiro({
   const atual = { max_tentativas_pergunta: settings?.max_tentativas_pergunta ?? 3, ...settings };
   const [gatilhos, setGatilhos] = useState((settings?.gatilhos ?? []).join(", "));
   const gravar = (patch: Partial<NonNullable<FlowGraph["settings"]>>) => onSettingsChange?.({ ...atual, ...patch });
+  // #2630 — AS ETAPAS DO FUNIL. O seletor mostra «Etapa · Funil» (o funil viaja
+  // no texto do item, como no gatilho de etapa: dois funis já bastam para quatro
+  // etapas homônimas) e o `settings` guarda o id da etapa, que é o que
+  // `crm_leads.stage_id` traz no turno.
+  const { etapas, carregando: etapasCarregando, falhou: etapasFalhou } = useEtapasDeGatilho();
+  const funis = etapasPorFunil(etapas);
+  const etapasDoFunil = settings?.etapas_do_funil ?? [];
+  const alternarEtapa = (stageId: string) => {
+    const lista = etapasDoFunil.includes(stageId)
+      ? etapasDoFunil.filter((id) => id !== stageId)
+      : [...etapasDoFunil, stageId].slice(0, 30);
+    const { etapas_do_funil: _anterior, ...resto } = atual;
+    // Sem nenhuma etapa marcada a chave SAI do grafo (volta ao padrão), como as
+    // palavras-gatilho: guardar `[]` só encheria o jsonb de nada.
+    onSettingsChange?.(lista.length > 0 ? { ...resto, etapas_do_funil: lista } : resto);
+  };
   const inteiro = (valor: string, min: number, max: number): number | null => {
     const n = Number(valor);
     return Number.isInteger(n) && n >= min && n <= max ? n : null;
@@ -267,7 +372,7 @@ function ConfiguracoesDoRoteiro({
     <div className="space-y-4" data-testid="configuracoes-do-roteiro">
       <p className="text-sm text-text-muted">
         {t(
-          "O roteiro começa quando a mensagem do cliente tem uma palavra-gatilho, ou quando um roteador de intenção o aponta.",
+          "O roteiro começa quando a mensagem do cliente tem uma palavra-gatilho, quando um roteador de intenção o aponta ou quando o card do cliente entra numa etapa escolhida abaixo — uma vez por entrada na etapa, e não enquanto ele fica lá.",
         )}
       </p>
       <div className="space-y-2">
@@ -286,6 +391,42 @@ function ConfiguracoesDoRoteiro({
             onSettingsChange?.(lista.length > 0 ? { ...resto, gatilhos: lista } : resto);
           }}
         />
+      </div>
+      <div className="space-y-2 border-t border-border pt-4" data-testid="roteiro-etapas-do-funil">
+        <p className="text-sm font-medium text-text">{t("Começar quando o card entrar na etapa")}</p>
+        <p className="text-xs text-text-muted">
+          {t(
+            "Marque as etapas do funil em que este roteiro deve começar sozinho. Vale do próximo turno da conversa daquele cliente em diante — não é instantâneo. Os cards que já estão na etapa quando você a marca também começam, na próxima mensagem do cliente.",
+          )}
+        </p>
+        {etapasCarregando && <p className="text-xs text-text-muted">{t("Carregando etapas…")}</p>}
+        {!etapasCarregando && etapasFalhou && (
+          <p role="alert" className="text-xs text-error-fg">
+            {t("Não foi possível carregar as etapas do funil. Recarregue a página para escolher uma etapa.")}
+          </p>
+        )}
+        {!etapasCarregando && !etapasFalhou && etapas.length === 0 && (
+          <p className="text-xs text-text-muted">
+            {t("Nenhuma etapa ativa encontrada — crie o funil antes de escolher uma etapa aqui.")}
+          </p>
+        )}
+        <div className="max-h-56 space-y-3 overflow-y-auto">
+          {funis.map((funil) => (
+            <div key={funil.id} className="space-y-1">
+              <p className="text-xs font-medium text-text">{funil.nome}</p>
+              {funil.etapas.map((etapa) => (
+                <label key={etapa.stageId} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={etapasDoFunil.includes(etapa.stageId)}
+                    onChange={() => alternarEtapa(etapa.stageId)}
+                  />
+                  {nomeDaEtapa(etapa)}
+                </label>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
       <div className="space-y-2">
         <Label htmlFor="roteiro-tentativas">{t("Máximo de tentativas por pergunta")}</Label>

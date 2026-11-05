@@ -174,6 +174,29 @@ describe("PATCH /api/v1/pipelines/[id]", () => {
     expect((await PATCH(reqPatch({}), ctx())).status).toBe(422);
   });
 
+  /**
+   * OS ATALHOS DO CARD NÃO ENTRAM POR AQUI (issue #3487) — e a recusa é 422.
+   *
+   * A porta de escrita do `settings` do funil é UMA (`updatePipelineConfig`,
+   * validada por `pipelineConfigPatchSchema`, que recusa `javascript:`). Esta
+   * rota é `.strict()` e não conhece a chave: um cliente que tente gravar o
+   * atalho por aqui recebe 422 e **nenhuma escrita** — o que fecha a segunda
+   * porta em vez de abrir uma paralela, que é como dois caminhos divergem.
+   */
+  it("tentar gravar `atalhos` por esta rota → 422 e nenhuma escrita", async () => {
+    authOk();
+    const db = makeDb({ pipelines: doisFunis() });
+    const { PATCH } = await import("./route");
+    const res = await PATCH(
+      reqPatch({
+        atalhos: [{ rotulo: "Armadilha", icone: "link", url: "javascript:alert(1)" }],
+      }),
+      ctx(),
+    );
+    expect(res.status).toBe(422);
+    expect(db.escritas).toEqual([]);
+  });
+
   it("emite audit pipeline.updated", async () => {
     authOk();
     makeDb({ pipelines: doisFunis() });
@@ -182,6 +205,73 @@ describe("PATCH /api/v1/pipelines/[id]", () => {
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({ action: "pipeline.updated", resourceId: OUTRO }),
     );
+  });
+
+  /** Dois funis, o comum arquivado — o estado em que a gaveta do arquivo opera. */
+  const comArquivado = () => [
+    doisFunis()[0]!,
+    { ...doisFunis()[1]!, is_archived: true },
+  ];
+
+  /**
+   * #979 — a porta de volta. O funil arquivado só aceita ISTO, e sozinho no
+   * pedido: é a única escrita que o `bodySchema` novo libera num funil que
+   * sumiu da lista, e ela é o que o botão "Tirar do arquivo" manda.
+   */
+  it("is_archived: false sozinho → TIRA DO ARQUIVO e emite pipeline.unarchived", async () => {
+    authOk();
+    const db = makeDb({ pipelines: comArquivado() });
+    const { PATCH } = await import("./route");
+    const res = await PATCH(reqPatch({ is_archived: false }), ctx());
+
+    expect(res.status).toBe(200);
+    expect(db.escritas).toHaveLength(1);
+    expect(db.escritas[0]).toMatchObject({ tipo: "update", patch: { is_archived: false } });
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: "pipeline.unarchived" }));
+
+    // A resposta traz as DUAS listas: o funil voltou para a de trabalho e sumiu
+    // do arquivo — sem isso a gaveta mostraria o estado anterior.
+    const body = (await res.json()).data as {
+      pipelines: Array<{ id: string }>;
+      arquivados: Array<{ id: string }>;
+    };
+    expect(body.pipelines.map((f) => f.id)).toContain(OUTRO);
+    expect(body.arquivados.map((f) => f.id)).not.toContain(OUTRO);
+  });
+
+  it("is_archived: true → 422 mandando usar a opção Arquivar, e nenhuma escrita", async () => {
+    // Arquivar tem porta própria porque conta as dependências antes; o PATCH
+    // não conta nenhuma, e aceitar isto daria a volta em todas elas.
+    authOk();
+    const db = makeDb({ pipelines: doisFunis() });
+    const { PATCH } = await import("./route");
+    const res = await PATCH(reqPatch({ is_archived: true }), ctx());
+    expect(res.status).toBe(422);
+    expect((await res.json()).error.message).toMatch(/Arquivar/i);
+    expect(db.escritas).toEqual([]);
+  });
+
+  it("desarquivar MISTURADO com outra mudança → 409, e nenhuma escrita", async () => {
+    // Quem montou pedido misto está com tela antiga: nome e posição seriam
+    // validados contra a lista de ATIVOS, da qual o alvo ainda não saiu.
+    authOk();
+    const db = makeDb({ pipelines: comArquivado() });
+    const { PATCH } = await import("./route");
+    const res = await PATCH(reqPatch({ is_archived: false, name: "Consultório" }), ctx());
+    expect(res.status).toBe(409);
+    expect(db.escritas).toEqual([]);
+  });
+
+  it("is_archived: false em funil que JÁ ESTÁ ATIVO → nenhum write e nenhum audit", async () => {
+    // Pedido já atendido: uma aba velha mandando "tire do arquivo" num funil
+    // que nunca saiu da lista não pode virar escrita nem linha de auditoria.
+    authOk();
+    const db = makeDb({ pipelines: doisFunis() });
+    const { PATCH } = await import("./route");
+    const res = await PATCH(reqPatch({ is_archived: false }), ctx());
+    expect(res.status).toBe(200);
+    expect(db.escritas).toEqual([]);
+    expect(audit).not.toHaveBeenCalled();
   });
 });
 
@@ -323,6 +413,47 @@ describe("DELETE /api/v1/pipelines/[id]", () => {
     expect((await DELETE(reqDelete(), ctx())).status).toBe(404);
     expect(db.escritas).toEqual([]);
   });
+
+  /**
+   * #979 — a saída da gaveta do arquivo. O `?definitivo=1` já existia e funcionava;
+   * o que faltava era ele ser ALCANÇÁVEL para um funil que está no arquivo, que é
+   * exatamente o estado em que ele nunca esteve no escopo de teste.
+   */
+  it("?definitivo=1 num funil ARQUIVADO sem negócios → apaga e emite pipeline.deleted", async () => {
+    authOk();
+    const db = makeDb({
+      pipelines: [doisFunis()[0]!, { ...doisFunis()[1]!, is_archived: true }],
+    });
+    const { DELETE } = await import("./route");
+    const res = await DELETE(reqDelete(OUTRO, "?definitivo=1"), ctx());
+
+    expect(res.status).toBe(200);
+    expect(db.escritas[0]).toMatchObject({ tipo: "delete", table: "crm_pipelines" });
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: "pipeline.deleted" }));
+  });
+
+  /**
+   * #979 — a guarda NÃO afrouxa (nega, e nenhuma escrita sai), mas o CONSELHO
+   * precisa servir a quem clicou do lugar certo. O botão que provocou esta
+   * recusa está dentro da gaveta do arquivo: mandar "arquive em vez de excluir"
+   * para um funil que já está arquivado é o beco sem saída da issue.
+   */
+  it("?definitivo=1 num funil ARQUIVADO com negócios → 422 que não manda arquivar de novo", async () => {
+    authOk();
+    const db = makeDb({
+      pipelines: [doisFunis()[0]!, { ...doisFunis()[1]!, is_archived: true }],
+      leads: [negocio("l1", "e1", { pipeline_id: OUTRO })],
+    });
+    const { DELETE } = await import("./route");
+    const res = await DELETE(reqDelete(OUTRO, "?definitivo=1"), ctx());
+
+    expect(res.status).toBe(422);
+    const msg = (await res.json()).error.message as string;
+    expect(msg).toMatch(/1 negócio/);
+    expect(msg).toMatch(/já está no arquivo/i);
+    expect(msg).not.toMatch(/Arquive em vez de excluir/);
+    expect(db.escritas).toEqual([]);
+  });
 });
 
 // Este teste isola o handler; autoridade de suporte é exercitada na suíte própria.
@@ -331,3 +462,70 @@ vi.mock("@/lib/impersonate/support", async (importOriginal) => ({
   requireSupportWrite: vi.fn(async () => null),
   authenticatedSessionId: vi.fn(async () => "f2200000-0000-4000-8000-000000000099"),
 }));
+
+describe("o funil principal e a cor (Funis no modelo Kommo, Fase C)", () => {
+  const CRM_A = "77777777-7777-4777-8777-777777777777";
+  const CRM_B = "88888888-8888-4888-8888-888888888888";
+  const comPrincipal = () => [
+    funilRow({ id: PIPE, name: "Pedidos", slug: "pedidos", position: 1000, is_default: true, crm_id: CRM_A }),
+    funilRow({ id: OUTRO, name: "Social Seller", slug: "social", position: 2000, crm_id: CRM_B, is_primary: true }),
+    funilRow({ id: TERCEIRO, name: "SDR", slug: "sdr", position: 3000, crm_id: CRM_B }),
+  ];
+  const crms = () => [
+    { id: CRM_A, organization_id: ORG_ID, name: "PADRÃO", slug: "padrao", is_default: true, archived_at: null },
+    { id: CRM_B, organization_id: ORG_ID, name: "Apex", slug: "apex", is_default: false, archived_at: null },
+  ];
+
+  it("arquivar o principal → 422 com a frase da regra, e nenhuma escrita", async () => {
+    authOk();
+    const db = makeDb({ pipelines: comPrincipal(), crms: crms() });
+    const { DELETE } = await import("./route");
+    const res = await DELETE(reqDelete(OUTRO), ctx(OUTRO));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: { message: string } }).error.message).toContain("funil principal");
+    expect(db.escritas).toEqual([]);
+  });
+
+  it("excluir de vez o principal → 422, e nenhuma escrita", async () => {
+    authOk();
+    const db = makeDb({ pipelines: comPrincipal(), crms: crms() });
+    const { DELETE } = await import("./route");
+    expect((await DELETE(reqDelete(OUTRO, "?definitivo=1"), ctx(OUTRO))).status).toBe(422);
+    expect(db.escritas).toEqual([]);
+  });
+
+  it("o funil adicional arquiva normalmente", async () => {
+    authOk();
+    const db = makeDb({ pipelines: comPrincipal(), crms: crms() });
+    const { DELETE } = await import("./route");
+    expect((await DELETE(reqDelete(TERCEIRO), ctx(TERCEIRO))).status).toBe(200);
+    expect(db.escritas[0]?.patch).toEqual({ is_archived: true });
+  });
+
+  it("levar o principal para outro CRM → 409, e nenhuma escrita", async () => {
+    authOk();
+    const db = makeDb({ pipelines: comPrincipal(), crms: crms() });
+    const { PATCH } = await import("./route");
+    const res = await PATCH(reqPatch({ crm_id: CRM_A }, OUTRO), ctx(OUTRO));
+    expect(res.status).toBe(409);
+    expect(db.escritas).toEqual([]);
+  });
+
+  it("o principal se renomeia e troca de cor", async () => {
+    authOk();
+    const db = makeDb({ pipelines: comPrincipal(), crms: crms() });
+    const { PATCH } = await import("./route");
+    const res = await PATCH(reqPatch({ name: "Funil de vendas", color: "#a4c8fa" }, OUTRO), ctx(OUTRO));
+    expect(res.status).toBe(200);
+    expect(db.escritas[0]?.patch).toEqual({ name: "Funil de vendas", color: "#a4c8fa" });
+  });
+
+  it("a resposta traz is_primary e color", async () => {
+    authOk();
+    makeDb({ pipelines: comPrincipal(), crms: crms() });
+    const { PATCH } = await import("./route");
+    const res = await PATCH(reqPatch({ color: null }, TERCEIRO), ctx(TERCEIRO));
+    const body = (await res.json()) as { data: { pipelines: Array<{ id: string; is_primary: boolean; color: string | null }> } };
+    expect(body.data.pipelines.find((f) => f.id === OUTRO)).toMatchObject({ is_primary: true, color: null });
+  });
+});

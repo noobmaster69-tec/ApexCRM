@@ -5,7 +5,7 @@
  *
  * `tests/unit/funil-arquivado-caminho-de-volta.test.ts` prova a REGRA contra um
  * dublê de banco: `corpo()` separa as duas listas e o PATCH aceita `is_archived:
- * false` sozinho. Ele não renderiza uma linha de `app/app/kanban/_client.tsx` —
+ * false` sozinho. Ele não renderiza uma linha de `app/app/crms/[slug]/_client.tsx` —
  * e a queixa que abriu a issue é sobre a TELA: *"tenho funis arquivados que não
  * consigo deletar"*. Uma rota que aceita o pedido e uma tela que não tem botão
  * para fazê-lo somam zero para quem usa.
@@ -104,15 +104,18 @@ const sidebar = (page: Page) => page.getByRole("navigation", { name: "Navegaçã
 /**
  * O caminho do leigo até a tela: o item do menu, não a URL digitada.
  *
- * Quem tem um funil arquivado não sabe que a tela dele mora em `/app/kanban` —
- * ele clica em "Funis". `navegacao.spec.ts` prende que a porta existe no grupo
+ * Quem tem um funil arquivado não sabe que a tela dele mora em `/app/crms/padrao` —
+ * ele clica em "CRMs" e abre o CRM. `navegacao.spec.ts` prende que a porta existe no grupo
  * certo; percorrê-la aqui é o que garante que a gaveta seja alcançável pelo
  * mesmo gesto, e não só por quem já sabe o endereço.
  */
 async function irParaFunis(page: Page): Promise<void> {
-  await sidebar(page).getByRole("link", { name: "Funis", exact: true }).click();
-  await page.waitForURL(/\/app\/kanban/);
-  await expect(page.getByRole("heading", { name: "Funis", level: 1 })).toBeVisible();
+  // Desde os CRMs (migration 9004): menu "CRMs" → card do CRM padrão → "Abrir CRM".
+  await sidebar(page).getByRole("link", { name: "CRMs", exact: true }).click();
+  await page.waitForURL(/\/app\/crms$/);
+  await page.getByTestId("abrir-crm-padrao").click();
+  await page.waitForURL(/\/app\/crms\/padrao/);
+  await expect(page.getByRole("heading", { name: "PADRÃO", level: 1 })).toBeVisible();
 }
 
 /** A linha do funil VIVO, pelo nome — o mesmo locator de `pipelines-gestao`. */
@@ -176,8 +179,19 @@ async function destinosOferecidos(page: Page): Promise<string[]> {
   await expect(opcoes.first()).toBeVisible();
   const nomes = await opcoes.allInnerTexts();
   await page.keyboard.press("Escape"); // fecha o seletor
+  // ⚠️ O 2º Escape só pode sair depois que o seletor SAIU DO DOM. Com a animação
+  // de saída do painel (`.ds-painel[data-state="closed"]`), o Radix segura o
+  // listbox montado até o `animationend` — e enquanto ele está montado é a camada
+  // mais alta, que é a ÚNICA que escuta Escape. Um Escape dado nessa janela é
+  // consumido pelo seletor já fechado e o diálogo fica aberto (trace do #2411).
+  await expect(page.locator('[role="listbox"]')).toHaveCount(0);
   await page.keyboard.press("Escape"); // fecha o diálogo
-  await expect(dialogo).toBeHidden();
+  // `includeHidden` + contagem, nunca `toBeHidden()`: com o seletor aberto o Radix
+  // põe `aria-hidden` no diálogo, `getByRole` deixa de achá-lo e `toBeHidden()`
+  // passa VAZIO com o diálogo ainda aberto na tela.
+  await expect(
+    page.getByRole("dialog", { name: "Importar leads de uma planilha", includeHidden: true }),
+  ).toHaveCount(0);
   return nomes.map((n) => n.trim());
 }
 
