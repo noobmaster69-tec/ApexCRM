@@ -89,6 +89,12 @@ async function login(page: Page, email: string, senha: string): Promise<void> {
   await page.waitForURL(/\/app/, { timeout: 60_000 });
 }
 
+/**
+ * A base legal padrão da campanha é consentimento: sem `consent.marketing.granted_at`
+ * o contato sai como "sem consentimento" e a contagem nunca chega ao esperado.
+ */
+const CONSENTIU = { marketing: { granted_at: "2026-01-01T00:00:00.000Z" } };
+
 /** Assistente de 5 passos: o número sai de cartões (até 4) ou do seletor (mais de 4). */
 async function escolherCanal(page: Page, id: string): Promise<void> {
   const cartao = page.getByTestId(`canal-${id}`);
@@ -188,6 +194,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
         display_name: `Maria José E2E ${SUFIXO}`,
         phone_number: `+55119${SUFIXO}1`,
         tags: [ETIQUETA],
+        consent: CONSENTIU,
       },
       {
         // Nome que é só telefone: "Olá +55…!" é pior do que não mandar.
@@ -195,6 +202,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
         display_name: `+55 11 9${SUFIXO}2`,
         phone_number: `+55119${SUFIXO}2`,
         tags: [ETIQUETA],
+        consent: CONSENTIU,
       },
     ]);
     if (erroContatos) throw new Error(`contatos: ${erroContatos.message}`);
@@ -205,6 +213,7 @@ test.describe("Campanhas — número oficial manda modelo aprovado", () => {
         display_name: `${nome} E2E ${SUFIXO}`,
         phone_number: `+55118${SUFIXO}${i}`,
         tags: [ETIQUETA_RAPIDA],
+        consent: CONSENTIU,
       })),
     );
     if (erroRapida) throw new Error(`contatos da rápida: ${erroRapida.message}`);
@@ -471,7 +480,7 @@ test("campanha de texto prepara a reserva e o dado preenchido pelo mesmo fluxo d
     expect(sessao.error).toBeNull();
     canal = sessao.data!.id as string;
     for (const [i, pessoa] of ["Carla Souza", null].entries()) {
-      const contato = await db.from("contacts").insert({ organization_id: cc.org_id, name: pessoa, display_name: null, phone_number: `+551197${Date.now().toString().slice(-6)}${i}`, tags: [etiqueta] }).select("id").single();
+      const contato = await db.from("contacts").insert({ organization_id: cc.org_id, name: pessoa, display_name: null, phone_number: `+551197${Date.now().toString().slice(-6)}${i}`, tags: [etiqueta], consent: CONSENTIU }).select("id").single();
       expect(contato.error).toBeNull();
       contatos.push(contato.data!.id as string);
     }

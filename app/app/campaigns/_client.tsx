@@ -58,6 +58,7 @@ import {
   PERIODOS_PRONTOS,
   type PeriodoPronto,
 } from "@/lib/campanhas/resumo";
+import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 
 import { ICONE_DO_TIPO, ROTULO_DO_TIPO, textoDoPercentual } from "./_lista/comum";
 import { nomeDaLista, TabelaDeCampanhas, type ItemDoMenu } from "./_lista/TabelaDeCampanhas";
@@ -608,7 +609,7 @@ async function exportarCsv(c: CampanhaDoResumo, t: (s: string) => string) {
   const cabecalho = ["contato", "situacao", "enviada_em", "entregue_em", "lida_em", "respondeu_em", "motivo"];
   const corpo = linhas.map((l) =>
     [
-      l.contacts?.display_name ?? l.contacts?.name ?? l.contact_id,
+      l.contacts ? rotuloDoContato(l.contacts) : l.contact_id,
       l.status,
       l.sent_at,
       l.delivered_at,

@@ -160,7 +160,6 @@ function Variaveis({ onInserir }: { onInserir: (chave: string) => void }) {
   const daEmpresa = (org.data ?? []).filter((x) => !campoDoCatalogo(x.key));
   const doContato = CAMPOS_DO_CONTATO.filter((c) => c.origem === "padrao");
   const total = VARIAVEIS_DO_SISTEMA.length + doContato.length + daEmpresa.length;
-  const descricao = (chave: string) => VARIAVEIS_DO_SISTEMA.find((x) => x.chave === chave)?.descricao;
   const mini = (chave: string, dica: string) => (
     <button
       key={chave}
@@ -185,13 +184,13 @@ function Variaveis({ onInserir }: { onInserir: (chave: string) => void }) {
       </div>
       <div className="cw-etapas">
         {MAIS_USADAS.map((chave) => {
-          const d = descricao(chave);
+          const x = VARIAVEIS_DO_SISTEMA.find((y) => y.chave === chave);
           return (
             <button
               key={chave}
               type="button"
               className="cw-var-chip"
-              title={d ? t(d) : undefined}
+              title={x ? t(x.descricao) : undefined}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => onInserir(chave)}
             >
